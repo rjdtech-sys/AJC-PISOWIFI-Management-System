@@ -30,6 +30,7 @@ const PPPoEServer: React.FC = () => {
   const [newPool, setNewPool] = useState<Partial<PPPoEPool>>({ name: '', ip_pool_start: '', ip_pool_end: '', description: '' });
   const [editingPoolId, setEditingPoolId] = useState<number | null>(null);
   const [selectedPoolId, setSelectedPoolId] = useState<number | null>(null);
+  const [lastCreatedAccountNumber, setLastCreatedAccountNumber] = useState<string | null>(null);
 
   useEffect(() => { 
     loadData();
@@ -133,14 +134,19 @@ const PPPoEServer: React.FC = () => {
     
     try {
       setLoading(true);
-      await apiClient.addPPPoEUser(
+      const result = await apiClient.addPPPoEUser(
         newPppoeUser.username, 
         newPppoeUser.password, 
         newPppoeUser.billing_profile_id ? parseInt(newPppoeUser.billing_profile_id) : undefined
       );
+      if (result?.account_number) {
+        setLastCreatedAccountNumber(result.account_number);
+      } else {
+        setLastCreatedAccountNumber(null);
+      }
       setNewPppoeUser({ username: '', password: '', billing_profile_id: '' });
       await loadData();
-      alert(`User ${newPppoeUser.username} added!`);
+      alert(`User ${newPppoeUser.username} added!${result?.account_number ? ` Account No: ${result.account_number}` : ''}`);
     } catch (e: any) {
       alert(`Failed to add user: ${e.message}`);
     } finally {
@@ -726,6 +732,11 @@ const PPPoEServer: React.FC = () => {
                 >
                   Create User
                 </button>
+                {lastCreatedAccountNumber && (
+                  <div className="text-[8px] text-slate-500 font-mono">
+                    Last Account No: <span className="font-bold text-slate-700">{lastCreatedAccountNumber}</span>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -745,6 +756,11 @@ const PPPoEServer: React.FC = () => {
                           <p className="text-[7px] text-slate-400 uppercase font-black tracking-tighter">
                             ID: {user.id} • {user.created_at ? new Date(user.created_at).toLocaleDateString() : 'NO DATE'}
                           </p>
+                          {user.account_number && (
+                            <span className="text-[6px] bg-slate-900 text-white px-1 rounded font-mono">
+                              {user.account_number}
+                            </span>
+                          )}
                           {user.billing_profile_id && (
                             <span className="text-[6px] bg-blue-100 text-blue-600 px-1 rounded font-black">
                               {pppoeBillingProfiles.find(bp => bp.id === user.billing_profile_id)?.name || 'BILLED'}

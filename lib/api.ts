@@ -497,7 +497,11 @@ export const apiClient = {
     return handleResponse(res);
   },
 
-  async addPPPoEUser(username: string, password: string, billing_profile_id?: number): Promise<{ success: boolean }> {
+  async addPPPoEUser(
+    username: string,
+    password: string,
+    billing_profile_id?: number
+  ): Promise<{ success: boolean; id?: number; account_number?: string }> {
     const res = await fetch(`${API_BASE}/network/pppoe/users`, {
       method: 'POST',
       headers: getHeaders(),

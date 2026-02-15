@@ -110,6 +110,7 @@ export interface PPPoEServerConfig {
 
 export interface PPPoEUser {
   id?: number;
+  account_number?: string;
   username: string;
   password: string;
   enabled: number;
