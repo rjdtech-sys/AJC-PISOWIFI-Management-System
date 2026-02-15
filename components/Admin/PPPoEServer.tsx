@@ -29,6 +29,7 @@ const PPPoEServer: React.FC = () => {
   const [pppoePools, setPppoePools] = useState<PPPoEPool[]>([]);
   const [newPool, setNewPool] = useState<Partial<PPPoEPool>>({ name: '', ip_pool_start: '', ip_pool_end: '', description: '' });
   const [editingPoolId, setEditingPoolId] = useState<number | null>(null);
+  const [selectedPoolId, setSelectedPoolId] = useState<number | null>(null);
 
   useEffect(() => { 
     loadData();
@@ -374,6 +375,39 @@ const PPPoEServer: React.FC = () => {
                       />
                     </div>
                   </div>
+
+                <div>
+                  <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Use Saved Pool (Optional)</label>
+                  <select
+                    value={selectedPoolId !== null ? String(selectedPoolId) : ''}
+                    onChange={e => {
+                      const value = e.target.value;
+                      if (!value) {
+                        setSelectedPoolId(null);
+                        return;
+                      }
+                      const id = parseInt(value, 10);
+                      const pool = pppoePools.find(p => p.id === id);
+                      setSelectedPoolId(id);
+                      if (pool) {
+                        setPppoeServer({
+                          ...pppoeServer,
+                          ip_pool_start: pool.ip_pool_start,
+                          ip_pool_end: pool.ip_pool_end
+                        });
+                      }
+                    }}
+                    disabled={pppoeStatus?.running || pppoePools.length === 0}
+                    className="w-full bg-white border border-slate-200 rounded-md px-2 py-1.5 text-[10px] font-bold disabled:opacity-50 focus:ring-1 focus:ring-slate-900 outline-none"
+                  >
+                    <option value="">Manual IP range...</option>
+                    {pppoePools.map(pool => (
+                      <option key={pool.id} value={pool.id}>
+                        {pool.name} ({pool.ip_pool_start} - {pool.ip_pool_end})
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 </div>
 
                 <div className="space-y-3">
