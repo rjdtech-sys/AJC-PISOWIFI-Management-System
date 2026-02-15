@@ -31,6 +31,7 @@ const PPPoEServer: React.FC = () => {
   const [editingPoolId, setEditingPoolId] = useState<number | null>(null);
   const [selectedPoolId, setSelectedPoolId] = useState<number | null>(null);
   const [lastCreatedAccountNumber, setLastCreatedAccountNumber] = useState<string | null>(null);
+  const [editingUser, setEditingUser] = useState<PPPoEUser | null>(null);
 
   useEffect(() => { 
     loadData();
@@ -166,6 +167,46 @@ const PPPoEServer: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const startEditPPPoEUser = (user: PPPoEUser) => {
+    setEditingUser({
+      ...user,
+      password: ''
+    });
+  };
+
+  const updateEditingUserField = (field: keyof PPPoEUser, value: any) => {
+    if (!editingUser) return;
+    setEditingUser({ ...editingUser, [field]: value });
+  };
+
+  const savePPPoEUserEditHandler = async () => {
+    if (!editingUser || !editingUser.id) return;
+    try {
+      setLoading(true);
+      const updates: Partial<PPPoEUser> = {
+        username: editingUser.username,
+        enabled: editingUser.enabled
+      };
+      if (editingUser.password && editingUser.password.trim()) {
+        updates.password = editingUser.password;
+      }
+      if (typeof editingUser.billing_profile_id === 'number') {
+        updates.billing_profile_id = editingUser.billing_profile_id;
+      }
+      await apiClient.updatePPPoEUser(editingUser.id, updates);
+      setEditingUser(null);
+      await loadData();
+    } catch (e: any) {
+      alert(`Failed to update user: ${e.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const cancelPPPoEUserEdit = () => {
+    setEditingUser(null);
   };
 
   const addProfileHandler = async () => {
@@ -739,53 +780,128 @@ const PPPoEServer: React.FC = () => {
                 )}
               </div>
             </div>
-
-            <div className="bg-white border border-slate-200 rounded-lg overflow-hidden flex flex-col flex-grow min-h-[200px]">
-              <div className="px-3 py-2 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
-                <h4 className="text-[9px] font-black text-slate-900 uppercase tracking-widest">PPPoE Accounts</h4>
-                <span className="text-[8px] font-bold text-slate-400 bg-white px-1.5 py-0.5 rounded border border-slate-200">{pppoeUsers.length}</span>
-              </div>
-              <div className="overflow-y-auto max-h-[250px] divide-y divide-slate-100">
-                {pppoeUsers.length > 0 ? pppoeUsers.map(user => (
-                  <div key={user.id} className="flex items-center justify-between px-3 py-2 hover:bg-slate-50 transition-all group">
-                    <div className="flex items-center gap-2">
-                      <div className={`w-1.5 h-1.5 rounded-full ${user.enabled ? 'bg-green-500' : 'bg-slate-300'}`}></div>
-                      <div>
-                        <p className="text-[10px] font-bold text-slate-900 leading-tight">{user.username}</p>
-                        <div className="flex items-center gap-1.5">
-                          <p className="text-[7px] text-slate-400 uppercase font-black tracking-tighter">
-                            ID: {user.id} • {user.created_at ? new Date(user.created_at).toLocaleDateString() : 'NO DATE'}
-                          </p>
-                          {user.account_number && (
-                            <span className="text-[6px] bg-slate-900 text-white px-1 rounded font-mono">
-                              {user.account_number}
-                            </span>
-                          )}
-                          {user.billing_profile_id && (
-                            <span className="text-[6px] bg-blue-100 text-blue-600 px-1 rounded font-black">
-                              {pppoeBillingProfiles.find(bp => bp.id === user.billing_profile_id)?.name || 'BILLED'}
-                            </span>
-                          )}
-                        </div>
+          </div>
+        </div>
+        
+        <div className="px-4 pb-4">
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            <div className="px-3 py-2 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+              <h4 className="text-[10px] font-black text-slate-900 uppercase tracking-widest">PPPoE Accounts</h4>
+              <span className="text-[9px] font-bold text-slate-500 bg-white px-1.5 py-0.5 rounded border border-slate-200">{pppoeUsers.length}</span>
+            </div>
+            <div className="max-h-[260px] overflow-y-auto divide-y divide-slate-100">
+              {pppoeUsers.length > 0 ? pppoeUsers.map(user => (
+                <div key={user.id} className="px-3 py-2 flex items-center justify-between gap-3 hover:bg-slate-50 transition-all">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-2 h-2 rounded-full ${user.enabled ? 'bg-green-500' : 'bg-slate-300'}`}></div>
+                    <div className="flex flex-col">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[11px] font-black text-slate-900">{user.username}</span>
+                        {user.account_number && (
+                          <span className="text-[8px] bg-slate-900 text-white px-1.5 py-0.5 rounded font-mono">
+                            {user.account_number}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                        <span className="text-[8px] text-slate-500 font-bold uppercase tracking-tight">
+                          ID: {user.id} • {user.created_at ? new Date(user.created_at).toLocaleDateString() : 'NO DATE'}
+                        </span>
+                        {user.billing_profile_id && (
+                          <span className="text-[8px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded font-black">
+                            {pppoeBillingProfiles.find(bp => bp.id === user.billing_profile_id)?.name || 'BILLED'}
+                          </span>
+                        )}
                       </div>
                     </div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => startEditPPPoEUser(user)}
+                      className="px-2 py-1 text-[8px] font-black uppercase tracking-widest border border-slate-300 rounded text-slate-700 hover:bg-slate-50"
+                    >
+                      Edit
+                    </button>
                     <button 
                       onClick={() => deletePPPoEUserHandler(user.id!, user.username)} 
-                      className="text-red-500 hover:text-red-700 p-1 opacity-0 group-hover:opacity-100 transition-all"
-                      title="Delete User"
+                      className="px-2 py-1 text-[8px] font-black uppercase tracking-widest border border-red-200 text-red-600 rounded hover:bg-red-50"
                     >
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
+                      Delete
                     </button>
                   </div>
-                )) : (
-                  <div className="py-8 text-center">
-                    <p className="text-[9px] text-slate-400 uppercase font-black tracking-widest">No accounts</p>
-                  </div>
-                )}
-              </div>
+                </div>
+              )) : (
+                <div className="py-6 text-center">
+                  <p className="text-[9px] text-slate-400 uppercase font-black tracking-widest">No accounts</p>
+                </div>
+              )}
             </div>
+            {editingUser && (
+              <div className="border-t border-slate-200 bg-slate-50/60 px-3 py-3">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-2 items-end">
+                  <div className="space-y-1">
+                    <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Username</span>
+                    <input
+                      type="text"
+                      value={editingUser.username}
+                      onChange={e => updateEditingUserField('username', e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-[10px] font-bold outline-none"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">New Password</span>
+                    <input
+                      type="password"
+                      value={editingUser.password}
+                      onChange={e => updateEditingUserField('password', e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-[10px] font-mono outline-none"
+                      placeholder="Leave blank to keep"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Billing Profile</span>
+                    <select
+                      value={editingUser.billing_profile_id || ''}
+                      onChange={e => updateEditingUserField('billing_profile_id', e.target.value ? parseInt(e.target.value) : undefined)}
+                      className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-[10px] font-bold outline-none"
+                    >
+                      <option value="">None</option>
+                      {pppoeBillingProfiles.map(bp => (
+                        <option key={bp.id} value={bp.id}>{bp.name} (₱{bp.price})</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="flex items-center gap-1 text-[9px] text-slate-600">
+                      <input
+                        type="checkbox"
+                        checked={!!editingUser.enabled}
+                        onChange={e => updateEditingUserField('enabled', e.target.checked ? 1 : 0)}
+                        className="w-3 h-3"
+                      />
+                      <span className="font-bold uppercase tracking-widest">Enabled</span>
+                    </label>
+                    <div className="flex gap-1 mt-1">
+                      <button
+                        onClick={savePPPoEUserEditHandler}
+                        disabled={loading}
+                        className="flex-1 bg-slate-900 text-white py-1.5 rounded text-[8px] font-black uppercase tracking-widest hover:bg-black disabled:opacity-50"
+                      >
+                        Save
+                      </button>
+                      <button
+                        onClick={cancelPPPoEUserEdit}
+                        type="button"
+                        disabled={loading}
+                        className="flex-1 border border-slate-300 text-slate-700 py-1.5 rounded text-[8px] font-black uppercase tracking-widest hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
