@@ -122,205 +122,205 @@ const PortalEditor: React.FC = () => {
             </button>
           </div>
 
-          {mode === 'visual' ? (
+          {mode === 'visual' && (
             <div className="space-y-4">
-            {/* Text Content */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1.5">Portal Title</label>
-                <input 
-                  type="text" 
-                  value={config.title}
-                  onChange={(e) => handleChange('title', e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[10px] font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1.5">Subtitle / Slogan</label>
-                <input 
-                  type="text" 
-                  value={config.subtitle}
-                  onChange={(e) => handleChange('subtitle', e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[10px] font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all"
-                />
-              </div>
-            </div>
-
-            <div className="h-px bg-slate-100"></div>
-
-            {/* Colors */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div>
-                <label className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1.5">Primary</label>
-                <div className="flex items-center gap-2">
-                  <input 
-                    type="color" 
-                    value={config.primaryColor}
-                    onChange={(e) => handleChange('primaryColor', e.target.value)}
-                    className="h-7 w-7 rounded cursor-pointer border-0 p-0"
-                  />
-                  <span className="text-[9px] font-mono text-slate-500 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200">{config.primaryColor}</span>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1.5">Secondary</label>
-                <div className="flex items-center gap-2">
-                  <input 
-                    type="color" 
-                    value={config.secondaryColor}
-                    onChange={(e) => handleChange('secondaryColor', e.target.value)}
-                    className="h-7 w-7 rounded cursor-pointer border-0 p-0"
-                  />
-                  <span className="text-[9px] font-mono text-slate-500 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200">{config.secondaryColor}</span>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1.5">Background</label>
-                <div className="flex items-center gap-2">
-                  <input 
-                    type="color" 
-                    value={config.backgroundColor}
-                    onChange={(e) => handleChange('backgroundColor', e.target.value)}
-                    className="h-7 w-7 rounded cursor-pointer border-0 p-0"
-                  />
-                  <span className="text-[9px] font-mono text-slate-500 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200">{config.backgroundColor}</span>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1.5">Text</label>
-                <div className="flex items-center gap-2">
-                  <input 
-                    type="color" 
-                    value={config.textColor}
-                    onChange={(e) => handleChange('textColor', e.target.value)}
-                    className="h-7 w-7 rounded cursor-pointer border-0 p-0"
-                  />
-                  <span className="text-[9px] font-mono text-slate-500 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200">{config.textColor}</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="h-px bg-slate-100"></div>
-
-            {/* Audio Settings */}
-            <div>
-              <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
-                <span>🔊</span> Audio Assets
-              </h4>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {[
-                  { key: 'insertCoinAudio', label: 'Insert Coin', color: 'blue' },
-                  { key: 'coinDropAudio', label: 'Coin Pulse', color: 'purple' },
-                  { key: 'connectedAudio', label: 'Success', color: 'green' }
-                ].map((audio) => (
-                  <div key={audio.key} className="bg-slate-50 p-3 rounded-lg border border-slate-100">
-                    <label className="block text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1.5">{audio.label}</label>
-                    
-                    {config[audio.key as keyof PortalConfig] && (
-                      <div className="mb-2">
-                        <audio src={config[audio.key as keyof PortalConfig] as string} className="w-full h-6" />
-                        <button 
-                          onClick={() => handleChange(audio.key as keyof PortalConfig, '')}
-                          className="text-[7px] text-red-500 font-bold uppercase mt-1 hover:underline"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    )}
-                    
-                    <label className={`block w-full text-center py-1.5 rounded bg-${audio.color}-50 text-${audio.color}-700 text-[8px] font-black uppercase tracking-widest hover:bg-${audio.color}-100 transition-all cursor-pointer border border-${audio.color}-100`}>
-                      Upload
-                      <input 
-                        type="file" 
-                        accept="audio/*"
-                        onChange={(e) => handleFileUpload(e, audio.key as keyof PortalConfig)}
-                        className="hidden"
-                      />
-                    </label>
-                  </div>
-                ))}
-            </div>
-
-            <div className="h-px bg-slate-100"></div>
-
-            <div>
-              <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
-                <span>🛰️</span> MAC Synchronizer
-              </h4>
-
-              <div className="flex items-center justify-between mb-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <div className="text-[10px] font-black text-slate-700 uppercase tracking-widest">
-                    Status: {config.macSyncEnabled ? 'Enabled' : 'Disabled'}
-                  </div>
-                  <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">
-                    Controls how the portal links browser identity with device MAC.
-                  </p>
-                </div>
-                <button
-                  onClick={() => handleChange('macSyncEnabled', !config.macSyncEnabled)}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-                    config.macSyncEnabled ? 'bg-blue-600' : 'bg-slate-200'
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                      config.macSyncEnabled ? 'translate-x-6' : 'translate-x-1'
-                    }`}
+                  <label className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1.5">Portal Title</label>
+                  <input 
+                    type="text" 
+                    value={config.title}
+                    onChange={(e) => handleChange('title', e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[10px] font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all"
                   />
-                </button>
+                </div>
+                
+                <div>
+                  <label className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1.5">Subtitle / Slogan</label>
+                  <input 
+                    type="text" 
+                    value={config.subtitle}
+                    onChange={(e) => handleChange('subtitle', e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[10px] font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all"
+                  />
+                </div>
               </div>
 
-              <div className={`grid grid-cols-1 sm:grid-cols-2 gap-3 ${config.macSyncEnabled ? '' : 'opacity-50 pointer-events-none'}`}>
-                <button
-                  onClick={() => handleChange('macSyncMode', 'fingerprint_mac')}
-                  className={`p-3 rounded-xl border text-left transition-all ${
-                    config.macSyncMode === 'fingerprint_mac'
-                      ? 'border-blue-600 bg-blue-50 shadow-md shadow-blue-500/10'
-                      : 'border-slate-200 bg-white hover:border-slate-300'
-                  }`}
-                >
-                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-700 mb-1">
-                    Fingerprint + MAC
-                  </div>
-                  <p className="text-[9px] text-slate-400 font-bold leading-snug">
-                    Uses browser fingerprint together with device MAC for tighter binding.
-                  </p>
-                </button>
+              <div className="h-px bg-slate-100"></div>
 
-                <button
-                  onClick={() => handleChange('macSyncMode', 'session_token_mac')}
-                  className={`p-3 rounded-xl border text-left transition-all ${
-                    config.macSyncMode === 'session_token_mac'
-                      ? 'border-emerald-600 bg-emerald-50 shadow-md shadow-emerald-500/10'
-                      : 'border-slate-200 bg-white hover:border-slate-300'
-                  }`}
-                >
-                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-700 mb-1">
-                    Session ID + MAC
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div>
+                  <label className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1.5">Primary</label>
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="color" 
+                      value={config.primaryColor}
+                      onChange={(e) => handleChange('primaryColor', e.target.value)}
+                      className="h-7 w-7 rounded cursor-pointer border-0 p-0"
+                    />
+                    <span className="text-[9px] font-mono text-slate-500 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200">{config.primaryColor}</span>
                   </div>
-                  <p className="text-[9px] text-slate-400 font-bold leading-snug">
-                    Uses session token together with device MAC for session synchronization.
-                  </p>
-                </button>
+                </div>
+
+                <div>
+                  <label className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1.5">Secondary</label>
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="color" 
+                      value={config.secondaryColor}
+                      onChange={(e) => handleChange('secondaryColor', e.target.value)}
+                      className="h-7 w-7 rounded cursor-pointer border-0 p-0"
+                    />
+                    <span className="text-[9px] font-mono text-slate-500 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200">{config.secondaryColor}</span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1.5">Background</label>
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="color" 
+                      value={config.backgroundColor}
+                      onChange={(e) => handleChange('backgroundColor', e.target.value)}
+                      className="h-7 w-7 rounded cursor-pointer border-0 p-0"
+                    />
+                    <span className="text-[9px] font-mono text-slate-500 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200">{config.backgroundColor}</span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1.5">Text</label>
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="color" 
+                      value={config.textColor}
+                      onChange={(e) => handleChange('textColor', e.target.value)}
+                      className="h-7 w-7 rounded cursor-pointer border-0 p-0"
+                    />
+                    <span className="text-[9px] font-mono text-slate-500 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200">{config.textColor}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="h-px bg-slate-100"></div>
+
+              <div>
+                <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                  <span>🔊</span> Audio Assets
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {[
+                    { key: 'insertCoinAudio', label: 'Insert Coin', color: 'blue' },
+                    { key: 'coinDropAudio', label: 'Coin Pulse', color: 'purple' },
+                    { key: 'connectedAudio', label: 'Success', color: 'green' }
+                  ].map((audio) => (
+                    <div key={audio.key} className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                      <label className="block text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1.5">{audio.label}</label>
+                      
+                      {config[audio.key as keyof PortalConfig] && (
+                        <div className="mb-2">
+                          <audio src={config[audio.key as keyof PortalConfig] as string} className="w-full h-6" />
+                          <button 
+                            onClick={() => handleChange(audio.key as keyof PortalConfig, '')}
+                            className="text-[7px] text-red-500 font-bold uppercase mt-1 hover:underline"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      )}
+                      
+                      <label className={`block w-full text-center py-1.5 rounded bg-${audio.color}-50 text-${audio.color}-700 text-[8px] font-black uppercase tracking-widest hover:bg-${audio.color}-100 transition-all cursor-pointer border border-${audio.color}-100`}>
+                        Upload
+                        <input 
+                          type="file" 
+                          accept="audio/*"
+                          onChange={(e) => handleFileUpload(e, audio.key as keyof PortalConfig)}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="h-px bg-slate-100"></div>
+
+              <div>
+                <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                  <span>🛰️</span> MAC Synchronizer
+                </h4>
+
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <div className="text-[10px] font-black text-slate-700 uppercase tracking-widest">
+                      Status: {config.macSyncEnabled ? 'Enabled' : 'Disabled'}
+                    </div>
+                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">
+                      Controls how the portal links browser identity with device MAC.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleChange('macSyncEnabled', !config.macSyncEnabled)}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                      config.macSyncEnabled ? 'bg-blue-600' : 'bg-slate-200'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        config.macSyncEnabled ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                <div className={`grid grid-cols-1 sm:grid-cols-2 gap-3 ${config.macSyncEnabled ? '' : 'opacity-50 pointer-events-none'}`}>
+                  <button
+                    onClick={() => handleChange('macSyncMode', 'fingerprint_mac')}
+                    className={`p-3 rounded-xl border text-left transition-all ${
+                      config.macSyncMode === 'fingerprint_mac'
+                        ? 'border-blue-600 bg-blue-50 shadow-md shadow-blue-500/10'
+                        : 'border-slate-200 bg-white hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-700 mb-1">
+                      Fingerprint + MAC
+                    </div>
+                    <p className="text-[9px] text-slate-400 font-bold leading-snug">
+                      Uses browser fingerprint together with device MAC for tighter binding.
+                    </p>
+                  </button>
+
+                  <button
+                    onClick={() => handleChange('macSyncMode', 'session_token_mac')}
+                    className={`p-3 rounded-xl border text-left transition-all ${
+                      config.macSyncMode === 'session_token_mac'
+                        ? 'border-emerald-600 bg-emerald-50 shadow-md shadow-emerald-500/10'
+                        : 'border-slate-200 bg-white hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-700 mb-1">
+                      Session ID + MAC
+                    </div>
+                    <p className="text-[9px] text-slate-400 font-bold leading-snug">
+                      Uses session token together with device MAC for session synchronization.
+                    </p>
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-          ) : (
-             <div className="space-y-4">
-               <div>
-                 <div className="flex justify-between items-center mb-1.5">
-                   <label className="block text-[9px] font-black text-purple-600 uppercase tracking-widest">Custom CSS</label>
-                   <button onClick={insertCssTemplate} className="text-[8px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-black hover:bg-purple-200 transition-colors uppercase">
-                     Template
-                   </button>
-                 </div>
-                 <textarea 
-                   value={config.customCss || ''}
+          )}
+
+          {mode === 'code' && (
+            <div className="space-y-4">
+              <div>
+                <div className="flex justify-between items-center mb-1.5">
+                  <label className="block text-[9px] font-black text-purple-600 uppercase tracking-widest">Custom CSS</label>
+                  <button onClick={insertCssTemplate} className="text-[8px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-black hover:bg-purple-200 transition-colors uppercase">
+                    Template
+                  </button>
+                </div>
+                <textarea 
+                  value={config.customCss || ''}
                   onChange={(e) => handleChange('customCss', e.target.value)}
                   placeholder=".portal-header { background: red !important; }"
                   className="w-full h-24 bg-slate-900 text-green-400 font-mono text-[10px] p-3 rounded-lg focus:outline-none focus:ring-1 focus:ring-purple-500"
