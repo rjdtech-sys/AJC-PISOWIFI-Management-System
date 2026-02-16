@@ -553,28 +553,16 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
 
         <VoucherActivation onVoucherActivate={handleVoucherActivate} loading={isVoucherLoading} />
 
-        <div className="mb-10">
-          <div className="flex items-center justify-between px-8 mb-5">
-            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Pricing & Rates</h3>
-            <button
-              onClick={() => setShowRatesModal(true)}
-              className="px-3 py-1 rounded-full bg-blue-600 text-white text-[9px] font-black uppercase tracking-[0.2em] shadow-sm hover:bg-blue-700 transition-colors"
-            >
-              Rates
-            </button>
-          </div>
-          <div className="rates-grid">
-            {activeRates.sort((a,b) => a.pesos - b.pesos).map(rate => (
-              <div key={rate.id} className="rate-item">
-                <span className="rate-pesos">₱{rate.pesos}</span>
-                <span className="rate-time">
-                  {rate.minutes >= 60 
-                    ? `${Math.floor(rate.minutes / 60)}h ${rate.minutes % 60 > 0 ? (rate.minutes % 60) + 'm' : ''}`
-                    : `${rate.minutes} Minutes`}
-                </span>
-              </div>
-            ))}
-          </div>
+        <div className="mb-10 px-8">
+          <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">
+            Pricing & Rates
+          </h3>
+          <button
+            onClick={() => setShowRatesModal(true)}
+            className="portal-btn"
+          >
+            View Rates
+          </button>
         </div>
 
         <div className="mx-6 bg-slate-900 text-white p-8 rounded-[40px] shadow-2xl relative overflow-hidden">
