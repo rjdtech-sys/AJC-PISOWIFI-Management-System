@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { PortalConfig, fetchPortalConfig, savePortalConfigRemote, DEFAULT_PORTAL_CONFIG } from '../../lib/theme';
 import { apiClient } from '../../lib/api';
+import { SystemConfig } from '../../types';
 
 const PortalEditor: React.FC = () => {
   const [config, setConfig] = useState<PortalConfig>(DEFAULT_PORTAL_CONFIG);
@@ -13,10 +14,12 @@ const PortalEditor: React.FC = () => {
     macSyncEnabled: DEFAULT_PORTAL_CONFIG.macSyncEnabled,
     macSyncMode: DEFAULT_PORTAL_CONFIG.macSyncMode
   });
+  const [systemConfig, setSystemConfig] = useState<SystemConfig | null>(null);
   const [centralPortal, setCentralPortal] = useState<{ enabled: boolean; ip: string }>({
     enabled: false,
     ip: ''
   });
+  const [centralPortalDirty, setCentralPortalDirty] = useState(false);
 
   useEffect(() => {
     fetchPortalConfig().then((cfg) => {
@@ -27,10 +30,12 @@ const PortalEditor: React.FC = () => {
       });
     });
     apiClient.getConfig().then(cfg => {
+      setSystemConfig(cfg);
       setCentralPortal({
         enabled: Boolean(cfg.centralPortalIpEnabled),
         ip: cfg.centralPortalIp || ''
       });
+      setCentralPortalDirty(false);
     }).catch(() => {});
   }, []);
 
@@ -68,6 +73,19 @@ const PortalEditor: React.FC = () => {
     });
     setMacHasChanges(false);
     alert('MAC synchronizer settings saved successfully!');
+  };
+
+  const handleSaveCentralPortal = async () => {
+    if (!systemConfig) return;
+    const payload: SystemConfig = {
+      ...systemConfig,
+      centralPortalIpEnabled: centralPortal.enabled,
+      centralPortalIp: centralPortal.ip
+    };
+    await apiClient.saveConfig(payload);
+    setSystemConfig(payload);
+    setCentralPortalDirty(false);
+    alert('Centralized portal IP settings saved successfully!');
   };
 
   const handleReset = async () => {
@@ -423,15 +441,56 @@ const PortalEditor: React.FC = () => {
             </button>
           </div>
 
-          <div className="mt-4 border-t border-dashed border-slate-200 pt-3">
-            <div className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">
-              Centralized Portal IP
+          <div className="mt-6 bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">
+                  Centralized Portal IP
+                </div>
+                <p className="text-[9px] text-slate-500">
+                  Kapag naka-on, isang IP/hostname lang ang magiging sentro ng portal kahit iba-ibang VLAN.
+                </p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={centralPortal.enabled}
+                  onChange={(e) => {
+                    setCentralPortal(prev => ({ ...prev, enabled: e.target.checked }));
+                    setCentralPortalDirty(true);
+                  }}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+              </label>
             </div>
-            <p className="text-[9px] text-slate-500">
-              {centralPortal.enabled
-                ? (centralPortal.ip || 'Enabled pero walang nakaset na IP/hostname')
-                : 'Disabled'}
-            </p>
+
+            <div className="space-y-1">
+              <label className="block text-[8px] font-black text-slate-500 uppercase tracking-widest">
+                Portal IP / Hostname
+              </label>
+              <input
+                type="text"
+                value={centralPortal.ip}
+                onChange={(e) => {
+                  setCentralPortal(prev => ({ ...prev, ip: e.target.value }));
+                  setCentralPortalDirty(true);
+                }}
+                placeholder="Hal. 10.0.0.1 o portal.example.com"
+                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-[10px] font-mono text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                disabled={!centralPortal.enabled}
+              />
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                onClick={handleSaveCentralPortal}
+                disabled={!centralPortalDirty || !systemConfig}
+                className="px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest bg-slate-900 text-white disabled:opacity-40"
+              >
+                Save Central Portal
+              </button>
+            </div>
           </div>
         </section>
       </div>
