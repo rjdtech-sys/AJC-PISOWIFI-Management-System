@@ -130,26 +130,30 @@ export interface PortalConfig {
   backgroundColor: string;
   textColor: string;
   customCss?: string;
-  customHtmlTop?: string; // Injected below header
-  customHtmlBottom?: string; // Injected above footer
-  insertCoinAudio?: string; // Path to audio file
-  coinDropAudio?: string; // Path to audio file
-  connectedAudio?: string; // Path to audio file
+  customHtmlTop?: string;
+  customHtmlBottom?: string;
+  insertCoinAudio?: string;
+  coinDropAudio?: string;
+  connectedAudio?: string;
+  macSyncEnabled: boolean;
+  macSyncMode: 'fingerprint_mac' | 'session_token_mac';
 }
 
 export const DEFAULT_PORTAL_CONFIG: PortalConfig = {
   title: 'AJC PISOWIFI',
   subtitle: 'Enterprise Internet Gateway',
-  primaryColor: '#2563eb', // blue-600
-  secondaryColor: '#1e40af', // blue-800
-  backgroundColor: '#f8fafc', // slate-50
-  textColor: '#0f172a', // slate-900
+  primaryColor: '#2563eb',
+  secondaryColor: '#1e40af',
+  backgroundColor: '#f8fafc',
+  textColor: '#0f172a',
   customCss: '',
   customHtmlTop: '',
   customHtmlBottom: '',
   insertCoinAudio: '',
   coinDropAudio: '',
-  connectedAudio: ''
+  connectedAudio: '',
+  macSyncEnabled: false,
+  macSyncMode: 'session_token_mac'
 };
 
 // --- Admin Theme Utilities ---

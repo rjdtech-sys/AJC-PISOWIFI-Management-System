@@ -11,7 +11,7 @@ const PortalEditor: React.FC = () => {
 
   const [mode, setMode] = useState<'visual' | 'code'>('visual');
 
-  const handleChange = (key: keyof PortalConfig, value: string) => {
+  const handleChange = <K extends keyof PortalConfig>(key: K, value: PortalConfig[K]) => {
     setConfig(prev => ({ ...prev, [key]: value }));
     setHasChanges(true);
   };
@@ -243,6 +243,70 @@ const PortalEditor: React.FC = () => {
                     </label>
                   </div>
                 ))}
+            </div>
+
+            <div className="h-px bg-slate-100"></div>
+
+            <div>
+              <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                <span>🛰️</span> MAC Synchronizer
+              </h4>
+
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <div className="text-[10px] font-black text-slate-700 uppercase tracking-widest">
+                    Status: {config.macSyncEnabled ? 'Enabled' : 'Disabled'}
+                  </div>
+                  <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">
+                    Controls how the portal links browser identity with device MAC.
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleChange('macSyncEnabled', !config.macSyncEnabled)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                    config.macSyncEnabled ? 'bg-blue-600' : 'bg-slate-200'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      config.macSyncEnabled ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              <div className={`grid grid-cols-1 sm:grid-cols-2 gap-3 ${config.macSyncEnabled ? '' : 'opacity-50 pointer-events-none'}`}>
+                <button
+                  onClick={() => handleChange('macSyncMode', 'fingerprint_mac')}
+                  className={`p-3 rounded-xl border text-left transition-all ${
+                    config.macSyncMode === 'fingerprint_mac'
+                      ? 'border-blue-600 bg-blue-50 shadow-md shadow-blue-500/10'
+                      : 'border-slate-200 bg-white hover:border-slate-300'
+                  }`}
+                >
+                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-700 mb-1">
+                    Fingerprint + MAC
+                  </div>
+                  <p className="text-[9px] text-slate-400 font-bold leading-snug">
+                    Uses browser fingerprint together with device MAC for tighter binding.
+                  </p>
+                </button>
+
+                <button
+                  onClick={() => handleChange('macSyncMode', 'session_token_mac')}
+                  className={`p-3 rounded-xl border text-left transition-all ${
+                    config.macSyncMode === 'session_token_mac'
+                      ? 'border-emerald-600 bg-emerald-50 shadow-md shadow-emerald-500/10'
+                      : 'border-slate-200 bg-white hover:border-slate-300'
+                  }`}
+                >
+                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-700 mb-1">
+                    Session ID + MAC
+                  </div>
+                  <p className="text-[9px] text-slate-400 font-bold leading-snug">
+                    Uses session token together with device MAC for session synchronization.
+                  </p>
+                </button>
               </div>
             </div>
           </div>
