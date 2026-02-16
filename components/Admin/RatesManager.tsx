@@ -10,16 +10,29 @@ interface Props {
 
 const RatesManager: React.FC<Props> = ({ rates, setRates }) => {
   const [newPeso, setNewPeso] = useState('');
-  const [newMinutes, setNewMinutes] = useState('');
+  const [newDurationValue, setNewDurationValue] = useState('');
+  const [newDurationUnit, setNewDurationUnit] = useState<'minutes' | 'hours' | 'days'>('minutes');
   const [newExpirationValue, setNewExpirationValue] = useState('');
   const [newExpirationUnit, setNewExpirationUnit] = useState<'hours' | 'days'>('hours');
   const [rateMode, setRateMode] = useState<'pausable' | 'consumable'>('pausable');
   const [loading, setLoading] = useState(false);
 
   const addRate = async () => {
-    if (!newPeso || !newMinutes) return;
+    if (!newPeso || !newDurationValue) return;
     setLoading(true);
     try {
+      let minutes = 0;
+      const durationValue = parseInt(newDurationValue, 10);
+      if (!isNaN(durationValue) && durationValue > 0) {
+        if (newDurationUnit === 'minutes') {
+          minutes = durationValue;
+        } else if (newDurationUnit === 'hours') {
+          minutes = durationValue * 60;
+        } else {
+          minutes = durationValue * 60 * 24;
+        }
+      }
+
       let expiration_hours: number | undefined;
       if (rateMode === 'pausable' && newExpirationValue) {
         const value = parseInt(newExpirationValue, 10);
@@ -30,13 +43,14 @@ const RatesManager: React.FC<Props> = ({ rates, setRates }) => {
 
       await apiClient.addRate(
         parseInt(newPeso), 
-        parseInt(newMinutes),
+        minutes,
         expiration_hours,
         rateMode
       );
       await setRates();
       setNewPeso('');
-      setNewMinutes('');
+      setNewDurationValue('');
+      setNewDurationUnit('minutes');
       setNewExpirationValue('');
       setNewExpirationUnit('hours');
       setRateMode('pausable');
@@ -67,14 +81,25 @@ const RatesManager: React.FC<Props> = ({ rates, setRates }) => {
             />
           </div>
           <div>
-            <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Duration (Mins)</label>
+            <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Duration</label>
+            <div className="flex gap-2">
             <input 
               type="number" 
-              value={newMinutes}
-              onChange={(e) => setNewMinutes(e.target.value)}
+              value={newDurationValue}
+              onChange={(e) => setNewDurationValue(e.target.value)}
               className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:ring-1 focus:ring-blue-500 outline-none transition-all font-bold text-sm"
               placeholder="10"
             />
+              <select
+                value={newDurationUnit}
+                onChange={(e) => setNewDurationUnit(e.target.value as 'minutes' | 'hours' | 'days')}
+                className="px-2 py-2 rounded-lg border border-slate-200 bg-white text-[10px] font-black uppercase tracking-widest"
+              >
+                <option value="minutes">Minutes</option>
+                <option value="hours">Hours</option>
+                <option value="days">Days</option>
+              </select>
+            </div>
           </div>
           <div>
             <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Mode</label>
