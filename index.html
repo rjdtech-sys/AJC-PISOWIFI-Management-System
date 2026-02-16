@@ -405,6 +405,29 @@
         color: var(--sidebar-text, #ffffff) !important;
       }
 
+      .admin-exit-btn {
+        background-color: var(--sidebar-bg, #0f172a);
+        color: var(--sidebar-text, #ffffff);
+        border-color: rgba(15, 23, 42, 0.6);
+      }
+
+      .admin-exit-btn:hover {
+        background-color: var(--primary-dark);
+        color: #ffffff;
+      }
+
+      :root[data-theme="neofi"] .admin-exit-btn {
+        background-color: #111827;
+        color: #f9fafb;
+        border-color: rgba(15, 23, 42, 0.2);
+      }
+
+      :root[data-theme="terminal"] .admin-exit-btn {
+        background-color: #000000;
+        color: #22c55e;
+        border-color: #22c55e;
+      }
+
       :root[data-theme="neofi"] .admin-layout {
         background: #e5edf5;
       }
