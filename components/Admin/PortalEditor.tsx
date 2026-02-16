@@ -4,23 +4,59 @@ import { PortalConfig, fetchPortalConfig, savePortalConfigRemote, DEFAULT_PORTAL
 const PortalEditor: React.FC = () => {
   const [config, setConfig] = useState<PortalConfig>(DEFAULT_PORTAL_CONFIG);
   const [hasChanges, setHasChanges] = useState(false);
+  const [macHasChanges, setMacHasChanges] = useState(false);
+  const [savedMacConfig, setSavedMacConfig] = useState<{
+    macSyncEnabled: boolean;
+    macSyncMode: PortalConfig['macSyncMode'];
+  }>({
+    macSyncEnabled: DEFAULT_PORTAL_CONFIG.macSyncEnabled,
+    macSyncMode: DEFAULT_PORTAL_CONFIG.macSyncMode
+  });
 
   useEffect(() => {
-    fetchPortalConfig().then(setConfig);
+    fetchPortalConfig().then((cfg) => {
+      setConfig(cfg);
+      setSavedMacConfig({
+        macSyncEnabled: cfg.macSyncEnabled,
+        macSyncMode: cfg.macSyncMode
+      });
+    });
   }, []);
 
   const [mode, setMode] = useState<'visual' | 'code'>('visual');
 
   const handleChange = (key: keyof PortalConfig, value: PortalConfig[keyof PortalConfig]) => {
-    setConfig(prev => ({ ...prev, [key]: value }));
+    setConfig(prev => {
+      const next = { ...prev, [key]: value } as PortalConfig;
+      return next;
+    });
     setHasChanges(true);
+    if (key === 'macSyncEnabled' || key === 'macSyncMode') {
+      setMacHasChanges(true);
+    }
   };
 
-  const handleSave = async () => {
-    await savePortalConfigRemote(config);
+  const handleSaveDesign = async () => {
+    const payload: PortalConfig = {
+      ...config,
+      macSyncEnabled: savedMacConfig.macSyncEnabled,
+      macSyncMode: savedMacConfig.macSyncMode
+    };
+    await savePortalConfigRemote(payload);
+    setConfig(payload);
     setHasChanges(false);
-    // Optional: Trigger a toast or notification
     alert('Portal configuration saved successfully!');
+  };
+
+  const handleSaveMacSync = async () => {
+    const payload: PortalConfig = { ...config };
+    await savePortalConfigRemote(payload);
+    setSavedMacConfig({
+      macSyncEnabled: payload.macSyncEnabled,
+      macSyncMode: payload.macSyncMode
+    });
+    setMacHasChanges(false);
+    alert('MAC synchronizer settings saved successfully!');
   };
 
   const handleReset = async () => {
@@ -306,6 +342,16 @@ const PortalEditor: React.FC = () => {
                     </p>
                   </button>
                 </div>
+
+                <div className="mt-3 flex justify-end">
+                  <button
+                    onClick={handleSaveMacSync}
+                    disabled={!macHasChanges}
+                    className="px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest border border-slate-200 bg-slate-900 text-white disabled:opacity-40"
+                  >
+                    Save MAC Synchronizer
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -353,7 +399,7 @@ const PortalEditor: React.FC = () => {
 
           <div className="mt-6 flex gap-3">
             <button 
-              onClick={handleSave}
+              onClick={handleSaveDesign}
               className="admin-btn-primary flex-1 py-3 rounded-lg font-black text-[10px] uppercase tracking-[0.2em] shadow-lg active:scale-95 disabled:opacity-50"
             >
               Apply Design
