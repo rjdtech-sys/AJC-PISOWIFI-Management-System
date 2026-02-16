@@ -480,10 +480,12 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
               </button>
             </div>
           ) : (
-            <div className="mb-6">
-              <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-6 text-3xl">📡</div>
-              <h2 className="text-2xl font-black text-slate-900 mb-2 tracking-tight">Insert Coins to Connect</h2>
-              <p className="text-slate-500 text-sm mb-6 font-medium px-4">Drop physical coins into the slot to enable high-speed internet access.</p>
+            <div className="mb-4">
+              <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">📡</div>
+              <h2 className="text-2xl font-black text-slate-900 mb-2 tracking-tight text-center">Insert Coins to Connect</h2>
+              <p className="text-slate-500 text-xs mb-4 font-medium px-6 text-center">
+                1. Tap INSERT COIN. 2. Drop coins. 3. Tap START SURFING.
+              </p>
             </div>
           )}
 
@@ -540,6 +542,12 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
           <button onClick={handleOpenModal} className="portal-btn">
             {mySession ? 'ADD MORE TIME' : 'INSERT COIN'}
           </button>
+          <button
+            onClick={() => setShowRatesModal(true)}
+            className="portal-btn mt-3"
+          >
+            View Rates
+          </button>
           
           {!mySession && onRestoreSession && (
             <button 
@@ -552,39 +560,6 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
         </div>
 
         <VoucherActivation onVoucherActivate={handleVoucherActivate} loading={isVoucherLoading} />
-
-        <div className="mb-10 px-8">
-          <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">
-            Pricing & Rates
-          </h3>
-          <button
-            onClick={() => setShowRatesModal(true)}
-            className="portal-btn"
-          >
-            View Rates
-          </button>
-        </div>
-
-        <div className="mx-6 bg-slate-900 text-white p-8 rounded-[40px] shadow-2xl relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-blue-600/20 blur-3xl rounded-full"></div>
-          <div className="relative z-10">
-            <h4 className="font-black text-lg mb-4 uppercase tracking-tight italic text-blue-400">Quick Start Guide</h4>
-            <ul className="text-[10px] text-slate-400 space-y-4 font-bold uppercase tracking-widest list-none">
-              <li className="flex gap-4 items-center">
-                <span className="bg-white/10 w-6 h-6 rounded-full flex items-center justify-center text-[10px] shrink-0 text-white">1</span>
-                Tap 'Insert Coin' to open the validator.
-              </li>
-              <li className="flex gap-4 items-center">
-                <span className="bg-white/10 w-6 h-6 rounded-full flex items-center justify-center text-[10px] shrink-0 text-white">2</span>
-                Drop 1, 5, or 10 Peso coins.
-              </li>
-              <li className="flex gap-4 items-center">
-                <span className="bg-white/10 w-6 h-6 rounded-full flex items-center justify-center text-[10px] shrink-0 text-white">3</span>
-                Click 'Start Surfing' to connect.
-              </li>
-            </ul>
-          </div>
-        </div>
       </main>
 
       {/* Inject Custom HTML Bottom */}
