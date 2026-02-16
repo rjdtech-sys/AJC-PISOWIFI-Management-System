@@ -13,6 +13,7 @@ const RatesManager: React.FC<Props> = ({ rates, setRates }) => {
   const [newMinutes, setNewMinutes] = useState('');
   const [newExpirationValue, setNewExpirationValue] = useState('');
   const [newExpirationUnit, setNewExpirationUnit] = useState<'hours' | 'days'>('hours');
+  const [rateMode, setRateMode] = useState<'pausable' | 'consumable'>('pausable');
   const [loading, setLoading] = useState(false);
 
   const addRate = async () => {
@@ -20,7 +21,7 @@ const RatesManager: React.FC<Props> = ({ rates, setRates }) => {
     setLoading(true);
     try {
       let expiration_hours: number | undefined;
-      if (newExpirationValue) {
+      if (rateMode === 'pausable' && newExpirationValue) {
         const value = parseInt(newExpirationValue, 10);
         if (!isNaN(value) && value > 0) {
           expiration_hours = newExpirationUnit === 'days' ? value * 24 : value;
@@ -30,13 +31,15 @@ const RatesManager: React.FC<Props> = ({ rates, setRates }) => {
       await apiClient.addRate(
         parseInt(newPeso), 
         parseInt(newMinutes),
-        expiration_hours
+        expiration_hours,
+        rateMode
       );
       await setRates();
       setNewPeso('');
       setNewMinutes('');
       setNewExpirationValue('');
       setNewExpirationUnit('hours');
+      setRateMode('pausable');
     } finally {
       setLoading(false);
     }
@@ -74,6 +77,17 @@ const RatesManager: React.FC<Props> = ({ rates, setRates }) => {
             />
           </div>
           <div>
+            <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Mode</label>
+            <select
+              value={rateMode}
+              onChange={(e) => setRateMode(e.target.value as 'pausable' | 'consumable')}
+              className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-[10px] font-black uppercase tracking-widest"
+            >
+              <option value="pausable">Pausable</option>
+              <option value="consumable">Consumable</option>
+            </select>
+          </div>
+          <div>
             <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Expiration (Optional)</label>
             <div className="flex gap-2">
               <input
@@ -83,26 +97,28 @@ const RatesManager: React.FC<Props> = ({ rates, setRates }) => {
                 className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:ring-1 focus:ring-blue-500 outline-none transition-all font-bold text-sm"
                 placeholder="e.g. 24"
                 min={1}
+                disabled={rateMode === 'consumable'}
               />
               <select
                 value={newExpirationUnit}
                 onChange={(e) => setNewExpirationUnit(e.target.value as 'hours' | 'days')}
                 className="px-2 py-2 rounded-lg border border-slate-200 bg-white text-[10px] font-black uppercase tracking-widest"
+                disabled={rateMode === 'consumable'}
               >
                 <option value="hours">Hours</option>
                 <option value="days">Days</option>
               </select>
             </div>
           </div>
-          <div className="flex items-end">
-            <button 
-              onClick={addRate}
-              disabled={loading}
-              className="w-full bg-blue-600 text-white py-2 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-blue-700 transition-all shadow-md shadow-blue-500/10 disabled:opacity-50 h-[38px]"
-            >
-              {loading ? '...' : 'Add Rate'}
-            </button>
-          </div>
+        </div>
+        <div className="mt-4">
+          <button 
+            onClick={addRate}
+            disabled={loading}
+            className="w-full bg-blue-600 text-white py-2 rounded-lg font-black text-[10px] uppercase tracking-widest hover:bg-blue-700 transition-all shadow-md shadow-blue-500/10 disabled:opacity-50 h-[38px]"
+          >
+            {loading ? '...' : 'Add Rate'}
+          </button>
         </div>
         <div className="mt-4 bg-yellow-50 p-3 rounded-lg border border-yellow-200">
           <p className="text-amber-800 text-[10px] font-bold">

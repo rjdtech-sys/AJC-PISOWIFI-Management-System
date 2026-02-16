@@ -496,12 +496,14 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
                     <span>🌍</span> PROCEED TO INTERNET
                   </button>
                   
-                  <button 
-                    onClick={handlePause}
-                    className="w-full bg-orange-500 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest mb-3 shadow-xl hover:bg-orange-600 transition-all active:scale-95 flex items-center justify-center gap-2"
-                  >
-                    <span>⏸️</span> PAUSE MY TIME
-                  </button>
+                  {mySession.isPausable !== 0 && (
+                    <button 
+                      onClick={handlePause}
+                      className="w-full bg-orange-500 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest mb-3 shadow-xl hover:bg-orange-600 transition-all active:scale-95 flex items-center justify-center gap-2"
+                    >
+                      <span>⏸️</span> PAUSE MY TIME
+                    </button>
+                  )}
                 </>
               ) : (
                 <button 

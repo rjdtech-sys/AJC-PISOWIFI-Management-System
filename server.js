@@ -1511,7 +1511,9 @@ app.post('/api/coinslot/release', async (req, res) => {
 
 app.get('/api/sessions', async (req, res) => {
   try {
-    const rows = await db.all('SELECT mac, ip, remaining_seconds as remainingSeconds, total_paid as totalPaid, connected_at as connectedAt, is_paused as isPaused, token FROM sessions');
+    const rows = await db.all(
+      'SELECT mac, ip, remaining_seconds as remainingSeconds, total_paid as totalPaid, connected_at as connectedAt, is_paused as isPaused, token, pausable as isPausable FROM sessions'
+    );
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1578,6 +1580,7 @@ app.post('/api/sessions/start', async (req, res) => {
 
     const downloadLimit = rate ? (rate.download_limit || 0) : 0;
     const uploadLimit = rate ? (rate.upload_limit || 0) : 0;
+    const pausable = rate && typeof rate.is_pausable === 'number' ? rate.is_pausable : 1;
     const seconds = minutes * 60;
 
     const requestedToken = getSessionToken(req);
@@ -1605,8 +1608,18 @@ app.post('/api/sessions/start', async (req, res) => {
           }
           await db.run('DELETE FROM sessions WHERE mac = ?', [sessionByToken.mac]);
           await db.run(
-            'INSERT INTO sessions (mac, ip, remaining_seconds, total_paid, connected_at, download_limit, upload_limit, token) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            [mac, clientIp, (sessionByToken.remaining_seconds || 0) + extraTime + seconds, (sessionByToken.total_paid || 0) + extraPaid + pesos, sessionByToken.connected_at, downloadLimit, uploadLimit, requestedToken]
+            'INSERT INTO sessions (mac, ip, remaining_seconds, total_paid, connected_at, download_limit, upload_limit, token, pausable) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [
+              mac,
+              clientIp,
+              (sessionByToken.remaining_seconds || 0) + extraTime + seconds,
+              (sessionByToken.total_paid || 0) + extraPaid + pesos,
+              sessionByToken.connected_at,
+              downloadLimit,
+              uploadLimit,
+              requestedToken,
+              sessionByToken.pausable != null ? sessionByToken.pausable : pausable
+            ]
           );
           migratedOldMac = sessionByToken.mac;
           migratedOldIp = sessionByToken.ip;
@@ -1621,8 +1634,8 @@ app.post('/api/sessions/start', async (req, res) => {
           );
         } else {
           await db.run(
-            'INSERT INTO sessions (mac, ip, remaining_seconds, total_paid, download_limit, upload_limit, token) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            [mac, clientIp, seconds, pesos, downloadLimit, uploadLimit, requestedToken]
+            'INSERT INTO sessions (mac, ip, remaining_seconds, total_paid, download_limit, upload_limit, token, pausable) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [mac, clientIp, seconds, pesos, downloadLimit, uploadLimit, requestedToken, pausable]
           );
         }
         tokenToUse = requestedToken;
@@ -1633,8 +1646,8 @@ app.post('/api/sessions/start', async (req, res) => {
       const existingSession = await db.get('SELECT token FROM sessions WHERE mac = ?', [mac]);
       tokenToUse = (existingSession && existingSession.token) ? existingSession.token : crypto.randomBytes(16).toString('hex');
       await db.run(
-        'INSERT INTO sessions (mac, ip, remaining_seconds, total_paid, download_limit, upload_limit, token) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(mac) DO UPDATE SET remaining_seconds = remaining_seconds + ?, total_paid = total_paid + ?, ip = ?, download_limit = ?, upload_limit = ?, token = ?',
-        [mac, clientIp, seconds, pesos, downloadLimit, uploadLimit, tokenToUse, seconds, pesos, clientIp, downloadLimit, uploadLimit, tokenToUse]
+        'INSERT INTO sessions (mac, ip, remaining_seconds, total_paid, download_limit, upload_limit, token, pausable) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(mac) DO UPDATE SET remaining_seconds = remaining_seconds + ?, total_paid = total_paid + ?, ip = ?, download_limit = ?, upload_limit = ?, token = ?',
+        [mac, clientIp, seconds, pesos, downloadLimit, uploadLimit, tokenToUse, pausable, seconds, pesos, clientIp, downloadLimit, uploadLimit, tokenToUse]
       );
     }
     
@@ -1738,6 +1751,10 @@ app.post('/api/sessions/pause', async (req, res) => {
     const session = await db.get('SELECT * FROM sessions WHERE token = ?', [token]);
     if (!session) return res.status(404).json({ error: 'Session not found' });
 
+    if (session.pausable === 0) {
+      return res.status(400).json({ error: 'This session is not pausable' });
+    }
+
     await db.run('UPDATE sessions SET is_paused = 1 WHERE token = ?', [token]);
     await network.blockMAC(session.mac, session.ip);
 
@@ -1771,9 +1788,14 @@ app.get('/api/rates', async (req, res) => {
 
 app.post('/api/rates', requireAdmin, async (req, res) => {
   try { 
-    const { pesos, minutes, expiration_hours } = req.body;
-    await db.run('INSERT INTO rates (pesos, minutes, expiration_hours) VALUES (?, ?, ?)', 
-      [pesos, minutes, expiration_hours || null]); 
+    const { pesos, minutes, expiration_hours, mode } = req.body;
+    const isPausable = mode === 'consumable' ? 0 : 1;
+    const effectiveExpiration = mode === 'consumable' ? null : (expiration_hours || null);
+
+    await db.run(
+      'INSERT INTO rates (pesos, minutes, expiration_hours, is_pausable) VALUES (?, ?, ?, ?)', 
+      [pesos, minutes, effectiveExpiration, isPausable]
+    ); 
     res.json({ success: true }); 
   }
   catch (err) { res.status(500).json({ error: err.message }); }

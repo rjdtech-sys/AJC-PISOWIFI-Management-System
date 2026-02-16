@@ -50,6 +50,7 @@ export interface Rate {
   pesos: number;
   minutes: number;
   expiration_hours?: number;
+  is_pausable?: number;
   download_limit?: number; // Mbps
   upload_limit?: number; // Mbps
 }
@@ -163,6 +164,7 @@ export interface UserSession {
   downloadLimit?: number;
   uploadLimit?: number;
   isPaused?: boolean;
+  isPausable?: number;
   token?: string;
   coinSlot?: string;
   coinSlotLockId?: string;
