@@ -2124,6 +2124,37 @@ app.post('/api/config', requireAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+app.get('/api/config/central-portal', requireAdmin, async (req, res) => {
+  try {
+    const enabledRow = await db.get('SELECT value FROM config WHERE key = ?', ['centralPortalIpEnabled']);
+    const ipRow = await db.get('SELECT value FROM config WHERE key = ?', ['centralPortalIp']);
+    res.json({
+      enabled: enabledRow?.value === '1' || enabledRow?.value === 'true',
+      ip: ipRow?.value || ''
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/config/central-portal', requireAdmin, async (req, res) => {
+  try {
+    const enabled = !!req.body.enabled;
+    const ip = req.body.ip || '';
+    await db.run(
+      'INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)',
+      ['centralPortalIpEnabled', enabled ? '1' : '0']
+    );
+    await db.run(
+      'INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)',
+      ['centralPortalIp', ip]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // NODEMCU DEVICE REGISTRATION API
 app.post('/api/nodemcu/register', async (req, res) => {
   try {

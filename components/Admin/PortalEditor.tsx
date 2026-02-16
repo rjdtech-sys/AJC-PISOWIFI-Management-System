@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { PortalConfig, fetchPortalConfig, savePortalConfigRemote, DEFAULT_PORTAL_CONFIG } from '../../lib/theme';
 import { apiClient } from '../../lib/api';
-import { SystemConfig } from '../../types';
 
 const PortalEditor: React.FC = () => {
   const [config, setConfig] = useState<PortalConfig>(DEFAULT_PORTAL_CONFIG);
@@ -14,7 +13,6 @@ const PortalEditor: React.FC = () => {
     macSyncEnabled: DEFAULT_PORTAL_CONFIG.macSyncEnabled,
     macSyncMode: DEFAULT_PORTAL_CONFIG.macSyncMode
   });
-  const [systemConfig, setSystemConfig] = useState<SystemConfig | null>(null);
   const [centralPortal, setCentralPortal] = useState<{ enabled: boolean; ip: string }>({
     enabled: false,
     ip: ''
@@ -29,11 +27,10 @@ const PortalEditor: React.FC = () => {
         macSyncMode: cfg.macSyncMode
       });
     });
-    apiClient.getConfig().then(cfg => {
-      setSystemConfig(cfg);
+    apiClient.getCentralPortalConfig().then(cfg => {
       setCentralPortal({
-        enabled: Boolean(cfg.centralPortalIpEnabled),
-        ip: cfg.centralPortalIp || ''
+        enabled: Boolean(cfg.enabled),
+        ip: cfg.ip || ''
       });
       setCentralPortalDirty(false);
     }).catch(() => {});
@@ -76,14 +73,7 @@ const PortalEditor: React.FC = () => {
   };
 
   const handleSaveCentralPortal = async () => {
-    if (!systemConfig) return;
-    const payload: SystemConfig = {
-      ...systemConfig,
-      centralPortalIpEnabled: centralPortal.enabled,
-      centralPortalIp: centralPortal.ip
-    };
-    await apiClient.saveConfig(payload);
-    setSystemConfig(payload);
+    await apiClient.saveCentralPortalConfig(centralPortal.enabled, centralPortal.ip);
     setCentralPortalDirty(false);
     alert('Centralized portal IP settings saved successfully!');
   };
@@ -485,7 +475,7 @@ const PortalEditor: React.FC = () => {
             <div className="flex justify-end">
               <button
                 onClick={handleSaveCentralPortal}
-                disabled={!centralPortalDirty || !systemConfig}
+                disabled={!centralPortalDirty}
                 className="px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest bg-slate-900 text-white disabled:opacity-40"
               >
                 Save Central Portal

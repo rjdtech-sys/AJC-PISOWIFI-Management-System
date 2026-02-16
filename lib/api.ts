@@ -88,6 +88,20 @@ export const apiClient = {
     await handleResponse(res);
   },
 
+  async getCentralPortalConfig(): Promise<{ enabled: boolean; ip: string }> {
+    const res = await fetch(`${API_BASE}/config/central-portal`, { headers: getHeaders() });
+    return handleResponse(res);
+  },
+
+  async saveCentralPortalConfig(enabled: boolean, ip: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/config/central-portal`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ enabled, ip })
+    });
+    await handleResponse(res);
+  },
+
   // Get Portal Configuration
   async getPortalConfig(): Promise<any> {
     const res = await fetch(`${API_BASE}/portal/config`, { headers: getHeaders() });
