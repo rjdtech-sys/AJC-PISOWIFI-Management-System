@@ -22,6 +22,7 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
   const [myMac, setMyMac] = useState('');
   const [isMacLoading, setIsMacLoading] = useState(true);
   const [clientIp, setClientIp] = useState('');
+  const [isOnline, setIsOnline] = useState<boolean | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [config, setConfig] = useState<PortalConfig>(DEFAULT_PORTAL_CONFIG);
   const [availableSlots, setAvailableSlots] = useState<{id: string, name: string, macAddress: string, isOnline: boolean, license?: { isValid: boolean, isTrial: boolean, isExpired: boolean }}[]>([]);
@@ -122,6 +123,47 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
     if (!window.location.hostname.includes('localhost')) {
       fetchWhoAmI();
     }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    let cancelled = false;
+
+    const checkOnlineStatus = async () => {
+      try {
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+          if (!cancelled) setIsOnline(false);
+          return;
+        }
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2500);
+
+        try {
+          await fetch('https://1.1.1.1', {
+            mode: 'no-cors',
+            cache: 'no-store',
+            signal: controller.signal
+          });
+          if (!cancelled) setIsOnline(true);
+        } catch {
+          if (!cancelled) setIsOnline(false);
+        } finally {
+          clearTimeout(timeoutId);
+        }
+      } catch {
+        if (!cancelled) setIsOnline(false);
+      }
+    };
+
+    checkOnlineStatus();
+    const intervalId = setInterval(checkOnlineStatus, 15000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
   }, []);
 
   const sessionToken = typeof window !== 'undefined' ? (getCookie('ajc_session_token') || localStorage.getItem('ajc_session_token')) : null;
@@ -486,6 +528,23 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
               <p className="text-slate-500 text-xs mb-4 font-medium px-6 text-center">
                 1. Tap INSERT COIN. 2. Drop coins. 3. Tap START SURFING.
               </p>
+            </div>
+          )}
+
+          {isOnline !== null && (
+            <div className="mx-6 mb-4 flex justify-center">
+              <div
+                className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-[0.2em] flex items-center gap-2 ${
+                  isOnline ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'
+                }`}
+              >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    isOnline ? 'bg-green-500 animate-pulse' : 'bg-red-500 animate-pulse'
+                  }`}
+                ></span>
+                {isOnline ? 'Online' : 'Offline'}
+              </div>
             </div>
           )}
 
