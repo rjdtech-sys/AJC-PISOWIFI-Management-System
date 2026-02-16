@@ -18,8 +18,10 @@ interface Props {
 
 const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refreshSessions, onRestoreSession }) => {
   const [showModal, setShowModal] = useState(false);
+  const [showRatesModal, setShowRatesModal] = useState(false);
   const [myMac, setMyMac] = useState('');
   const [isMacLoading, setIsMacLoading] = useState(true);
+  const [clientIp, setClientIp] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [config, setConfig] = useState<PortalConfig>(DEFAULT_PORTAL_CONFIG);
   const [availableSlots, setAvailableSlots] = useState<{id: string, name: string, macAddress: string, isOnline: boolean, license?: { isValid: boolean, isTrial: boolean, isExpired: boolean }}[]>([]);
@@ -92,6 +94,12 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
     setMyMac(fallbackId);
     setCookie('ajc_client_id', fallbackId, 365);
     setIsMacLoading(false);
+    if (typeof window !== 'undefined') {
+      const host = window.location.hostname;
+      if (host) {
+        setClientIp(host);
+      }
+    }
 
     // Try to get real MAC in background without blocking UI
     const fetchWhoAmI = async () => {
@@ -99,6 +107,9 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
         const data = await apiClient.whoAmI();
         if (data.mac && data.mac !== 'unknown') {
           setMyMac(data.mac);
+        }
+        if (data.ip) {
+          setClientIp(data.ip);
         }
         setCanInsertCoin(data.canInsertCoin !== false);
         setIsRevoked(data.isRevoked === true);
@@ -431,7 +442,7 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
                     Internet Access Live
                   </span>
                 )}
-                <span>Session ID: {myMac}</span>
+                <span>Device MAC: {myMac}</span>
               </div>
               
               {!mySession.isPaused ? (
@@ -475,6 +486,11 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
               <p className="text-slate-500 text-sm mb-6 font-medium px-4">Drop physical coins into the slot to enable high-speed internet access.</p>
             </div>
           )}
+
+          <div className="mx-6 mb-6 text-[9px] text-slate-400 font-bold uppercase tracking-[0.2em] text-center">
+            <div>Device IP: {clientIp || 'Detecting...'}</div>
+            <div>Device MAC: {isMacLoading ? 'Detecting...' : myMac}</div>
+          </div>
 
           {isRevoked && (
             <div className="mx-6 mb-6 p-4 bg-orange-50 border border-orange-100 rounded-2xl text-orange-600 text-center animate-in fade-in slide-in-from-top-4 duration-300">
@@ -538,7 +554,15 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
         <VoucherActivation onVoucherActivate={handleVoucherActivate} loading={isVoucherLoading} />
 
         <div className="mb-10">
-          <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-5 px-8">Pricing & Rates</h3>
+          <div className="flex items-center justify-between px-8 mb-5">
+            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Pricing & Rates</h3>
+            <button
+              onClick={() => setShowRatesModal(true)}
+              className="text-[9px] font-black uppercase tracking-[0.2em] text-blue-600 hover:text-blue-800"
+            >
+              Rates
+            </button>
+          </div>
           <div className="rates-grid">
             {activeRates.sort((a,b) => a.pesos - b.pesos).map(rate => (
               <div key={rate.id} className="rate-item">
@@ -588,6 +612,51 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
           Powered by AJC PisoWifi System
         </p>
       </footer>
+
+      {showRatesModal && (
+        <div className="modal-overlay">
+          <div className="modal-content animate-in zoom-in duration-300 shadow-2xl border border-slate-200">
+            <div className="p-6 bg-slate-50 border-b border-slate-100 text-center">
+              <h3 className="text-lg font-black text-slate-900 uppercase tracking-tight">Pricing & Rates</h3>
+              <p className="text-[9px] text-slate-500 font-bold uppercase tracking-[0.2em]">
+                Based on current pricing configuration
+              </p>
+            </div>
+            <div className="p-6 space-y-3 max-h-[60vh] overflow-y-auto">
+              {activeRates.sort((a, b) => a.pesos - b.pesos).map((rate) => (
+                <div
+                  key={rate.id}
+                  className="flex items-center justify-between bg-white rounded-2xl border border-slate-100 px-4 py-3"
+                >
+                  <div>
+                    <span className="block text-sm font-black text-slate-900">₱{rate.pesos}</span>
+                    <span className="block text-[9px] font-black uppercase tracking-[0.2em] text-blue-600">
+                      {rate.minutes >= 60
+                        ? `${Math.floor(rate.minutes / 60)}h ${
+                            rate.minutes % 60 > 0 ? (rate.minutes % 60) + 'm' : ''
+                          }`
+                        : `${rate.minutes} Minutes`}
+                    </span>
+                  </div>
+                </div>
+              ))}
+              {activeRates.length === 0 && (
+                <div className="text-center text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+                  No rates available
+                </div>
+              )}
+            </div>
+            <div className="p-4 border-t border-slate-100 text-center">
+              <button
+                onClick={() => setShowRatesModal(false)}
+                className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 hover:text-slate-600"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showModal && (
         <CoinModal 
