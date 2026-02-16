@@ -21,6 +21,8 @@ const HardwareSetup: React.FC<Props> = ({ onClose, onSaved }) => {
   ]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [centralPortalIpEnabled, setCentralPortalIpEnabled] = useState(false);
+  const [centralPortalIp, setCentralPortalIp] = useState('');
 
   useEffect(() => {
     apiClient.getConfig().then(cfg => {
@@ -30,6 +32,12 @@ const HardwareSetup: React.FC<Props> = ({ onClose, onSaved }) => {
 
       if (cfg.coinSlots && cfg.coinSlots.length > 0) {
         setCoinSlots(cfg.coinSlots);
+      }
+      if (typeof cfg.centralPortalIpEnabled === 'boolean') {
+        setCentralPortalIpEnabled(cfg.centralPortalIpEnabled);
+      }
+      if (cfg.centralPortalIp) {
+        setCentralPortalIp(cfg.centralPortalIp);
       }
       setLoading(false);
     });
@@ -43,7 +51,9 @@ const HardwareSetup: React.FC<Props> = ({ onClose, onSaved }) => {
         coinPin: pin,
         boardModel: board === 'orange_pi' ? boardModel : null,
 
-        coinSlots: board === 'nodemcu_esp' ? coinSlots : null
+        coinSlots: board === 'nodemcu_esp' ? coinSlots : null,
+        centralPortalIpEnabled,
+        centralPortalIp: centralPortalIp || ''
       });
       onSaved();
       onClose();
@@ -196,6 +206,37 @@ const HardwareSetup: React.FC<Props> = ({ onClose, onSaved }) => {
                 </div>
               </div>
             )}
+          </div>
+
+          <div className="mt-8 border-t border-slate-200 pt-6">
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">
+              Centralized Portal IP
+            </label>
+            <p className="text-[10px] text-slate-500 mb-3">
+              Kapag naka-on, puwede kang magtakda ng isang portal IP/hostname na gagamiting sentro ng access ng mga kliyente sa iba’t ibang VLAN.
+            </p>
+            <div className="flex items-center gap-3 mb-3">
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={centralPortalIpEnabled}
+                  onChange={(e) => setCentralPortalIpEnabled(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+              </label>
+              <span className="text-[10px] font-black uppercase tracking-widest text-slate-700">
+                Enable Centralized Portal
+              </span>
+            </div>
+            <input
+              type="text"
+              value={centralPortalIp}
+              onChange={(e) => setCentralPortalIp(e.target.value)}
+              placeholder="Hal. 10.0.0.1 o portal.example.com"
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              disabled={!centralPortalIpEnabled}
+            />
           </div>
 
           {/* Pin Selection */}

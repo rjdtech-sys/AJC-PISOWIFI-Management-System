@@ -2063,6 +2063,8 @@ app.get('/api/config', requireAdmin, async (req, res) => {
     const espPort = await db.get('SELECT value FROM config WHERE key = ?', ['espPort']);
     const nodemcuDevices = await db.get('SELECT value FROM config WHERE key = ?', ['nodemcuDevices']);
     const registrationKey = await db.get('SELECT value FROM config WHERE key = ?', ['registrationKey']);
+    const centralPortalIpEnabled = await db.get('SELECT value FROM config WHERE key = ?', ['centralPortalIpEnabled']);
+    const centralPortalIp = await db.get('SELECT value FROM config WHERE key = ?', ['centralPortalIp']);
     
     res.json({ 
       boardType: board?.value || 'none', 
@@ -2072,7 +2074,9 @@ app.get('/api/config', requireAdmin, async (req, res) => {
       espPort: parseInt(espPort?.value || '80'),
       coinSlots: coinSlots?.value ? JSON.parse(coinSlots.value) : [],
       nodemcuDevices: nodemcuDevices?.value ? JSON.parse(nodemcuDevices.value) : [],
-      registrationKey: registrationKey?.value || '7B3F1A9'
+      registrationKey: registrationKey?.value || '7B3F1A9',
+      centralPortalIpEnabled: centralPortalIpEnabled?.value === '1' || centralPortalIpEnabled?.value === 'true',
+      centralPortalIp: centralPortalIp?.value || ''
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -2087,6 +2091,20 @@ app.post('/api/config', requireAdmin, async (req, res) => {
       await db.run('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)', ['registrationKey', req.body.registrationKey]);
     }
     
+    if (typeof req.body.centralPortalIpEnabled !== 'undefined') {
+      await db.run(
+        'INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)',
+        ['centralPortalIpEnabled', req.body.centralPortalIpEnabled ? '1' : '0']
+      );
+    }
+
+    if (typeof req.body.centralPortalIp !== 'undefined') {
+      await db.run(
+        'INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)',
+        ['centralPortalIp', req.body.centralPortalIp || '']
+      );
+    }
+
     // Handle NodeMCU ESP configuration
     if (req.body.boardType === 'nodemcu_esp') {
       await db.run('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)', ['espIpAddress', req.body.espIpAddress || '192.168.4.1']);

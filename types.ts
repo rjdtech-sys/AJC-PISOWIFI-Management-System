@@ -12,6 +12,8 @@ export interface SystemConfig {
   // For multi-NodeMCU setup
   nodemcuDevices?: NodeMCUDevice[];
   registrationKey?: string;
+   centralPortalIpEnabled?: boolean;
+   centralPortalIp?: string;
   // Deprecated - kept for backward compatibility
   serialPort?: string;
 }
