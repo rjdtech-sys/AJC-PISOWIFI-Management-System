@@ -558,7 +558,7 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
             <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Pricing & Rates</h3>
             <button
               onClick={() => setShowRatesModal(true)}
-              className="text-[9px] font-black uppercase tracking-[0.2em] text-blue-600 hover:text-blue-800"
+              className="px-3 py-1 rounded-full bg-blue-600 text-white text-[9px] font-black uppercase tracking-[0.2em] shadow-sm hover:bg-blue-700 transition-colors"
             >
               Rates
             </button>
