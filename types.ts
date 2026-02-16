@@ -49,6 +49,7 @@ export interface Rate {
   id: string;
   pesos: number;
   minutes: number;
+  expiration_hours?: number;
   download_limit?: number; // Mbps
   upload_limit?: number; // Mbps
 }

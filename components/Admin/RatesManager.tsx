@@ -11,19 +11,32 @@ interface Props {
 const RatesManager: React.FC<Props> = ({ rates, setRates }) => {
   const [newPeso, setNewPeso] = useState('');
   const [newMinutes, setNewMinutes] = useState('');
+  const [newExpirationValue, setNewExpirationValue] = useState('');
+  const [newExpirationUnit, setNewExpirationUnit] = useState<'hours' | 'days'>('hours');
   const [loading, setLoading] = useState(false);
 
   const addRate = async () => {
     if (!newPeso || !newMinutes) return;
     setLoading(true);
     try {
+      let expiration_hours: number | undefined;
+      if (newExpirationValue) {
+        const value = parseInt(newExpirationValue, 10);
+        if (!isNaN(value) && value > 0) {
+          expiration_hours = newExpirationUnit === 'days' ? value * 24 : value;
+        }
+      }
+
       await apiClient.addRate(
         parseInt(newPeso), 
-        parseInt(newMinutes)
+        parseInt(newMinutes),
+        expiration_hours
       );
       await setRates();
       setNewPeso('');
       setNewMinutes('');
+      setNewExpirationValue('');
+      setNewExpirationUnit('hours');
     } finally {
       setLoading(false);
     }
@@ -39,7 +52,7 @@ const RatesManager: React.FC<Props> = ({ rates, setRates }) => {
     <div className="max-w-4xl mx-auto space-y-4">
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
         <h3 className="text-[10px] font-black text-slate-900 uppercase tracking-widest mb-4">Create Rate Definition</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
           <div>
             <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Currency (₱)</label>
             <input 
@@ -59,6 +72,27 @@ const RatesManager: React.FC<Props> = ({ rates, setRates }) => {
               className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:ring-1 focus:ring-blue-500 outline-none transition-all font-bold text-sm"
               placeholder="10"
             />
+          </div>
+          <div>
+            <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Expiration (Optional)</label>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                value={newExpirationValue}
+                onChange={(e) => setNewExpirationValue(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:ring-1 focus:ring-blue-500 outline-none transition-all font-bold text-sm"
+                placeholder="e.g. 24"
+                min={1}
+              />
+              <select
+                value={newExpirationUnit}
+                onChange={(e) => setNewExpirationUnit(e.target.value as 'hours' | 'days')}
+                className="px-2 py-2 rounded-lg border border-slate-200 bg-white text-[10px] font-black uppercase tracking-widest"
+              >
+                <option value="hours">Hours</option>
+                <option value="days">Days</option>
+              </select>
+            </div>
           </div>
           <div className="flex items-end">
             <button 
@@ -85,6 +119,7 @@ const RatesManager: React.FC<Props> = ({ rates, setRates }) => {
             <tr>
               <th className="px-4 py-3">Denomination</th>
               <th className="px-4 py-3">Duration</th>
+              <th className="px-4 py-3">Expiration</th>
               <th className="px-4 py-3 text-right">Action</th>
             </tr>
           </thead>
@@ -99,6 +134,13 @@ const RatesManager: React.FC<Props> = ({ rates, setRates }) => {
                     ? `${Math.floor(rate.minutes / 60)}h ${rate.minutes % 60 > 0 ? (rate.minutes % 60) + 'm' : ''}`
                     : `${rate.minutes}m`}
                 </td>
+                <td className="px-4 py-2 text-slate-600 font-bold text-xs">
+                  {rate.expiration_hours
+                    ? rate.expiration_hours % 24 === 0
+                      ? `${rate.expiration_hours / 24}d`
+                      : `${rate.expiration_hours}h`
+                    : 'None'}
+                </td>
                 <td className="px-4 py-2 text-right">
                   <button 
                     onClick={() => deleteRate(rate.id)}
@@ -110,7 +152,7 @@ const RatesManager: React.FC<Props> = ({ rates, setRates }) => {
               </tr>
             )) : (
               <tr>
-                <td colSpan={3} className="px-4 py-10 text-center text-slate-400 text-[10px] font-black uppercase">No rates defined.</td>
+                <td colSpan={4} className="px-4 py-10 text-center text-slate-400 text-[10px] font-black uppercase">No rates defined.</td>
               </tr>
             )}
           </tbody>

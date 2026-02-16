@@ -1771,9 +1771,9 @@ app.get('/api/rates', async (req, res) => {
 
 app.post('/api/rates', requireAdmin, async (req, res) => {
   try { 
-    const { pesos, minutes } = req.body;
-    await db.run('INSERT INTO rates (pesos, minutes) VALUES (?, ?)', 
-      [pesos, minutes]); 
+    const { pesos, minutes, expiration_hours } = req.body;
+    await db.run('INSERT INTO rates (pesos, minutes, expiration_hours) VALUES (?, ?, ?)', 
+      [pesos, minutes, expiration_hours || null]); 
     res.json({ success: true }); 
   }
   catch (err) { res.status(500).json({ error: err.message }); }

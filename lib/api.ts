@@ -44,11 +44,11 @@ export const apiClient = {
   },
 
   // Add a new rate definition (fixing error in RatesManager)
-  async addRate(pesos: number, minutes: number): Promise<void> {
+  async addRate(pesos: number, minutes: number, expiration_hours?: number): Promise<void> {
     const res = await fetch(`${API_BASE}/rates`, {
       method: 'POST',
       headers: getHeaders(),
-      body: JSON.stringify({ pesos, minutes })
+      body: JSON.stringify({ pesos, minutes, expiration_hours: expiration_hours ?? null })
     });
     await handleResponse(res);
   },
