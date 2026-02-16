@@ -274,7 +274,12 @@ const App: React.FC = () => {
           <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6 text-3xl">⚠️</div>
           <h2 className="text-xl font-black text-slate-900 mb-2 uppercase tracking-tight">System Offline</h2>
           <p className="text-slate-500 text-sm mb-8 leading-relaxed">{error}</p>
-          <button onClick={() => { setLoading(true); loadData(); }} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-bold hover:bg-black shadow-xl shadow-slate-900/20">Retry System Link</button>
+          <button
+            onClick={() => { setLoading(true); loadData(); }}
+            className="admin-btn-primary w-full py-4 rounded-2xl font-bold shadow-xl shadow-slate-900/20"
+          >
+            Retry System Link
+          </button>
         </div>
       </div>
     );

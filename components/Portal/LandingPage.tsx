@@ -438,7 +438,7 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
                 <>
                   <button 
                     onClick={handleGoToInternet}
-                    className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest mb-3 shadow-xl hover:bg-black transition-all active:scale-95 flex items-center justify-center gap-2"
+                    className="admin-btn-primary w-full py-4 rounded-2xl font-black text-xs uppercase tracking-widest mb-3 shadow-xl active:scale-95 flex items-center justify-center gap-2"
                   >
                     <span>🌍</span> PROCEED TO INTERNET
                   </button>
