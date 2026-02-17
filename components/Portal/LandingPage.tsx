@@ -36,9 +36,9 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
 
   // Hardcoded default rates in case the API fetch returns nothing
   const defaultRates: Rate[] = [
-    { id: '1', pesos: 1, minutes: 10 },
-    { id: '5', pesos: 5, minutes: 60 },
-    { id: '10', pesos: 10, minutes: 180 }
+    { id: '1', pesos: 1, minutes: 24 },
+    { id: '5', pesos: 5, minutes: 120 },
+    { id: '10', pesos: 10, minutes: 240 }
   ];
 
   const activeRates = (rates && rates.length > 0) ? rates : defaultRates;
