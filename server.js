@@ -1577,8 +1577,8 @@ app.post('/api/credits/use', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Could not identify your device MAC.' });
     }
 
-    const { pesos } = req.body || {};
-    const requestedPesos = typeof pesos === 'number' ? Math.floor(pesos) : 0;
+    const { pesos: rawPesos } = req.body || {};
+    const requestedPesos = typeof rawPesos === 'number' ? Math.floor(rawPesos) : 0;
     if (!requestedPesos || requestedPesos <= 0) {
       return res.status(400).json({ success: false, error: 'Invalid credit amount.' });
     }
