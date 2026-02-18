@@ -1645,26 +1645,82 @@ app.post('/api/credits/use', async (req, res) => {
     const uploadLimit = rate ? (rate.upload_limit || 0) : 0;
     const pausable = rate && typeof rate.is_pausable === 'number' ? rate.is_pausable : 1;
 
-    let session = await db.get('SELECT * FROM sessions WHERE mac = ?', [mac]);
-    let tokenToUse = session && session.token ? session.token : null;
+    const requestedToken = getSessionToken(req);
+    let migratedOldMac = null;
+    let migratedOldIp = null;
+
+    let session = null;
+    let tokenToUse = null;
+
+    if (requestedToken) {
+      const sessionByToken = await db.get('SELECT * FROM sessions WHERE token = ?', [requestedToken]);
+      if (sessionByToken) {
+        session = sessionByToken;
+        tokenToUse = requestedToken;
+        if (sessionByToken.mac !== mac) {
+          migratedOldMac = sessionByToken.mac;
+          migratedOldIp = sessionByToken.ip;
+        }
+      }
+    }
+
+    if (!session) {
+      const sessionByMac = await db.get('SELECT * FROM sessions WHERE mac = ?', [mac]);
+      if (sessionByMac) {
+        session = sessionByMac;
+        tokenToUse = sessionByMac.token || requestedToken || tokenToUse;
+      }
+    }
+
     if (!tokenToUse) {
-      tokenToUse = crypto.randomBytes(16).toString('hex');
+      tokenToUse = requestedToken || crypto.randomBytes(16).toString('hex');
     }
 
     if (session) {
-      await db.run(
-        `UPDATE sessions 
-         SET remaining_seconds = remaining_seconds + ?, 
-             total_paid = total_paid + ?, 
-             ip = ?, 
-             download_limit = COALESCE(download_limit, ?), 
-             upload_limit = COALESCE(upload_limit, ?),
-             is_paused = 0,
-             pausable = COALESCE(pausable, ?),
-             token = ?
-         WHERE mac = ?`,
-        [seconds, pesos, clientIp, downloadLimit, uploadLimit, pausable, tokenToUse, mac]
-      );
+      if (session.token === tokenToUse) {
+        await db.run(
+          `UPDATE sessions 
+           SET mac = ?, 
+               ip = ?, 
+               remaining_seconds = remaining_seconds + ?, 
+               total_paid = total_paid + ?, 
+               download_limit = COALESCE(download_limit, ?), 
+               upload_limit = COALESCE(upload_limit, ?),
+               is_paused = 0,
+               pausable = COALESCE(pausable, ?)
+           WHERE token = ?`,
+          [mac, clientIp, seconds, pesos, downloadLimit, uploadLimit, pausable, tokenToUse]
+        );
+      } else if (session.mac === mac) {
+        await db.run(
+          `UPDATE sessions 
+           SET remaining_seconds = remaining_seconds + ?, 
+               total_paid = total_paid + ?, 
+               ip = ?, 
+               download_limit = COALESCE(download_limit, ?), 
+               upload_limit = COALESCE(upload_limit, ?),
+               is_paused = 0,
+               pausable = COALESCE(pausable, ?),
+               token = ?
+           WHERE mac = ?`,
+          [seconds, pesos, clientIp, downloadLimit, uploadLimit, pausable, tokenToUse, mac]
+        );
+      } else {
+        await db.run(
+          `UPDATE sessions 
+           SET mac = ?, 
+               ip = ?, 
+               remaining_seconds = remaining_seconds + ?, 
+               total_paid = total_paid + ?, 
+               download_limit = COALESCE(download_limit, ?), 
+               upload_limit = COALESCE(upload_limit, ?),
+               is_paused = 0,
+               pausable = COALESCE(pausable, ?),
+               token = ?
+           WHERE token = ?`,
+          [mac, clientIp, seconds, pesos, downloadLimit, uploadLimit, pausable, tokenToUse, session.token]
+        );
+      }
     } else {
       await db.run(
         `INSERT INTO sessions (mac, ip, remaining_seconds, total_paid, connected_at, is_paused, download_limit, upload_limit, pausable, token)
@@ -1682,8 +1738,11 @@ app.post('/api/credits/use', async (req, res) => {
 
     try {
       await network.whitelistMAC(mac, clientIp);
+      if (migratedOldMac && migratedOldIp && (migratedOldMac !== mac || migratedOldIp !== clientIp)) {
+        await network.blockMAC(migratedOldMac, migratedOldIp);
+      }
     } catch (e) {
-      console.error('[CREDIT] Failed to whitelist MAC on useCredit:', e);
+      console.error('[CREDIT] Failed to update firewall on useCredit:', e);
     }
 
     res.cookie('ajc_session_token', tokenToUse, {
@@ -1691,9 +1750,8 @@ app.post('/api/credits/use', async (req, res) => {
       sameSite: 'lax'
     });
 
-    const token = getSessionToken(req);
     console.log(
-      `[CREDIT] Used credit for ${mac} | Session ID=${token || tokenToUse || 'NONE'} | ₱${pesos}, ${minutes}m (remaining ₱${remainingPesos}, ${remainingMinutes}m)`
+      `[CREDIT] Used credit for ${mac} | Session ID=${tokenToUse || 'NONE'} | ₱${pesos}, ${minutes}m (remaining ₱${remainingPesos}, ${remainingMinutes}m)`
     );
 
     res.json({ success: true, remainingMinutes: remainingMinutes });
