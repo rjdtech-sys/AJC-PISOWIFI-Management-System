@@ -20,6 +20,8 @@ const NodeMCUManager: React.FC<NodeMCUManagerProps> = ({ devices, onUpdateDevice
   const [isEditingAuthKey, setIsEditingAuthKey] = useState(false);
   const [tempAuthKey, setTempAuthKey] = useState('');
   const [isSavingAuthKey, setIsSavingAuthKey] = useState(false);
+  const [coinsOutDevice, setCoinsOutDevice] = useState<NodeMCUDevice | null>(null);
+  const [coinsOutSharePercent, setCoinsOutSharePercent] = useState<string>('');
 
   useEffect(() => {
     setLocalDevices(devices);
@@ -278,6 +280,12 @@ const NodeMCUManager: React.FC<NodeMCUManagerProps> = ({ devices, onUpdateDevice
   const pendingDevices = localDevices.filter(device => device.status === 'pending');
   const acceptedDevices = localDevices.filter(device => device.status === 'accepted');
 
+  const coinsOutGrossRevenue = coinsOutDevice?.totalRevenue ?? 0;
+  const parsedSharePercent = parseFloat(coinsOutSharePercent || '0');
+  const safeSharePercent = isNaN(parsedSharePercent) ? 0 : parsedSharePercent;
+  const coinsOutShareAmount = coinsOutGrossRevenue * (safeSharePercent / 100);
+  const coinsOutNetIncome = coinsOutGrossRevenue - coinsOutShareAmount;
+
   return (
     <div className="space-y-4 max-w-7xl mx-auto pb-20 animate-in fade-in duration-500">
       {/* System Auth Key Section */}
@@ -520,6 +528,15 @@ const NodeMCUManager: React.FC<NodeMCUManagerProps> = ({ devices, onUpdateDevice
                     </td>
                     <td className="px-4 py-2 text-right">
                       <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          onClick={() => {
+                            setCoinsOutDevice(device);
+                            setCoinsOutSharePercent('');
+                          }}
+                          className="px-2 py-1 bg-amber-50 text-amber-700 text-[8px] font-black uppercase tracking-widest rounded border border-amber-200 hover:bg-amber-100 transition-all"
+                        >
+                          Coins-out
+                        </button>
                         <button 
                           onClick={() => {
                             const coinLabel = normalizeDPinLabel(device.coinPinLabel) || gpioToDPin(device.coinPin ?? device.pin) || 'D6';
@@ -688,6 +705,79 @@ const NodeMCUManager: React.FC<NodeMCUManagerProps> = ({ devices, onUpdateDevice
                   className="px-4 py-2.5 bg-slate-100 text-slate-500 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-slate-200 transition-all"
                 >
                   Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {coinsOutDevice && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-white rounded-xl max-w-sm w-full shadow-2xl border border-slate-200 overflow-hidden">
+            <div className="px-4 py-3 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <h3 className="text-[10px] font-black text-slate-900 uppercase tracking-widest">Coins-out Summary</h3>
+              <button
+                onClick={() => {
+                  setCoinsOutDevice(null);
+                  setCoinsOutSharePercent('');
+                }}
+                className="text-slate-400 hover:text-slate-600 transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 flex items-center justify-between">
+                <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Gross Sales Revenue</div>
+                <div className="text-[11px] font-black text-emerald-600">
+                  ₱{coinsOutGrossRevenue.toFixed(2)}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
+                  Share Percentage
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    value={coinsOutSharePercent}
+                    onChange={(e) => setCoinsOutSharePercent(e.target.value)}
+                    placeholder="Halimbawa: 40 para sa 40% na share"
+                    min={0}
+                    max={100}
+                    step="0.01"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-bold outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-black text-slate-400">%</span>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between px-3 py-2 bg-slate-50 rounded-lg border border-slate-200">
+                  <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Net Income ng Coinslot</div>
+                  <div className="text-[11px] font-black text-slate-900">
+                    ₱{coinsOutNetIncome.toFixed(2)}
+                  </div>
+                </div>
+                <div className="flex items-center justify-between px-3 py-2 bg-slate-50 rounded-lg border border-slate-200">
+                  <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Total Share Mula sa Gross</div>
+                  <div className="text-[11px] font-black text-blue-600">
+                    ₱{coinsOutShareAmount.toFixed(2)}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  onClick={() => {
+                    setCoinsOutDevice(null);
+                    setCoinsOutSharePercent('');
+                  }}
+                  className="flex-1 px-4 py-2.5 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-slate-200 transition-all"
+                >
+                  Isara
                 </button>
               </div>
             </div>
