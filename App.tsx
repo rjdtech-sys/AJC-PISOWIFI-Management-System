@@ -54,10 +54,15 @@ const App: React.FC = () => {
         console.warn('Failed to fetch license status');
       }
 
+      const isAdminRoute = isCurrentlyAdminPath();
+      const devicesPromise = isAdminRoute
+        ? apiClient.getWifiDevices().catch(() => [])
+        : Promise.resolve([]);
+
       const [fetchedRates, sessions, fetchedDevices] = await Promise.all([
         apiClient.getRates(),
         apiClient.getSessions().catch(() => []),
-        apiClient.getWifiDevices().catch(() => [])
+        devicesPromise
       ]);
       setRates(fetchedRates);
       setActiveSessions(sessions);
@@ -126,7 +131,10 @@ const App: React.FC = () => {
       // Periodic refresh from server to ensure sync
       try {
         const sessions = await apiClient.getSessions();
-        const fetchedDevices = await apiClient.getWifiDevices();
+        let fetchedDevices: WifiDevice[] = [];
+        if (isCurrentlyAdminPath()) {
+          fetchedDevices = await apiClient.getWifiDevices();
+        }
         setActiveSessions(sessions);
         setDevices(fetchedDevices);
       } catch (e) {
