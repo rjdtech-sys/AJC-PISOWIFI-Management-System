@@ -1363,11 +1363,26 @@ app.get('/api/whoami', async (req, res) => {
   let creditPesos = 0;
   let creditMinutes = 0;
   try {
-    if (mac) {
-      const device = await db.get('SELECT credit_pesos, credit_minutes FROM wifi_devices WHERE mac = ?', [mac]);
+    let lookupMac = mac;
+    if (lookupMac) {
+      const device = await db.get('SELECT credit_pesos, credit_minutes FROM wifi_devices WHERE mac = ?', [lookupMac]);
       if (device) {
         creditPesos = device.credit_pesos || 0;
         creditMinutes = device.credit_minutes || 0;
+      }
+    }
+
+    if (creditPesos <= 0 && creditMinutes <= 0) {
+      const tokenForCredit = getSessionToken(req);
+      if (tokenForCredit) {
+        const sessionForCredit = await db.get('SELECT mac FROM sessions WHERE token = ?', [tokenForCredit]);
+        if (sessionForCredit && sessionForCredit.mac && sessionForCredit.mac !== mac) {
+          const deviceBySessionMac = await db.get('SELECT credit_pesos, credit_minutes FROM wifi_devices WHERE mac = ?', [sessionForCredit.mac]);
+          if (deviceBySessionMac) {
+            creditPesos = deviceBySessionMac.credit_pesos || 0;
+            creditMinutes = deviceBySessionMac.credit_minutes || 0;
+          }
+        }
       }
     }
   } catch (e) {
