@@ -140,10 +140,18 @@ const CoinModal: React.FC<Props> = ({
   }, [timeLeft, onClose]);
 
   const handleCancel = () => {
-    if (totalPesos > 0 && totalMinutes > 0 && onCancelWithCredit) {
-      onCancelWithCredit(totalPesos, totalMinutes);
+    if (totalPesos > 0 && onCancelWithCredit) {
+      onCancelWithCredit(totalPesos, 0);
     } else {
       onClose();
+    }
+  };
+
+  const handleConfirm = () => {
+    if (mode === 'internet') {
+      onSuccess(totalPesos, totalMinutes, mode);
+    } else {
+      onSuccess(totalPesos, 0, mode);
     }
   };
 
@@ -175,10 +183,12 @@ const CoinModal: React.FC<Props> = ({
               <span className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Credits</span>
               <span className="text-4xl font-black text-slate-900 tracking-tighter">₱{totalPesos}</span>
             </div>
-            <div className="bg-slate-50 p-6 rounded-3xl text-center border border-slate-100 shadow-inner">
-              <span className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Minutes</span>
-              <span className="text-4xl font-black text-slate-900 tracking-tighter">{totalMinutes}</span>
-            </div>
+            {mode === 'internet' && (
+              <div className="bg-slate-50 p-6 rounded-3xl text-center border border-slate-100 shadow-inner">
+                <span className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Minutes</span>
+                <span className="text-4xl font-black text-slate-900 tracking-tighter">{totalMinutes}</span>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3 pt-2">
@@ -209,7 +219,7 @@ const CoinModal: React.FC<Props> = ({
 
         <div className="p-8 pt-0 pb-10 flex flex-col gap-4">
           <button
-            onClick={() => onSuccess(totalPesos, totalMinutes, mode)}
+            onClick={handleConfirm}
             disabled={totalPesos === 0}
             className={`w-full py-5 rounded-2xl font-black text-lg transition-all shadow-xl tracking-tight uppercase ${
               totalPesos > 0 

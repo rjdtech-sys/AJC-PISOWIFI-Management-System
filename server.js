@@ -1554,7 +1554,7 @@ app.post('/api/credits/add', async (req, res) => {
     const safePesos = typeof pesos === 'number' && pesos > 0 ? Math.floor(pesos) : 0;
     const safeMinutes = typeof minutes === 'number' && minutes > 0 ? Math.floor(minutes) : 0;
 
-    if (!safePesos || !safeMinutes) {
+    if (!safePesos) {
       return res.status(400).json({ success: false, error: 'Invalid credit values.' });
     }
 
@@ -1573,7 +1573,11 @@ app.post('/api/credits/add', async (req, res) => {
     }
 
     const token = getSessionToken(req);
-    console.log(`[CREDIT] Added credit for ${mac} | Session ID=${token || 'NONE'} | ₱${safePesos}, ${safeMinutes}m`);
+    if (safeMinutes > 0) {
+      console.log(`[CREDIT] Added credit for ${mac} | Session ID=${token || 'NONE'} | ₱${safePesos}, ${safeMinutes}m`);
+    } else {
+      console.log(`[CREDIT] Added credit for ${mac} | Session ID=${token || 'NONE'} | ₱${safePesos}`);
+    }
     res.json({ success: true });
   } catch (err) {
     console.error('[CREDIT] Error adding credit:', err);
@@ -1637,8 +1641,39 @@ app.post('/api/credits/use', async (req, res) => {
     if (totalCreditPesos > 0 && totalCreditMinutes > 0) {
       const perPeso = totalCreditMinutes / totalCreditPesos;
       minutes = Math.floor(perPeso * requestedPesos);
-    } else if (totalCreditMinutes > 0) {
+    } else if (totalCreditMinutes > 0 && totalCreditPesos === 0) {
       minutes = totalCreditMinutes;
+    }
+
+    if (minutes <= 0) {
+      const rateRows = await db.all('SELECT pesos, minutes FROM rates');
+      let derivedMinutes = 0;
+
+      if (rateRows && rateRows.length > 0) {
+        const exactRate = rateRows.find(r => r.pesos === requestedPesos);
+        if (exactRate && exactRate.minutes > 0) {
+          derivedMinutes = exactRate.minutes;
+        } else {
+          let bestMinutesPerPeso = 0;
+          for (const rate of rateRows) {
+            if (rate.pesos > 0 && rate.minutes > 0) {
+              const mpp = rate.minutes / rate.pesos;
+              if (mpp > bestMinutesPerPeso) {
+                bestMinutesPerPeso = mpp;
+              }
+            }
+          }
+          if (bestMinutesPerPeso > 0) {
+            derivedMinutes = Math.floor(bestMinutesPerPeso * requestedPesos);
+          }
+        }
+      }
+
+      if (!derivedMinutes) {
+        derivedMinutes = requestedPesos * 10;
+      }
+
+      minutes = derivedMinutes;
     }
 
     if (minutes <= 0) {
