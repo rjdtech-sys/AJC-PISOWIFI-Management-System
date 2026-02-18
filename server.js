@@ -1287,56 +1287,20 @@ app.use(async (req, res, next) => {
     }
   }
 
-  // FORCE REDIRECT to centralized portal host (IP/hostname) for session sharing
-  let centralPortalHost = null;
-  let centralPortalEnabled = false;
-  try {
-    const enabledRow = await db.get('SELECT value FROM config WHERE key = ?', ['centralPortalIpEnabled']);
-    const ipRow = await db.get('SELECT value FROM config WHERE key = ?', ['centralPortalIp']);
-    centralPortalEnabled = enabledRow?.value === '1' || enabledRow?.value === 'true';
-    let rawHost = (ipRow?.value || '').trim();
-    if (rawHost) {
-      if (rawHost.startsWith('http://')) {
-        rawHost = rawHost.substring(7);
-      } else if (rawHost.startsWith('https://')) {
-        rawHost = rawHost.substring(8);
-      }
-      while (rawHost.endsWith('/')) {
-        rawHost = rawHost.slice(0, -1);
-      }
-      if (rawHost) {
-        centralPortalHost = rawHost;
-      }
-    }
-  } catch (e) {}
-
-  const isLocalHost = host.includes('localhost') || host.includes('127.0.0.1');
-
-  if (centralPortalEnabled && centralPortalHost) {
-    if (isProbe) {
-      if (!isLocalHost && host !== centralPortalHost) {
-        return res.redirect(`http://${centralPortalHost}/`);
-      }
-      return res.sendFile(path.join(__dirname, 'index.html'));
-    }
-
-    if (!isLocalHost && host !== centralPortalHost) {
-      return res.redirect(`http://${centralPortalHost}/`);
-    }
-
-    return next();
-  }
-
+  // FORCE REDIRECT to common domain for session sharing (localStorage)
   const PORTAL_DOMAIN = 'portal.ajcpisowifi.com';
 
   if (isProbe) {
-    return res.sendFile(path.join(__dirname, 'index.html'));
+      // Probes get the file directly to satisfy the CNA
+      return res.sendFile(path.join(__dirname, 'index.html'));
   }
 
-  if (!isLocalHost && host !== PORTAL_DOMAIN) {
-    return res.redirect(`http://${PORTAL_DOMAIN}/`);
+  // If we are NOT on the portal domain (and not localhost), redirect.
+  // This catches IP address access (10.0.0.1) and forces it to the domain.
+  if (host !== PORTAL_DOMAIN && !host.includes('localhost') && !host.includes('127.0.0.1')) {
+      return res.redirect(`http://${PORTAL_DOMAIN}/`);
   }
-
+  
   next();
 });
 
@@ -1478,17 +1442,6 @@ app.get('/api/whoami', async (req, res) => {
             } catch (e) {}
             console.log(`[AUTH] Auto-restore triggered: Session ID=${token} moved from ${sessionByToken.mac} to ${mac}`);
           }
-        } else if (mac) {
-          const sessionByMac = await db.get('SELECT * FROM sessions WHERE mac = ? AND remaining_seconds > 0', [mac]);
-          if (sessionByMac) {
-            await db.run('UPDATE sessions SET token = ? WHERE mac = ?', [token, mac]);
-            try {
-              res.cookie('ajc_session_token', token, { path: '/', maxAge: 30 * 24 * 60 * 60 * 1000, sameSite: 'lax' });
-            } catch (e) {}
-            console.log(`[AUTH] Bound new Session ID=${token} to existing MAC=${mac} for auto-restore`);
-          } else {
-            console.log(`[AUTH] No session found for Session ID=${token}`);
-          }
         } else {
           console.log(`[AUTH] No session found for Session ID=${token}`);
         }
@@ -1601,7 +1554,7 @@ app.post('/api/credits/add', async (req, res) => {
     const safePesos = typeof pesos === 'number' && pesos > 0 ? Math.floor(pesos) : 0;
     const safeMinutes = typeof minutes === 'number' && minutes > 0 ? Math.floor(minutes) : 0;
 
-    if (!safePesos || !safeMinutes) {
+    if (!safePesos) {
       return res.status(400).json({ success: false, error: 'Invalid credit values.' });
     }
 
@@ -1614,13 +1567,17 @@ app.post('/api/credits/add', async (req, res) => {
     } else {
       const id = `device_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       await db.run(
-        'INSERT INTO wifi_devices (id, mac, ip, hostname, interface, ssid, signal, connected_at, last_seen, is_active, custom_name, credit_pesos, credit_minutes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO wifi_devices (id, mac, ip, hostname, interface, ssid, signal, connected_at, last_seen, is_active, custom_name, credit_pesos, credit_minutes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [id, mac, clientIp, '', '', '', 0, Date.now(), Date.now(), 0, '', safePesos, safeMinutes]
       );
     }
 
     const token = getSessionToken(req);
-    console.log(`[CREDIT] Added credit for ${mac} | Session ID=${token || 'NONE'} | ₱${safePesos}, ${safeMinutes}m`);
+    if (safeMinutes > 0) {
+      console.log(`[CREDIT] Added credit for ${mac} | Session ID=${token || 'NONE'} | ₱${safePesos}, ${safeMinutes}m`);
+    } else {
+      console.log(`[CREDIT] Added credit for ${mac} | Session ID=${token || 'NONE'} | ₱${safePesos}`);
+    }
     res.json({ success: true });
   } catch (err) {
     console.error('[CREDIT] Error adding credit:', err);
@@ -1684,19 +1641,39 @@ app.post('/api/credits/use', async (req, res) => {
     if (totalCreditPesos > 0 && totalCreditMinutes > 0) {
       const perPeso = totalCreditMinutes / totalCreditPesos;
       minutes = Math.floor(perPeso * requestedPesos);
-      if (minutes <= 0 && totalCreditMinutes > 0) {
-        minutes = 1;
-      }
-      if (minutes > totalCreditMinutes) {
-        minutes = totalCreditMinutes;
-      }
-    } else if (totalCreditMinutes > 0) {
+    } else if (totalCreditMinutes > 0 && totalCreditPesos === 0) {
       minutes = totalCreditMinutes;
-    } else if (totalCreditPesos > 0) {
-      const rateRow = await db.get('SELECT minutes FROM rates WHERE pesos = ?', [requestedPesos]);
-      if (rateRow && typeof rateRow.minutes === 'number' && rateRow.minutes > 0) {
-        minutes = rateRow.minutes;
+    }
+
+    if (minutes <= 0) {
+      const rateRows = await db.all('SELECT pesos, minutes FROM rates');
+      let derivedMinutes = 0;
+
+      if (rateRows && rateRows.length > 0) {
+        const exactRate = rateRows.find(r => r.pesos === requestedPesos);
+        if (exactRate && exactRate.minutes > 0) {
+          derivedMinutes = exactRate.minutes;
+        } else {
+          let bestMinutesPerPeso = 0;
+          for (const rate of rateRows) {
+            if (rate.pesos > 0 && rate.minutes > 0) {
+              const mpp = rate.minutes / rate.pesos;
+              if (mpp > bestMinutesPerPeso) {
+                bestMinutesPerPeso = mpp;
+              }
+            }
+          }
+          if (bestMinutesPerPeso > 0) {
+            derivedMinutes = Math.floor(bestMinutesPerPeso * requestedPesos);
+          }
+        }
       }
+
+      if (!derivedMinutes) {
+        derivedMinutes = requestedPesos * 10;
+      }
+
+      minutes = derivedMinutes;
     }
 
     if (minutes <= 0) {

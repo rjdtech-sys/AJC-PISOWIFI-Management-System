@@ -151,11 +151,7 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
         setSlotError(result?.error || 'Walang available na credit para gamitin.');
         return;
       }
-      if (typeof result.remainingMinutes === 'number') {
-        setCreditMinutes(result.remainingMinutes);
-      } else {
-        setCreditMinutes(0);
-      }
+      setCreditMinutes(0);
       setCreditPesos(creditPesos - requested);
       if (refreshSessions) {
         await refreshSessions();
@@ -540,10 +536,9 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
                 <div className="mt-2 flex flex-wrap items-center justify-center gap-4 tracking-[0.2em]">
                   <span>Device IP: {clientIp || 'Detecting...'}</span>
                   <span>Device MAC: {isMacLoading ? 'Detecting...' : myMac}</span>
-                  {(creditPesos > 0 || creditMinutes > 0) && (
+                  {creditPesos > 0 && (
                     <span>
                       Credit: ₱{creditPesos}
-                      {creditMinutes > 0 ? ` / ${creditMinutes}m` : ''}
                     </span>
                   )}
                 </div>
@@ -596,10 +591,9 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
                 <div className="flex flex-wrap items-center justify-center gap-4">
                   <span>Device IP: {clientIp || 'Detecting...'}</span>
                   <span>Device MAC: {isMacLoading ? 'Detecting...' : myMac}</span>
-                  {(creditPesos > 0 || creditMinutes > 0) && (
+                  {creditPesos > 0 && (
                     <span>
                       Credit: ₱{creditPesos}
-                      {creditMinutes > 0 ? ` / ${creditMinutes}m` : ''}
                     </span>
                   )}
                 </div>
@@ -672,7 +666,7 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
           <button onClick={handleOpenModal} className="portal-btn">
             {mySession ? 'ADD MORE TIME' : 'INSERT COIN'}
           </button>
-          {(creditPesos > 0 || creditMinutes > 0) && (
+          {creditPesos > 0 && (
             <button
               onClick={handleUseCredit}
               className="portal-btn mt-3 bg-emerald-600 hover:bg-emerald-700"
@@ -763,12 +757,11 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
         <CoinModal 
           onClose={handleCloseModal}
           onCancelWithCredit={(pesos, minutes) => {
-            apiClient.addCredit(pesos, minutes).catch(() => {});
+            apiClient.addCredit(pesos).catch(() => {});
             if (reservedSlot && coinSlotLockId) {
               apiClient.releaseCoinSlot(reservedSlot, coinSlotLockId).catch(() => {});
             }
             setCreditPesos(prev => prev + pesos);
-            setCreditMinutes(prev => prev + minutes);
             setShowModal(false);
             setReservedSlot(null);
             setCoinSlotLockId(null);
@@ -790,13 +783,12 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
               });
             } else {
               apiClient
-                .addCredit(pesos, minutes)
+                .addCredit(pesos)
                 .catch(() => {});
               if (reservedSlot && coinSlotLockId) {
                 apiClient.releaseCoinSlot(reservedSlot, coinSlotLockId).catch(() => {});
               }
               setCreditPesos(prev => prev + pesos);
-              setCreditMinutes(prev => prev + minutes);
             }
             setShowModal(false);
             setReservedSlot(null);

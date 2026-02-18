@@ -193,11 +193,15 @@ export const apiClient = {
     return { status: res.status, ...(data || {}) };
   },
 
-  async addCredit(pesos: number, minutes: number): Promise<{ success: boolean; status?: number }> {
+  async addCredit(pesos: number, minutes?: number): Promise<{ success: boolean; status?: number }> {
+    const payload: any = { pesos };
+    if (typeof minutes === 'number') {
+      payload.minutes = minutes;
+    }
     const res = await fetch(`${API_BASE}/credits/add`, {
       method: 'POST',
       headers: getHeaders(),
-      body: JSON.stringify({ pesos, minutes })
+      body: JSON.stringify(payload)
     });
     const data = await res.json().catch(() => ({}));
     return { status: res.status, ...(data || {}) };
