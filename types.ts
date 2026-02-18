@@ -222,7 +222,8 @@ export enum AdminTab {
   Bandwidth = 'bandwidth',
   MultiWan = 'multi_wan',
   Chat = 'chat',
-  Vouchers = 'vouchers'
+  Vouchers = 'vouchers',
+  SalesInventory = 'sales_inventory'
 }
 
 export interface UpdateLog {

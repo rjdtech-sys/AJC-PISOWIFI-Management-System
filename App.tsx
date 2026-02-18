@@ -357,6 +357,7 @@ const App: React.FC = () => {
                 <SidebarItem disabled={licenseStatus.isRevoked} active={activeTab === AdminTab.Chat} onClick={() => setActiveTab(AdminTab.Chat)} icon="💬" label="Chat" collapsed={!sidebarOpen} />
                 <SidebarItem disabled={licenseStatus.isRevoked} active={activeTab === AdminTab.Machines} onClick={() => setActiveTab(AdminTab.Machines)} icon="🤖" label="Machines" collapsed={!sidebarOpen} />
                 <SidebarItem disabled={licenseStatus.isRevoked} active={activeTab === AdminTab.Vouchers} onClick={() => setActiveTab(AdminTab.Vouchers)} icon="🎟️" label="Vouchers" collapsed={!sidebarOpen} />
+                <SidebarItem disabled={licenseStatus.isRevoked} active={activeTab === AdminTab.SalesInventory} onClick={() => setActiveTab(AdminTab.SalesInventory)} icon="📒" label="Sales Inventory" collapsed={!sidebarOpen} />
                 <SidebarItem active={activeTab === AdminTab.System} onClick={() => setActiveTab(AdminTab.System)} icon="⚙️" label="System" collapsed={!sidebarOpen} />
                 <SidebarItem disabled={licenseStatus.isRevoked} active={activeTab === AdminTab.Updater} onClick={() => setActiveTab(AdminTab.Updater)} icon="🚀" label="Updater" collapsed={!sidebarOpen} />
               </nav>
@@ -426,6 +427,7 @@ const App: React.FC = () => {
                   {activeTab === AdminTab.Chat && <ChatManager />}
                   {activeTab === AdminTab.Machines && <MyMachines />}
                   {activeTab === AdminTab.Vouchers && <VoucherManager />}
+                  {activeTab === AdminTab.SalesInventory && <SalesInventory sessions={activeSessions} />}
                   {activeTab === AdminTab.System && <SystemSettings />}
                   {activeTab === AdminTab.Updater && <SystemUpdater />}
                 </div>
@@ -473,5 +475,340 @@ const SidebarItem: React.FC<{ active: boolean; onClick: () => void; icon: string
     {!collapsed && <span className="sidebar-label uppercase tracking-wider text-[10px] font-bold">{label}</span>}
   </button>
 );
+
+const SalesInventory: React.FC<{ sessions: UserSession[] }> = ({ sessions }) => {
+  const [fromDate, setFromDate] = useState<string>(() => {
+    const now = new Date();
+    return now.toISOString().slice(0, 10);
+  });
+  const [toDate, setToDate] = useState<string>(() => {
+    const now = new Date();
+    return now.toISOString().slice(0, 10);
+  });
+  const [datePreset, setDatePreset] = useState<string>('today');
+  const [typeFilter, setTypeFilter] = useState<string>('all');
+  const [coinSlotFilter, setCoinSlotFilter] = useState<string>('all');
+  const [itemsPerPage, setItemsPerPage] = useState<number>(10);
+  const [searchTerm, setSearchTerm] = useState<string>('');
+  const [showOldestFirst, setShowOldestFirst] = useState<boolean>(false);
+  const [showPaymentsBreakdown, setShowPaymentsBreakdown] = useState<boolean>(false);
+  const [showNotCredited, setShowNotCredited] = useState<boolean>(false);
+
+  const applyDatePreset = (preset: string) => {
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+    let from = todayStr;
+    let to = todayStr;
+
+    if (preset === 'yesterday') {
+      const d = new Date(now);
+      d.setDate(d.getDate() - 1);
+      from = d.toISOString().slice(0, 10);
+      to = from;
+    } else if (preset === 'this_week') {
+      const d = new Date(now);
+      const day = d.getDay();
+      const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+      const start = new Date(d.setDate(diff));
+      from = start.toISOString().slice(0, 10);
+      to = todayStr;
+    } else if (preset === 'this_month') {
+      const start = new Date(now.getFullYear(), now.getMonth(), 1);
+      from = start.toISOString().slice(0, 10);
+      to = todayStr;
+    } else if (preset === 'since_last_month') {
+      const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      from = start.toISOString().slice(0, 10);
+      to = todayStr;
+    } else if (preset === 'last_2_months') {
+      const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      from = start.toISOString().slice(0, 10);
+      const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      to = end.toISOString().slice(0, 10);
+    } else if (preset === 'this_year') {
+      const start = new Date(now.getFullYear(), 0, 1);
+      from = start.toISOString().slice(0, 10);
+      to = todayStr;
+    }
+
+    setFromDate(from);
+    setToDate(to);
+  };
+
+  const parseDate = (value: string) => new Date(value + 'T00:00:00');
+
+  const enhancedSessions = useMemo(() => {
+    return sessions.map((s) => {
+      const createdAt = (s as any).connectedAt || (s as any).createdAt || new Date().toISOString();
+      const type = 'coin';
+      const coinSlot = (s as any).coinSlot || 'MAIN';
+      const mac = s.mac || (s as any).customer_mac || '';
+      const account = (s as any).account || '';
+      const customer = (s as any).customer || '';
+      const device = (s as any).device || '';
+      return {
+        ...s,
+        __createdAt: createdAt as string,
+        __type: type,
+        __coinSlot: coinSlot as string,
+        __mac: mac as string,
+        __account: account as string,
+        __customer: customer as string,
+        __device: device as string,
+      };
+    });
+  }, [sessions]);
+
+  const filtered = useMemo(() => {
+    const from = parseDate(fromDate);
+    const to = parseDate(toDate);
+    const upperSearch = searchTerm.trim().toUpperCase();
+
+    let result = enhancedSessions.filter((s: any) => {
+      const created = new Date(s.__createdAt);
+      if (created < from || created > new Date(to.getTime() + 24 * 60 * 60 * 1000 - 1)) return false;
+      if (typeFilter !== 'all' && s.__type !== typeFilter) return false;
+      if (coinSlotFilter !== 'all' && s.__coinSlot !== coinSlotFilter) return false;
+      if (upperSearch) {
+        const mac = (s.__mac || '').toUpperCase();
+        const account = (s.__account || '').toUpperCase();
+        if (!mac.includes(upperSearch) && !account.includes(upperSearch)) return false;
+      }
+      return true;
+    });
+
+    result = result.sort((a: any, b: any) => {
+      const da = new Date(a.__createdAt).getTime();
+      const db = new Date(b.__createdAt).getTime();
+      return showOldestFirst ? da - db : db - da;
+    });
+
+    return result;
+  }, [enhancedSessions, fromDate, toDate, typeFilter, coinSlotFilter, searchTerm, showOldestFirst]);
+
+  const totalSalesToday = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    return enhancedSessions
+      .filter((s: any) => (s.__createdAt as string).slice(0, 10) === today)
+      .reduce((sum: number, s: any) => sum + (s.totalPaid || 0), 0);
+  }, [enhancedSessions]);
+
+  const paginated = useMemo(() => filtered.slice(0, itemsPerPage), [filtered, itemsPerPage]);
+
+  const uniqueCoinSlots = useMemo(() => {
+    const set = new Set<string>();
+    enhancedSessions.forEach((s: any) => {
+      if (s.__coinSlot) set.add(s.__coinSlot);
+    });
+    return Array.from(set);
+  }, [enhancedSessions]);
+
+  useEffect(() => {
+    applyDatePreset(datePreset);
+  }, [datePreset]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-black text-slate-900 uppercase tracking-tight">Sales Inventory</h1>
+          <p className="text-xs text-slate-500">Monitorahin ang lahat ng benta ayon sa type at petsa.</p>
+        </div>
+        <div className="bg-white rounded-2xl px-5 py-3 shadow-sm border border-slate-100 flex items-baseline gap-3">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Sales Today</span>
+          <span className="text-2xl font-black text-emerald-600">
+            ₱{totalSalesToday.toFixed(2)}
+          </span>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-3">
+          <div className="space-y-1">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">From</label>
+            <input
+              type="date"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+              className="w-full admin-input text-xs"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">To</label>
+            <input
+              type="date"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+              className="w-full admin-input text-xs"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">More Date Filters</label>
+            <select
+              value={datePreset}
+              onChange={(e) => setDatePreset(e.target.value)}
+              className="w-full admin-input text-xs"
+            >
+              <option value="today">Today</option>
+              <option value="yesterday">Yesterday</option>
+              <option value="this_week">This Week</option>
+              <option value="this_month">This Month</option>
+              <option value="since_last_month">Since Last Month</option>
+              <option value="last_2_months">Last 2 Months</option>
+              <option value="this_year">This Year</option>
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Type</label>
+            <select
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value)}
+              className="w-full admin-input text-xs"
+            >
+              <option value="all">All</option>
+              <option value="voucher">Voucher</option>
+              <option value="coin">Coin</option>
+              <option value="cash">Cash</option>
+              <option value="eload">Eload</option>
+              <option value="subscription">Subscription</option>
+              <option value="cash_in">Cash-in</option>
+              <option value="bills_payment">Bills Payment</option>
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Coinslot</label>
+            <select
+              value={coinSlotFilter}
+              onChange={(e) => setCoinSlotFilter(e.target.value)}
+              className="w-full admin-input text-xs"
+            >
+              <option value="all">All</option>
+              {uniqueCoinSlots.map((slot) => (
+                <option key={slot} value={slot}>{slot}</option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Items per page</label>
+            <select
+              value={itemsPerPage}
+              onChange={(e) => setItemsPerPage(parseInt(e.target.value, 10))}
+              className="w-full admin-input text-xs"
+            >
+              <option value={10}>10</option>
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Search MAC / Account</label>
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full admin-input text-xs"
+              placeholder="Ex: 11:22:33 or 09xxxxxxxxx"
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-4 text-[11px]">
+            <label className="inline-flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showOldestFirst}
+                onChange={(e) => setShowOldestFirst(e.target.checked)}
+                className="w-3 h-3 rounded border-slate-300"
+              />
+              <span className="font-semibold text-slate-600">Show oldest first</span>
+            </label>
+            <label className="inline-flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showPaymentsBreakdown}
+                onChange={(e) => setShowPaymentsBreakdown(e.target.checked)}
+                className="w-3 h-3 rounded border-slate-300"
+              />
+              <span className="font-semibold text-slate-600">Show payments break-down</span>
+            </label>
+            <label className="inline-flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showNotCredited}
+                onChange={(e) => setShowNotCredited(e.target.checked)}
+                className="w-3 h-3 rounded border-slate-300"
+              />
+              <span className="font-semibold text-slate-600">Show not credited</span>
+            </label>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="admin-btn-secondary px-4 py-2 rounded-xl text-[11px] font-bold uppercase tracking-widest"
+            >
+              Download Sales Report
+            </button>
+            <button
+              type="button"
+              className="admin-btn-danger px-4 py-2 rounded-xl text-[11px] font-bold uppercase tracking-widest"
+            >
+              Clear Inventory
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-xs">
+            <thead className="bg-slate-50 border-b border-slate-100">
+              <tr className="text-[10px] uppercase tracking-widest text-slate-500">
+                <th className="px-4 py-2 text-left font-bold">Amount</th>
+                <th className="px-4 py-2 text-left font-bold">Type</th>
+                <th className="px-4 py-2 text-left font-bold">Coinslot</th>
+                <th className="px-4 py-2 text-left font-bold">Customer</th>
+                <th className="px-4 py-2 text-left font-bold">Device</th>
+                <th className="px-4 py-2 text-left font-bold">MAC</th>
+                <th className="px-4 py-2 text-left font-bold">Account / Phone</th>
+                <th className="px-4 py-2 text-left font-bold">Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paginated.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="px-4 py-6 text-center text-[11px] text-slate-400">
+                    Walang nahanap na sales sa napiling filter.
+                  </td>
+                </tr>
+              )}
+              {paginated.map((s: any, idx: number) => (
+                <tr
+                  key={(s.mac || s.__mac || 'row') + idx}
+                  className="border-b border-slate-50 hover:bg-slate-50/60"
+                >
+                  <td className="px-4 py-2 font-semibold text-slate-800">
+                    ₱{(s.totalPaid || 0).toFixed(2)}
+                  </td>
+                  <td className="px-4 py-2 text-[11px] font-semibold">
+                    {s.__type === 'coin' && <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">Coin</span>}
+                  </td>
+                  <td className="px-4 py-2 text-[11px] text-slate-700">{s.__coinSlot}</td>
+                  <td className="px-4 py-2 text-[11px] text-slate-700">{s.__customer || 'N/A'}</td>
+                  <td className="px-4 py-2 text-[11px] text-slate-700">{s.__device || 'N/A'}</td>
+                  <td className="px-4 py-2 text-[11px] font-mono text-slate-700">{s.__mac || 'N/A'}</td>
+                  <td className="px-4 py-2 text-[11px] text-slate-700">{s.__account || 'N/A'}</td>
+                  <td className="px-4 py-2 text-[11px] text-slate-600">
+                    {new Date(s.__createdAt).toLocaleString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export default App;
