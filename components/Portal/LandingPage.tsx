@@ -132,7 +132,21 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
   const handleUseCredit = async () => {
     setSlotError(null);
     try {
-      const result = await apiClient.useCredit();
+      if (creditPesos <= 0) {
+        setSlotError('Walang available na credit para gamitin.');
+        return;
+      }
+      const input = window.prompt(`Ilang credit ang gagamitin? (Max: ${creditPesos})`, '1');
+      if (!input) {
+        return;
+      }
+      const requested = parseInt(input, 10);
+      if (isNaN(requested) || requested <= 0 || requested > creditPesos) {
+        setSlotError('Invalid na halaga ng credit.');
+        return;
+      }
+
+      const result = await apiClient.useCredit(requested);
       if (!result || result.success === false) {
         setSlotError(result?.error || 'Walang available na credit para gamitin.');
         return;
@@ -142,7 +156,7 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
       } else {
         setCreditMinutes(0);
       }
-      setCreditPesos(0);
+      setCreditPesos(creditPesos - requested);
       if (refreshSessions) {
         await refreshSessions();
       }

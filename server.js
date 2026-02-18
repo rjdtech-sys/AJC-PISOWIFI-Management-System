@@ -1577,9 +1577,18 @@ app.post('/api/credits/use', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Could not identify your device MAC.' });
     }
 
+    const { pesos } = req.body || {};
+    const requestedPesos = typeof pesos === 'number' ? Math.floor(pesos) : 0;
+    if (!requestedPesos || requestedPesos <= 0) {
+      return res.status(400).json({ success: false, error: 'Invalid credit amount.' });
+    }
+
     const device = await db.get('SELECT id, credit_pesos, credit_minutes FROM wifi_devices WHERE mac = ?', [mac]);
-    if (!device || !device.credit_minutes || device.credit_minutes <= 0) {
+    if (!device || ((!device.credit_minutes || device.credit_minutes <= 0) && (!device.credit_pesos || device.credit_pesos <= 0))) {
       return res.status(400).json({ success: false, error: 'No saved credit available for this device.' });
+    }
+    if (!device.credit_pesos || requestedPesos > device.credit_pesos) {
+      return res.status(400).json({ success: false, error: 'Not enough credit available.' });
     }
 
     if (!systemHardwareId) systemHardwareId = await getUniqueHardwareId();
@@ -1606,8 +1615,22 @@ app.post('/api/credits/use', async (req, res) => {
       }
     }
 
-    const minutes = device.credit_minutes || 0;
-    const pesos = device.credit_pesos || 0;
+    const totalCreditPesos = device.credit_pesos || 0;
+    const totalCreditMinutes = device.credit_minutes || 0;
+
+    let minutes = 0;
+    if (totalCreditPesos > 0 && totalCreditMinutes > 0) {
+      const perPeso = totalCreditMinutes / totalCreditPesos;
+      minutes = Math.floor(perPeso * requestedPesos);
+    } else if (totalCreditMinutes > 0) {
+      minutes = totalCreditMinutes;
+    }
+
+    if (minutes <= 0) {
+      return res.status(400).json({ success: false, error: 'Cannot convert credit to time.' });
+    }
+
+    const pesos = requestedPesos;
     const seconds = minutes * 60;
 
     let rate = await db.get('SELECT * FROM rates WHERE pesos = ? AND minutes = ?', [pesos, minutes]);
@@ -1650,7 +1673,12 @@ app.post('/api/credits/use', async (req, res) => {
       );
     }
 
-    await db.run('UPDATE wifi_devices SET credit_pesos = 0, credit_minutes = 0, last_seen = ? WHERE id = ?', [Date.now(), device.id]);
+    const remainingPesos = Math.max(0, totalCreditPesos - requestedPesos);
+    const remainingMinutes = Math.max(0, totalCreditMinutes - minutes);
+    await db.run(
+      'UPDATE wifi_devices SET credit_pesos = ?, credit_minutes = ?, last_seen = ? WHERE id = ?',
+      [remainingPesos, remainingMinutes, Date.now(), device.id]
+    );
 
     try {
       await network.whitelistMAC(mac, clientIp);
@@ -1664,9 +1692,11 @@ app.post('/api/credits/use', async (req, res) => {
     });
 
     const token = getSessionToken(req);
-    console.log(`[CREDIT] Used credit for ${mac} | Session ID=${token || tokenToUse || 'NONE'} | ₱${pesos}, ${minutes}m`);
+    console.log(
+      `[CREDIT] Used credit for ${mac} | Session ID=${token || tokenToUse || 'NONE'} | ₱${pesos}, ${minutes}m (remaining ₱${remainingPesos}, ${remainingMinutes}m)`
+    );
 
-    res.json({ success: true, remainingMinutes: minutes });
+    res.json({ success: true, remainingMinutes: remainingMinutes });
   } catch (err) {
     console.error('[CREDIT] Error using credit:', err);
     res.status(500).json({ success: false, error: err.message });

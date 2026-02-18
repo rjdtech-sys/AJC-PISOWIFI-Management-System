@@ -203,10 +203,11 @@ export const apiClient = {
     return { status: res.status, ...(data || {}) };
   },
 
-  async useCredit(): Promise<{ success: boolean; error?: string; remainingMinutes?: number }> {
+  async useCredit(pesos: number): Promise<{ success: boolean; error?: string; remainingMinutes?: number }> {
     const res = await fetch(`${API_BASE}/credits/use`, {
       method: 'POST',
-      headers: getHeaders()
+      headers: getHeaders(),
+      body: JSON.stringify({ pesos })
     });
     const data = await res.json().catch(() => ({}));
     return {
