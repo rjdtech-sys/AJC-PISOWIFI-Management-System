@@ -539,7 +539,8 @@ const SalesInventory: React.FC<{ sessions: UserSession[] }> = ({ sessions }) => 
 
   const enhancedSessions = useMemo(() => {
     return sessions.map((s) => {
-      const createdAt = (s as any).connectedAt || (s as any).createdAt || new Date().toISOString();
+      const rawCreatedAt = (s as any).connectedAt || (s as any).createdAt || new Date().toISOString();
+      const createdAt = new Date(rawCreatedAt).toISOString();
       const type = 'coin';
       const coinSlot = (s as any).coinSlot || 'MAIN';
       const mac = s.mac || (s as any).customer_mac || '';
@@ -548,7 +549,7 @@ const SalesInventory: React.FC<{ sessions: UserSession[] }> = ({ sessions }) => 
       const device = (s as any).device || '';
       return {
         ...s,
-        __createdAt: createdAt as string,
+        __createdAt: createdAt,
         __type: type,
         __coinSlot: coinSlot as string,
         __mac: mac as string,
@@ -589,7 +590,13 @@ const SalesInventory: React.FC<{ sessions: UserSession[] }> = ({ sessions }) => 
   const totalSalesToday = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
     return enhancedSessions
-      .filter((s: any) => (s.__createdAt as string).slice(0, 10) === today)
+      .filter((s: any) => {
+        try {
+          return new Date(s.__createdAt).toISOString().slice(0, 10) === today;
+        } catch {
+          return false;
+        }
+      })
       .reduce((sum: number, s: any) => sum + (s.totalPaid || 0), 0);
   }, [enhancedSessions]);
 
