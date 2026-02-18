@@ -1692,6 +1692,11 @@ app.post('/api/credits/use', async (req, res) => {
       }
     } else if (totalCreditMinutes > 0) {
       minutes = totalCreditMinutes;
+    } else if (totalCreditPesos > 0) {
+      const rateRow = await db.get('SELECT minutes FROM rates WHERE pesos = ?', [requestedPesos]);
+      if (rateRow && typeof rateRow.minutes === 'number' && rateRow.minutes > 0) {
+        minutes = rateRow.minutes;
+      }
     }
 
     if (minutes <= 0) {
