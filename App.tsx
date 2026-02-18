@@ -594,7 +594,30 @@ const SalesInventory: React.FC<{ sessions: UserSession[] }> = ({ sessions }) => 
     const to = parseDate(toDate);
     const upperSearch = searchTerm.trim().toUpperCase();
 
-    let result = enhancedSessions.filter((s: any) => {
+    const rows: any[] = [...enhancedSessions];
+
+    if (coinSlotFilter !== 'all' && coinSlotFilter !== 'main') {
+      const device = nodeMcuDevices.find(
+        (d) => d.macAddress && d.macAddress.toUpperCase() === coinSlotFilter.toUpperCase()
+      );
+      if (device) {
+        const createdAt = new Date(device.lastSeen || new Date().toISOString()).toISOString();
+        rows.push({
+          __createdAt: createdAt,
+          __type: 'coin',
+          __coinSlotKey: device.macAddress,
+          __coinSlotLabel: device.name || device.macAddress,
+          __mac: device.macAddress,
+          __account: '',
+          __customer: device.name || '',
+          __device: 'NodeMCU Coinslot',
+          totalPaid: device.totalRevenue || 0,
+          __source: 'nodemcu',
+        });
+      }
+    }
+
+    let result = rows.filter((s: any) => {
       const created = new Date(s.__createdAt);
       if (created < from || created > new Date(to.getTime() + 24 * 60 * 60 * 1000 - 1)) return false;
       if (typeFilter !== 'all' && s.__type !== typeFilter) return false;
@@ -614,7 +637,7 @@ const SalesInventory: React.FC<{ sessions: UserSession[] }> = ({ sessions }) => 
     });
 
     return result;
-  }, [enhancedSessions, fromDate, toDate, typeFilter, coinSlotFilter, searchTerm, showOldestFirst]);
+  }, [enhancedSessions, nodeMcuDevices, fromDate, toDate, typeFilter, coinSlotFilter, searchTerm, showOldestFirst]);
 
   const totalSalesToday = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
