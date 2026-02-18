@@ -33,6 +33,8 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
   const [coinSlotLockId, setCoinSlotLockId] = useState<string | null>(null);
   const [reservedSlot, setReservedSlot] = useState<string | null>(null);
   const [isVoucherLoading, setIsVoucherLoading] = useState<boolean>(false);
+  const [creditPesos, setCreditPesos] = useState(0);
+  const [creditMinutes, setCreditMinutes] = useState(0);
 
   // Hardcoded default rates in case the API fetch returns nothing
   const defaultRates: Rate[] = [
@@ -114,6 +116,8 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
         }
         setCanInsertCoin(data.canInsertCoin !== false);
         setIsRevoked(data.isRevoked === true);
+        setCreditPesos(typeof data.creditPesos === 'number' ? data.creditPesos : 0);
+        setCreditMinutes(typeof data.creditMinutes === 'number' ? data.creditMinutes : 0);
       } catch (e) {
         console.error('Failed to identify client');
       }
@@ -124,6 +128,31 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
       fetchWhoAmI();
     }
   }, []);
+
+  const handleUseCredit = async () => {
+    setSlotError(null);
+    try {
+      const result = await apiClient.useCredit();
+      if (!result || result.success === false) {
+        setSlotError(result?.error || 'Walang available na credit para gamitin.');
+        return;
+      }
+      if (typeof result.remainingMinutes === 'number') {
+        setCreditMinutes(result.remainingMinutes);
+      } else {
+        setCreditMinutes(0);
+      }
+      setCreditPesos(0);
+      if (refreshSessions) {
+        await refreshSessions();
+      }
+      if (onRestoreSession) {
+        onRestoreSession();
+      }
+    } catch (e) {
+      setSlotError('Hindi magamit ang credit. Pakisubukan ulit.');
+    }
+  };
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -603,6 +632,20 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
           <button onClick={handleOpenModal} className="portal-btn">
             {mySession ? 'ADD MORE TIME' : 'INSERT COIN'}
           </button>
+          {(creditPesos > 0 || creditMinutes > 0) && (
+            <>
+              <button
+                onClick={handleUseCredit}
+                className="portal-btn mt-3 bg-emerald-600 hover:bg-emerald-700"
+              >
+                Gamitin Credit
+              </button>
+              <div className="mt-2 text-[9px] font-black uppercase tracking-[0.2em] text-amber-500 text-center">
+                Credit: ₱{creditPesos}
+                {creditMinutes > 0 ? ` / ${creditMinutes}m` : ''}
+              </div>
+            </>
+          )}
           <button
             onClick={() => setShowRatesModal(true)}
             className="portal-btn mt-3"
@@ -685,6 +728,17 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
       {showModal && (
         <CoinModal 
           onClose={handleCloseModal}
+          onCancelWithCredit={(pesos, minutes) => {
+            apiClient.addCredit(pesos, minutes).catch(() => {});
+            if (reservedSlot && coinSlotLockId) {
+              apiClient.releaseCoinSlot(reservedSlot, coinSlotLockId).catch(() => {});
+            }
+            setCreditPesos(prev => prev + pesos);
+            setCreditMinutes(prev => prev + minutes);
+            setShowModal(false);
+            setReservedSlot(null);
+            setCoinSlotLockId(null);
+          }}
           audioSrc={config.coinDropAudio}
           insertCoinAudioSrc={config.insertCoinAudio}
           selectedSlot={selectedSlot}
@@ -704,6 +758,11 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
               apiClient
                 .addCredit(pesos, minutes)
                 .catch(() => {});
+              if (reservedSlot && coinSlotLockId) {
+                apiClient.releaseCoinSlot(reservedSlot, coinSlotLockId).catch(() => {});
+              }
+              setCreditPesos(prev => prev + pesos);
+              setCreditMinutes(prev => prev + minutes);
             }
             setShowModal(false);
             setReservedSlot(null);

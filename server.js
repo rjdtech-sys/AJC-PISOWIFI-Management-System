@@ -1360,12 +1360,28 @@ app.get('/api/whoami', async (req, res) => {
     console.error('[WhoAmI] License check error:', e);
   }
 
+  let creditPesos = 0;
+  let creditMinutes = 0;
+  try {
+    if (mac) {
+      const device = await db.get('SELECT credit_pesos, credit_minutes FROM wifi_devices WHERE mac = ?', [mac]);
+      if (device) {
+        creditPesos = device.credit_pesos || 0;
+        creditMinutes = device.credit_minutes || 0;
+      }
+    }
+  } catch (e) {
+    console.error('[WhoAmI] Credit lookup error:', e);
+  }
+
   res.json({ 
     ip: clientIp, 
     mac: mac || 'unknown',
     isRevoked,
     canOperate,
-    canInsertCoin
+    canInsertCoin,
+    creditPesos,
+    creditMinutes
   });
   try {
     if (mac) {
@@ -1546,6 +1562,113 @@ app.post('/api/credits/add', async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('[CREDIT] Error adding credit:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/credits/use', async (req, res) => {
+  try {
+    let clientIp = req.ip.replace('::ffff:', '');
+    if (clientIp === '::1') clientIp = '127.0.0.1';
+    let mac = await getMacFromIp(clientIp);
+    if (!mac && clientIp === '127.0.0.1') mac = 'DEV-LOCALHOST';
+
+    if (!mac) {
+      return res.status(400).json({ success: false, error: 'Could not identify your device MAC.' });
+    }
+
+    const device = await db.get('SELECT id, credit_pesos, credit_minutes FROM wifi_devices WHERE mac = ?', [mac]);
+    if (!device || !device.credit_minutes || device.credit_minutes <= 0) {
+      return res.status(400).json({ success: false, error: 'No saved credit available for this device.' });
+    }
+
+    if (!systemHardwareId) systemHardwareId = await getUniqueHardwareId();
+    const verification = await licenseManager.verifyLicense();
+    const trialStatus = await checkTrialStatus(systemHardwareId, verification);
+    const isLicensed = verification.isValid && verification.isActivated;
+    const isRevoked = verification.isRevoked || trialStatus.isRevoked;
+    const canOperate = (isLicensed || trialStatus.isTrialActive) && !isRevoked;
+
+    if (!canOperate && !isRevoked) {
+      return res.status(403).json({ success: false, error: 'System License Expired: Activation required.' });
+    }
+
+    if (isRevoked) {
+      const nodemcuResult = await db.get('SELECT value FROM config WHERE key = ?', ['nodemcuDevices']);
+      const nodemcuMacs = nodemcuResult?.value ? JSON.parse(nodemcuResult.value).map(d => d.macAddress.toUpperCase()) : [];
+
+      if (!nodemcuMacs.includes(mac.toUpperCase())) {
+        const activeSessions = await db.all('SELECT mac FROM sessions WHERE remaining_seconds > 0 AND mac != ?', [mac]);
+        const activeClients = activeSessions.filter(s => !nodemcuMacs.includes(s.mac.toUpperCase()));
+        if (activeClients.length > 0) {
+          return res.status(403).json({ success: false, error: 'System License Revoked: Only 1 device allowed at a time.' });
+        }
+      }
+    }
+
+    const minutes = device.credit_minutes || 0;
+    const pesos = device.credit_pesos || 0;
+    const seconds = minutes * 60;
+
+    let rate = await db.get('SELECT * FROM rates WHERE pesos = ? AND minutes = ?', [pesos, minutes]);
+    if (!rate && pesos > 0) {
+      rate = await db.get('SELECT * FROM rates WHERE pesos = ?', [pesos]);
+    }
+    if (!rate) {
+      rate = await db.get('SELECT * FROM rates WHERE minutes = ?', [minutes]);
+    }
+
+    const downloadLimit = rate ? (rate.download_limit || 0) : 0;
+    const uploadLimit = rate ? (rate.upload_limit || 0) : 0;
+    const pausable = rate && typeof rate.is_pausable === 'number' ? rate.is_pausable : 1;
+
+    let session = await db.get('SELECT * FROM sessions WHERE mac = ?', [mac]);
+    let tokenToUse = session && session.token ? session.token : null;
+    if (!tokenToUse) {
+      tokenToUse = crypto.randomBytes(16).toString('hex');
+    }
+
+    if (session) {
+      await db.run(
+        `UPDATE sessions 
+         SET remaining_seconds = remaining_seconds + ?, 
+             total_paid = total_paid + ?, 
+             ip = ?, 
+             download_limit = COALESCE(download_limit, ?), 
+             upload_limit = COALESCE(upload_limit, ?),
+             is_paused = 0,
+             pausable = COALESCE(pausable, ?),
+             token = ?
+         WHERE mac = ?`,
+        [seconds, pesos, clientIp, downloadLimit, uploadLimit, pausable, tokenToUse, mac]
+      );
+    } else {
+      await db.run(
+        `INSERT INTO sessions (mac, ip, remaining_seconds, total_paid, connected_at, is_paused, download_limit, upload_limit, pausable, token)
+         VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
+        [mac, clientIp, seconds, pesos, Date.now(), downloadLimit, uploadLimit, pausable, tokenToUse]
+      );
+    }
+
+    await db.run('UPDATE wifi_devices SET credit_pesos = 0, credit_minutes = 0, last_seen = ? WHERE id = ?', [Date.now(), device.id]);
+
+    try {
+      await network.whitelistMAC(mac, clientIp);
+    } catch (e) {
+      console.error('[CREDIT] Failed to whitelist MAC on useCredit:', e);
+    }
+
+    res.cookie('ajc_session_token', tokenToUse, {
+      httpOnly: false,
+      sameSite: 'lax'
+    });
+
+    const token = getSessionToken(req);
+    console.log(`[CREDIT] Used credit for ${mac} | Session ID=${token || tokenToUse || 'NONE'} | ₱${pesos}, ${minutes}m`);
+
+    res.json({ success: true, remainingMinutes: minutes });
+  } catch (err) {
+    console.error('[CREDIT] Error using credit:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });

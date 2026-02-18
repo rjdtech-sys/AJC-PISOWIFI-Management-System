@@ -178,7 +178,7 @@ export const apiClient = {
     return handleResponse(res);
   },
 
-  async whoAmI(): Promise<{ ip: string; mac: string; canInsertCoin?: boolean; isRevoked?: boolean }> {
+  async whoAmI(): Promise<{ ip: string; mac: string; canInsertCoin?: boolean; isRevoked?: boolean; creditPesos?: number; creditMinutes?: number }> {
     const res = await fetch(`${API_BASE}/whoami`, { headers: getHeaders() });
     return handleResponse(res);
   },
@@ -201,6 +201,19 @@ export const apiClient = {
     });
     const data = await res.json().catch(() => ({}));
     return { status: res.status, ...(data || {}) };
+  },
+
+  async useCredit(): Promise<{ success: boolean; error?: string; remainingMinutes?: number }> {
+    const res = await fetch(`${API_BASE}/credits/use`, {
+      method: 'POST',
+      headers: getHeaders()
+    });
+    const data = await res.json().catch(() => ({}));
+    return {
+      success: !!data.success && res.ok,
+      error: data.error,
+      remainingMinutes: data.remainingMinutes
+    };
   },
 
   async heartbeatCoinSlot(slot: string, lockId: string): Promise<{ success: boolean; expiresAt?: number; error?: string; status: number }> {

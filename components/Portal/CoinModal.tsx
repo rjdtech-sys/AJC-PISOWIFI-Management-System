@@ -6,15 +6,26 @@ import { apiClient } from '../../lib/api';
 interface Props {
   onClose: () => void;
   onSuccess: (pesos: number, minutes: number, mode: 'internet' | 'credit') => void;
+  onCancelWithCredit?: (pesos: number, minutes: number) => void;
   rates: Rate[];
-  audioSrc?: string; // Coin Drop Audio
-  insertCoinAudioSrc?: string; // Background Loop
-  selectedSlot?: string; // 'main' or NodeMCU MAC address
+  audioSrc?: string;
+  insertCoinAudioSrc?: string;
+  selectedSlot?: string;
   coinSlot?: string;
   coinSlotLockId?: string;
 }
 
-const CoinModal: React.FC<Props> = ({ onClose, onSuccess, rates, audioSrc, insertCoinAudioSrc, selectedSlot = 'main', coinSlot, coinSlotLockId }) => {
+const CoinModal: React.FC<Props> = ({
+  onClose,
+  onSuccess,
+  onCancelWithCredit,
+  rates,
+  audioSrc,
+  insertCoinAudioSrc,
+  selectedSlot = 'main',
+  coinSlot,
+  coinSlotLockId
+}) => {
   const [timeLeft, setTimeLeft] = useState(60);
   const [totalPesos, setTotalPesos] = useState(0);
   const [totalMinutes, setTotalMinutes] = useState(0);
@@ -128,6 +139,14 @@ const CoinModal: React.FC<Props> = ({ onClose, onSuccess, rates, audioSrc, inser
     onClose();
   }, [timeLeft, onClose]);
 
+  const handleCancel = () => {
+    if (totalPesos > 0 && totalMinutes > 0 && onCancelWithCredit) {
+      onCancelWithCredit(totalPesos, totalMinutes);
+    } else {
+      onClose();
+    }
+  };
+
   return (
     <div className="modal-overlay">
       <div className="modal-content animate-in zoom-in duration-300 shadow-2xl border border-slate-200">
@@ -201,7 +220,7 @@ const CoinModal: React.FC<Props> = ({ onClose, onSuccess, rates, audioSrc, inser
             {mode === 'internet' ? 'Start Surfing' : 'Save Credit'}
           </button>
           <button
-            onClick={onClose}
+            onClick={handleCancel}
             className="w-full py-2 text-slate-400 font-black text-[10px] uppercase tracking-[0.2em] hover:text-slate-600 transition-colors"
           >
             Cancel & Close
