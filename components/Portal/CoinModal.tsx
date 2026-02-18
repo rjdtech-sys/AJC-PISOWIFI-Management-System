@@ -5,7 +5,7 @@ import { apiClient } from '../../lib/api';
 
 interface Props {
   onClose: () => void;
-  onSuccess: (pesos: number, minutes: number) => void;
+  onSuccess: (pesos: number, minutes: number, mode: 'internet' | 'credit') => void;
   rates: Rate[];
   audioSrc?: string; // Coin Drop Audio
   insertCoinAudioSrc?: string; // Background Loop
@@ -20,6 +20,7 @@ const CoinModal: React.FC<Props> = ({ onClose, onSuccess, rates, audioSrc, inser
   const [totalMinutes, setTotalMinutes] = useState(0);
   const [isConnected, setIsConnected] = useState(false);
   const didAutoClose = useRef(false);
+  const [mode, setMode] = useState<'internet' | 'credit'>('internet');
 
   // Handle Background Audio (Insert Coin Loop)
   useEffect(() => {
@@ -160,11 +161,36 @@ const CoinModal: React.FC<Props> = ({ onClose, onSuccess, rates, audioSrc, inser
               <span className="text-4xl font-black text-slate-900 tracking-tighter">{totalMinutes}</span>
             </div>
           </div>
+
+          <div className="grid grid-cols-2 gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => setMode('internet')}
+              className={`py-2 rounded-xl text-[10px] font-black uppercase tracking-[0.18em] border ${
+                mode === 'internet'
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-slate-600 border-slate-200'
+              }`}
+            >
+              Surf Internet
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('credit')}
+              className={`py-2 rounded-xl text-[10px] font-black uppercase tracking-[0.18em] border ${
+                mode === 'credit'
+                  ? 'bg-emerald-600 text-white border-emerald-600'
+                  : 'bg-white text-slate-600 border-slate-200'
+              }`}
+            >
+              Save as Credit
+            </button>
+          </div>
         </div>
 
         <div className="p-8 pt-0 pb-10 flex flex-col gap-4">
           <button
-            onClick={() => onSuccess(totalPesos, totalMinutes)}
+            onClick={() => onSuccess(totalPesos, totalMinutes, mode)}
             disabled={totalPesos === 0}
             className={`w-full py-5 rounded-2xl font-black text-lg transition-all shadow-xl tracking-tight uppercase ${
               totalPesos > 0 
@@ -172,7 +198,7 @@ const CoinModal: React.FC<Props> = ({ onClose, onSuccess, rates, audioSrc, inser
                 : 'bg-slate-100 text-slate-300 shadow-none cursor-not-allowed'
             }`}
           >
-            Start Surfing
+            {mode === 'internet' ? 'Start Surfing' : 'Save Credit'}
           </button>
           <button
             onClick={onClose}

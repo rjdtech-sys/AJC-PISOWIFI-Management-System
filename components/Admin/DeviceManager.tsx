@@ -20,6 +20,8 @@ const DeviceManager: React.FC<Props> = ({ sessions = [], refreshSessions, refres
   const [editForm, setEditForm] = useState({
     customName: '',
     sessionTime: '',
+    creditPesos: '',
+    creditMinutes: '',
     downloadLimit: '',
     uploadLimit: ''
   });
@@ -124,6 +126,8 @@ const DeviceManager: React.FC<Props> = ({ sessions = [], refreshSessions, refres
     setEditForm({
       customName: device.customName || device.hostname || '',
       sessionTime: displayTime ? Math.floor(displayTime / 60).toString() : '',
+      creditPesos: device.creditPesos ? String(device.creditPesos) : '',
+      creditMinutes: device.creditMinutes ? String(Math.floor(device.creditMinutes)) : '',
       downloadLimit: device.downloadLimit ? device.downloadLimit.toString() : '',
       uploadLimit: device.uploadLimit ? device.uploadLimit.toString() : ''
     });
@@ -136,6 +140,8 @@ const DeviceManager: React.FC<Props> = ({ sessions = [], refreshSessions, refres
       await apiClient.updateWifiDevice(editingDevice.id, { 
         customName: editForm.customName,
         sessionTime: editForm.sessionTime ? Number(editForm.sessionTime) * 60 : undefined,
+        creditPesos: editForm.creditPesos ? Number(editForm.creditPesos) : undefined,
+        creditMinutes: editForm.creditMinutes ? Number(editForm.creditMinutes) : undefined,
         downloadLimit: editForm.downloadLimit ? Number(editForm.downloadLimit) : 0,
         uploadLimit: editForm.uploadLimit ? Number(editForm.uploadLimit) : 0
       });
@@ -272,6 +278,27 @@ const DeviceManager: React.FC<Props> = ({ sessions = [], refreshSessions, refres
                   onChange={(e) => setEditForm({...editForm, sessionTime: e.target.value})}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-1 focus:ring-blue-500 outline-none"
                 />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Credit (₱)</label>
+                  <input
+                    type="number"
+                    value={editForm.creditPesos}
+                    onChange={(e) => setEditForm({...editForm, creditPesos: e.target.value})}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-1 focus:ring-blue-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Credit (Mins)</label>
+                  <input
+                    type="number"
+                    value={editForm.creditMinutes}
+                    onChange={(e) => setEditForm({...editForm, creditMinutes: e.target.value})}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-1 focus:ring-blue-500 outline-none"
+                  />
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -413,6 +440,8 @@ const DeviceManager: React.FC<Props> = ({ sessions = [], refreshSessions, refres
                       const liveSession = sessions.find(s => s.mac.toUpperCase() === device.mac.toUpperCase());
                       const displayTime = liveSession ? liveSession.remainingSeconds : device.sessionTime;
                       const displayPaid = liveSession ? liveSession.totalPaid : device.totalPaid;
+                  const creditPesos = device.creditPesos || 0;
+                  const creditMinutes = device.creditMinutes || 0;
                       
                       return (
                         <>
@@ -423,7 +452,12 @@ const DeviceManager: React.FC<Props> = ({ sessions = [], refreshSessions, refres
                             <div className="text-[9px] text-green-600 font-bold">
                               ₱{displayPaid}
                             </div>
-                          ) : null}
+                      ) : null}
+                      {creditPesos > 0 || creditMinutes > 0 ? (
+                        <div className="text-[9px] text-amber-600 font-bold mt-0.5">
+                          Credit: ₱{creditPesos}{creditMinutes > 0 ? ` / ${creditMinutes}m` : ''}
+                        </div>
+                      ) : null}
                         </>
                       );
                     })()}

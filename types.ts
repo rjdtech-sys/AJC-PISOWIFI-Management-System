@@ -186,6 +186,8 @@ export interface WifiDevice {
   isActive: boolean;
   customName?: string;
   totalPaid?: number;
+  creditPesos?: number;
+  creditMinutes?: number;
   downloadLimit?: number;
   uploadLimit?: number;
 }

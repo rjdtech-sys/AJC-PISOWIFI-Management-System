@@ -193,6 +193,16 @@ export const apiClient = {
     return { status: res.status, ...(data || {}) };
   },
 
+  async addCredit(pesos: number, minutes: number): Promise<{ success: boolean; status?: number }> {
+    const res = await fetch(`${API_BASE}/credits/add`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ pesos, minutes })
+    });
+    const data = await res.json().catch(() => ({}));
+    return { status: res.status, ...(data || {}) };
+  },
+
   async heartbeatCoinSlot(slot: string, lockId: string): Promise<{ success: boolean; expiresAt?: number; error?: string; status: number }> {
     const res = await fetch(`${API_BASE}/coinslot/heartbeat`, {
       method: 'POST',

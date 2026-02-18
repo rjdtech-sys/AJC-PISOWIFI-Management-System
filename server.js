@@ -1509,6 +1509,47 @@ app.post('/api/coinslot/release', async (req, res) => {
   res.json({ success: true });
 });
 
+app.post('/api/credits/add', async (req, res) => {
+  try {
+    let clientIp = req.ip.replace('::ffff:', '');
+    if (clientIp === '::1') clientIp = '127.0.0.1';
+    let mac = await getMacFromIp(clientIp);
+    if (!mac && clientIp === '127.0.0.1') mac = 'DEV-LOCALHOST';
+    if (!mac) {
+      return res.status(400).json({ success: false, error: 'Could not identify your device MAC.' });
+    }
+
+    const { pesos, minutes } = req.body || {};
+    const safePesos = typeof pesos === 'number' && pesos > 0 ? Math.floor(pesos) : 0;
+    const safeMinutes = typeof minutes === 'number' && minutes > 0 ? Math.floor(minutes) : 0;
+
+    if (!safePesos || !safeMinutes) {
+      return res.status(400).json({ success: false, error: 'Invalid credit values.' });
+    }
+
+    const existing = await db.get('SELECT id, credit_pesos, credit_minutes FROM wifi_devices WHERE mac = ?', [mac]);
+    if (existing) {
+      await db.run(
+        'UPDATE wifi_devices SET credit_pesos = credit_pesos + ?, credit_minutes = credit_minutes + ?, last_seen = ? WHERE id = ?',
+        [safePesos, safeMinutes, Date.now(), existing.id]
+      );
+    } else {
+      const id = `device_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      await db.run(
+        'INSERT INTO wifi_devices (id, mac, ip, hostname, interface, ssid, signal, connected_at, last_seen, is_active, custom_name, credit_pesos, credit_minutes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [id, mac, clientIp, '', '', '', 0, Date.now(), Date.now(), 0, '', safePesos, safeMinutes]
+      );
+    }
+
+    const token = getSessionToken(req);
+    console.log(`[CREDIT] Added credit for ${mac} | Session ID=${token || 'NONE'} | ₱${safePesos}, ${safeMinutes}m`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[CREDIT] Error adding credit:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 app.get('/api/sessions', async (req, res) => {
   try {
     const rows = await db.all(
@@ -3507,7 +3548,9 @@ app.post('/api/devices/scan', requireAdmin, async (req, res) => {
         isActive: Boolean(session), // Device is active if it has an active session
         customName: device.custom_name || '',
         sessionTime: session ? session.remainingSeconds : 0, // Real remaining time from session
-        totalPaid: session ? session.totalPaid : 0
+        totalPaid: session ? session.totalPaid : 0,
+        creditPesos: device.credit_pesos || 0,
+        creditMinutes: device.credit_minutes || 0
       };
     });
     
@@ -3541,7 +3584,7 @@ app.post('/api/devices', requireAdmin, async (req, res) => {
 
 app.put('/api/devices/:id', requireAdmin, async (req, res) => {
   try {
-    const { customName, sessionTime, downloadLimit, uploadLimit } = req.body;
+    const { customName, sessionTime, creditPesos, creditMinutes, downloadLimit, uploadLimit } = req.body;
     const updates = [];
     const values = [];
     
@@ -3552,6 +3595,14 @@ app.put('/api/devices/:id', requireAdmin, async (req, res) => {
     if (sessionTime !== undefined) {
       updates.push('session_time = ?');
       values.push(sessionTime);
+    }
+    if (creditPesos !== undefined) {
+      updates.push('credit_pesos = ?');
+      values.push(creditPesos);
+    }
+    if (creditMinutes !== undefined) {
+      updates.push('credit_minutes = ?');
+      values.push(creditMinutes);
     }
     if (downloadLimit !== undefined) {
       updates.push('download_limit = ?');

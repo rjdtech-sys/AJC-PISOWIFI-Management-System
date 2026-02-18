@@ -690,16 +690,21 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
           selectedSlot={selectedSlot}
           coinSlot={reservedSlot || selectedSlot}
           coinSlotLockId={coinSlotLockId || undefined}
-          onSuccess={(pesos, minutes) => {
-            onSessionStart({
-              mac: myMac,
-              remainingSeconds: minutes * 60,
-              totalPaid: pesos,
-              connectedAt: Date.now(),
-              coinSlot: reservedSlot || selectedSlot,
-              coinSlotLockId: coinSlotLockId || undefined
-              // Don't send IP - server will detect it
-            });
+          onSuccess={(pesos, minutes, mode) => {
+            if (mode === 'internet') {
+              onSessionStart({
+                mac: myMac,
+                remainingSeconds: minutes * 60,
+                totalPaid: pesos,
+                connectedAt: Date.now(),
+                coinSlot: reservedSlot || selectedSlot,
+                coinSlotLockId: coinSlotLockId || undefined
+              });
+            } else {
+              apiClient
+                .addCredit(pesos, minutes)
+                .catch(() => {});
+            }
             setShowModal(false);
             setReservedSlot(null);
             setCoinSlotLockId(null);
