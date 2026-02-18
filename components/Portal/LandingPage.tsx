@@ -215,6 +215,16 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
     : sessions.find(s => s.mac === myMac);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!mySession || !mySession.token) return;
+    const currentToken = getCookie('ajc_session_token') || localStorage.getItem('ajc_session_token');
+    if (currentToken !== mySession.token) {
+      localStorage.setItem('ajc_session_token', mySession.token);
+      setCookie('ajc_session_token', mySession.token, 30);
+    }
+  }, [mySession]);
+
+  useEffect(() => {
     let interval: any = null;
     if (onRestoreSession) {
       interval = setInterval(() => {
