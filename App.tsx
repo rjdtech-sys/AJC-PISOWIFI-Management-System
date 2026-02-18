@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { AdminTab, UserSession, Rate, WifiDevice } from './types';
 import LandingPage from './components/Portal/LandingPage';
 import Analytics from './components/Admin/Analytics';
