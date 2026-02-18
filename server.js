@@ -1389,6 +1389,21 @@ app.get('/api/whoami', async (req, res) => {
     console.error('[WhoAmI] Credit lookup error:', e);
   }
 
+  let vlanId = null;
+  try {
+    const { stdout } = await execPromise(`ip route get ${clientIp}`);
+    const match = stdout.match(/dev\s+(\S+)/);
+    if (match && match[1]) {
+      const iface = match[1];
+      const vlanMatch = iface.match(/\.([0-9]+)$/);
+      if (vlanMatch) {
+        vlanId = parseInt(vlanMatch[1], 10);
+      }
+    }
+  } catch (e) {
+    console.error('[WhoAmI] VLAN detection error:', e.message);
+  }
+
   res.json({ 
     ip: clientIp, 
     mac: mac || 'unknown',
@@ -1396,7 +1411,8 @@ app.get('/api/whoami', async (req, res) => {
     canOperate,
     canInsertCoin,
     creditPesos,
-    creditMinutes
+    creditMinutes,
+    vlanId
   });
   try {
     if (mac) {
@@ -2809,6 +2825,7 @@ app.get('/api/nodemcu/available', async (req, res) => {
           name: d.name,
           macAddress: d.macAddress,
           isOnline,
+          vlanId: d.vlanId,
           license: {
             isValid: license.isValid,
             isTrial: license.licenseType === 'trial',

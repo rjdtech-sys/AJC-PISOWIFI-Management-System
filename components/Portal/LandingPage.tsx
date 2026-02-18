@@ -22,10 +22,11 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
   const [myMac, setMyMac] = useState('');
   const [isMacLoading, setIsMacLoading] = useState(true);
   const [clientIp, setClientIp] = useState('');
+  const [clientVlanId, setClientVlanId] = useState<number | null>(null);
   const [isOnline, setIsOnline] = useState<boolean | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [config, setConfig] = useState<PortalConfig>(DEFAULT_PORTAL_CONFIG);
-  const [availableSlots, setAvailableSlots] = useState<{id: string, name: string, macAddress: string, isOnline: boolean, license?: { isValid: boolean, isTrial: boolean, isExpired: boolean }}[]>([]);
+  const [availableSlots, setAvailableSlots] = useState<{id: string, name: string, macAddress: string, isOnline: boolean, vlanId?: number, license?: { isValid: boolean, isTrial: boolean, isExpired: boolean }}[]>([]);
   const [selectedSlot, setSelectedSlot] = useState<string>('main');
   const [slotError, setSlotError] = useState<string | null>(null);
   const [canInsertCoin, setCanInsertCoin] = useState(true);
@@ -113,6 +114,9 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
         }
         if (data.ip) {
           setClientIp(data.ip);
+        }
+        if (typeof data.vlanId === 'number') {
+          setClientVlanId(data.vlanId);
         }
         setCanInsertCoin(data.canInsertCoin !== false);
         setIsRevoked(data.isRevoked === true);
@@ -209,6 +213,22 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
   const mySession = sessionToken 
     ? sessions.find(s => s.token === sessionToken) 
     : sessions.find(s => s.mac === myMac);
+
+  useEffect(() => {
+    if (clientVlanId === null) return;
+    if (availableSlots.length === 0) return;
+    if (selectedSlot !== 'main') return;
+
+    const vlanSlots = availableSlots.filter(slot => slot.vlanId === clientVlanId && (!slot.license || slot.license.isValid));
+    if (vlanSlots.length === 0) return;
+
+    const onlineSlots = vlanSlots.filter(slot => slot.isOnline);
+    const primarySlot = onlineSlots[0] || vlanSlots[0];
+
+    if (primarySlot && primarySlot.macAddress && primarySlot.macAddress !== selectedSlot) {
+      setSelectedSlot(primarySlot.macAddress);
+    }
+  }, [clientVlanId, availableSlots, selectedSlot]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
