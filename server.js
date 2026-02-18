@@ -1287,20 +1287,56 @@ app.use(async (req, res, next) => {
     }
   }
 
-  // FORCE REDIRECT to common domain for session sharing (localStorage)
+  // FORCE REDIRECT to centralized portal host (IP/hostname) for session sharing
+  let centralPortalHost = null;
+  let centralPortalEnabled = false;
+  try {
+    const enabledRow = await db.get('SELECT value FROM config WHERE key = ?', ['centralPortalIpEnabled']);
+    const ipRow = await db.get('SELECT value FROM config WHERE key = ?', ['centralPortalIp']);
+    centralPortalEnabled = enabledRow?.value === '1' || enabledRow?.value === 'true';
+    let rawHost = (ipRow?.value || '').trim();
+    if (rawHost) {
+      if (rawHost.startsWith('http://')) {
+        rawHost = rawHost.substring(7);
+      } else if (rawHost.startsWith('https://')) {
+        rawHost = rawHost.substring(8);
+      }
+      while (rawHost.endsWith('/')) {
+        rawHost = rawHost.slice(0, -1);
+      }
+      if (rawHost) {
+        centralPortalHost = rawHost;
+      }
+    }
+  } catch (e) {}
+
+  const isLocalHost = host.includes('localhost') || host.includes('127.0.0.1');
+
+  if (centralPortalEnabled && centralPortalHost) {
+    if (isProbe) {
+      if (!isLocalHost && host !== centralPortalHost) {
+        return res.redirect(`http://${centralPortalHost}/`);
+      }
+      return res.sendFile(path.join(__dirname, 'index.html'));
+    }
+
+    if (!isLocalHost && host !== centralPortalHost) {
+      return res.redirect(`http://${centralPortalHost}/`);
+    }
+
+    return next();
+  }
+
   const PORTAL_DOMAIN = 'portal.ajcpisowifi.com';
 
   if (isProbe) {
-      // Probes get the file directly to satisfy the CNA
-      return res.sendFile(path.join(__dirname, 'index.html'));
+    return res.sendFile(path.join(__dirname, 'index.html'));
   }
 
-  // If we are NOT on the portal domain (and not localhost), redirect.
-  // This catches IP address access (10.0.0.1) and forces it to the domain.
-  if (host !== PORTAL_DOMAIN && !host.includes('localhost') && !host.includes('127.0.0.1')) {
-      return res.redirect(`http://${PORTAL_DOMAIN}/`);
+  if (!isLocalHost && host !== PORTAL_DOMAIN) {
+    return res.redirect(`http://${PORTAL_DOMAIN}/`);
   }
-  
+
   next();
 });
 
