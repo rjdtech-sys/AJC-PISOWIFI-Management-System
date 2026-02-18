@@ -527,6 +527,16 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
                     Internet Access Live
                   </span>
                 )}
+                <div className="mt-2 flex flex-wrap items-center justify-center gap-4 tracking-[0.2em]">
+                  <span>Device IP: {clientIp || 'Detecting...'}</span>
+                  <span>Device MAC: {isMacLoading ? 'Detecting...' : myMac}</span>
+                  {(creditPesos > 0 || creditMinutes > 0) && (
+                    <span>
+                      Credit: ₱{creditPesos}
+                      {creditMinutes > 0 ? ` / ${creditMinutes}m` : ''}
+                    </span>
+                  )}
+                </div>
               </div>
               
               {!mySession.isPaused ? (
@@ -572,6 +582,18 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
               <p className="text-slate-500 text-xs mb-4 font-medium px-6 text-center">
                 1. Tap INSERT COIN. 2. Drop coins. 3. Tap START SURFING.
               </p>
+              <div className="mx-6 mt-2 text-[9px] text-slate-400 font-bold uppercase tracking-[0.2em] text-center">
+                <div className="flex flex-wrap items-center justify-center gap-4">
+                  <span>Device IP: {clientIp || 'Detecting...'}</span>
+                  <span>Device MAC: {isMacLoading ? 'Detecting...' : myMac}</span>
+                  {(creditPesos > 0 || creditMinutes > 0) && (
+                    <span>
+                      Credit: ₱{creditPesos}
+                      {creditMinutes > 0 ? ` / ${creditMinutes}m` : ''}
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
@@ -591,19 +613,6 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
               </div>
             </div>
           )}
-
-          <div className="mx-6 mb-6 text-[9px] text-slate-400 font-bold uppercase tracking-[0.2em] text-center">
-            <div className="flex flex-wrap items-center justify-center gap-4">
-              <span>Device IP: {clientIp || 'Detecting...'}</span>
-              <span>Device MAC: {isMacLoading ? 'Detecting...' : myMac}</span>
-              {(creditPesos > 0 || creditMinutes > 0) && (
-                <span>
-                  Credit: ₱{creditPesos}
-                  {creditMinutes > 0 ? ` / ${creditMinutes}m` : ''}
-                </span>
-              )}
-            </div>
-          </div>
 
           {isRevoked && (
             <div className="mx-6 mb-6 p-4 bg-orange-50 border border-orange-100 rounded-2xl text-orange-600 text-center animate-in fade-in slide-in-from-top-4 duration-300">
