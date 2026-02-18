@@ -1478,6 +1478,17 @@ app.get('/api/whoami', async (req, res) => {
             } catch (e) {}
             console.log(`[AUTH] Auto-restore triggered: Session ID=${token} moved from ${sessionByToken.mac} to ${mac}`);
           }
+        } else if (mac) {
+          const sessionByMac = await db.get('SELECT * FROM sessions WHERE mac = ? AND remaining_seconds > 0', [mac]);
+          if (sessionByMac) {
+            await db.run('UPDATE sessions SET token = ? WHERE mac = ?', [token, mac]);
+            try {
+              res.cookie('ajc_session_token', token, { path: '/', maxAge: 30 * 24 * 60 * 60 * 1000, sameSite: 'lax' });
+            } catch (e) {}
+            console.log(`[AUTH] Bound new Session ID=${token} to existing MAC=${mac} for auto-restore`);
+          } else {
+            console.log(`[AUTH] No session found for Session ID=${token}`);
+          }
         } else {
           console.log(`[AUTH] No session found for Session ID=${token}`);
         }
