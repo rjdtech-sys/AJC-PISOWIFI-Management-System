@@ -50,11 +50,7 @@ const PortalEditor: React.FC = () => {
   };
 
   const handleSaveDesign = async () => {
-    const payload: PortalConfig = {
-      ...config,
-      macSyncEnabled: savedMacConfig.macSyncEnabled,
-      macSyncMode: savedMacConfig.macSyncMode
-    };
+    const payload: PortalConfig = { ...config };
     await savePortalConfigRemote(payload);
     setConfig(payload);
     setHasChanges(false);

@@ -503,7 +503,8 @@ const SalesInventory: React.FC<{ sessions: UserSession[] }> = ({ sessions }) => 
     const loadDevices = async () => {
       try {
         const devices = await apiClient.getNodeMCUDevices();
-        if (!cancelled && Array.isArray(devices)) {
+        if (cancelled) return;
+        if (Array.isArray(devices)) {
           setNodeMcuDevices(devices.filter((d: any) => d.status === 'accepted' || d.status === 'connected'));
         }
       } catch (e) {
@@ -597,30 +598,7 @@ const SalesInventory: React.FC<{ sessions: UserSession[] }> = ({ sessions }) => 
     const to = parseDate(toDate);
     const upperSearch = searchTerm.trim().toUpperCase();
 
-    const rows: any[] = [...enhancedSessions];
-
-    if (coinSlotFilter !== 'all' && coinSlotFilter !== 'main') {
-      const device = nodeMcuDevices.find(
-        (d) => d.macAddress && d.macAddress.toUpperCase() === coinSlotFilter.toUpperCase()
-      );
-      if (device) {
-        const createdAt = new Date(device.lastSeen || new Date().toISOString()).toISOString();
-        rows.push({
-          __createdAt: createdAt,
-          __type: 'coin',
-          __coinSlotKey: device.macAddress,
-          __coinSlotLabel: device.name || device.macAddress,
-          __mac: device.macAddress,
-          __account: '',
-          __customer: device.name || '',
-          __device: 'NodeMCU Coinslot',
-          totalPaid: device.totalRevenue || 0,
-          __source: 'nodemcu',
-        });
-      }
-    }
-
-    let result = rows.filter((s: any) => {
+    let result = enhancedSessions.filter((s: any) => {
       const created = new Date(s.__createdAt);
       if (created < from || created > new Date(to.getTime() + 24 * 60 * 60 * 1000 - 1)) return false;
       if (typeFilter !== 'all' && s.__type !== typeFilter) return false;

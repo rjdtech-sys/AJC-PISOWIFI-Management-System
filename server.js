@@ -1505,20 +1505,6 @@ app.get('/api/whoami', async (req, res) => {
         creditMinutes = device.credit_minutes || 0;
       }
     }
-
-    if (creditPesos <= 0 && creditMinutes <= 0) {
-      const tokenForCredit = getSessionToken(req);
-      if (tokenForCredit) {
-        const sessionForCredit = await db.get('SELECT mac FROM sessions WHERE token = ?', [tokenForCredit]);
-        if (sessionForCredit && sessionForCredit.mac && sessionForCredit.mac !== mac) {
-          const deviceBySessionMac = await db.get('SELECT credit_pesos, credit_minutes FROM wifi_devices WHERE mac = ?', [sessionForCredit.mac]);
-          if (deviceBySessionMac) {
-            creditPesos = deviceBySessionMac.credit_pesos || 0;
-            creditMinutes = deviceBySessionMac.credit_minutes || 0;
-          }
-        }
-      }
-    }
   } catch (e) {
     console.error('[WhoAmI] Credit lookup error:', e);
   }
@@ -1772,15 +1758,9 @@ app.post('/api/credits/use', async (req, res) => {
     }
 
     if (isRevoked) {
-      const nodemcuResult = await db.get('SELECT value FROM config WHERE key = ?', ['nodemcuDevices']);
-      const nodemcuMacs = nodemcuResult?.value ? JSON.parse(nodemcuResult.value).map(d => d.macAddress.toUpperCase()) : [];
-
-      if (!nodemcuMacs.includes(mac.toUpperCase())) {
-        const activeSessions = await db.all('SELECT mac FROM sessions WHERE remaining_seconds > 0 AND mac != ?', [mac]);
-        const activeClients = activeSessions.filter(s => !nodemcuMacs.includes(s.mac.toUpperCase()));
-        if (activeClients.length > 0) {
-          return res.status(403).json({ success: false, error: 'System License Revoked: Only 1 device allowed at a time.' });
-        }
+      const activeSessions = await db.all('SELECT mac FROM sessions WHERE remaining_seconds > 0 AND mac != ?', [mac]);
+      if (activeSessions.length > 0) {
+        return res.status(403).json({ success: false, error: 'System License Revoked: Only 1 device allowed at a time.' });
       }
     }
 
