@@ -223,7 +223,8 @@ export enum AdminTab {
   MultiWan = 'multi_wan',
   Chat = 'chat',
   Vouchers = 'vouchers',
-  SalesInventory = 'sales_inventory'
+  SalesInventory = 'sales_inventory',
+  Remote = 'remote'
 }
 
 export interface UpdateLog {

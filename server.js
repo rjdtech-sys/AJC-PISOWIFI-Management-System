@@ -951,7 +951,7 @@ app.get('/api/sync/status', requireAdmin, async (req, res) => {
   }
 });
 
-const { exec } = require('child_process');
+const { exec, spawn } = require('child_process');
 const util = require('util');
 const execPromise = util.promisify(exec);
 
@@ -962,6 +962,140 @@ const { getUniqueHardwareId } = require('./lib/hardware');
 
 // Edge Sync (Cloud Data Sync)
 const { syncSaleToCloud, getSyncStats } = require('./lib/edge-sync');
+
+// ZeroTier Installation State (in-memory)
+const zeroTierInstallState = {
+  running: false,
+  progress: 0,
+  success: null,
+  error: null,
+  logs: [],
+  startedAt: null,
+  finishedAt: null,
+  lastUpdateAt: null
+};
+
+let zeroTierInstallProcess = null;
+
+function resetZeroTierInstallState() {
+  zeroTierInstallState.running = false;
+  zeroTierInstallState.progress = 0;
+  zeroTierInstallState.success = null;
+  zeroTierInstallState.error = null;
+  zeroTierInstallState.logs = [];
+  zeroTierInstallState.startedAt = null;
+  zeroTierInstallState.finishedAt = null;
+  zeroTierInstallState.lastUpdateAt = null;
+}
+
+function appendZeroTierLog(message) {
+  if (!message) return;
+  const lines = message.toString().split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    zeroTierInstallState.logs.push(trimmed);
+  }
+  // Keep only the last 200 lines to avoid unbounded growth
+  if (zeroTierInstallState.logs.length > 200) {
+    zeroTierInstallState.logs = zeroTierInstallState.logs.slice(-200);
+  }
+  zeroTierInstallState.lastUpdateAt = Date.now();
+}
+
+async function getZeroTierStatus() {
+  // Step 1: Detect if zerotier-cli binary exists
+  let cliExists = false;
+  try {
+    const { stdout } = await execPromise('which zerotier-cli');
+    if (stdout && stdout.trim()) {
+      cliExists = true;
+    }
+  } catch (e) {
+    // which failed - treat as not installed
+  }
+
+  if (!cliExists) {
+    return {
+      installed: false,
+      serviceRunning: false,
+      version: null,
+      nodeId: null,
+      online: false,
+      networks: [],
+      error: null
+    };
+  }
+
+  const status = {
+    installed: true,
+    serviceRunning: false,
+    version: null,
+    nodeId: null,
+    online: false,
+    networks: [],
+    error: null
+  };
+
+  // Step 2: Query service info
+  try {
+    const { stdout } = await execPromise('zerotier-cli -j info');
+    const info = JSON.parse(stdout);
+    status.serviceRunning = true;
+    status.version = info.version || null;
+    status.nodeId = info.address || null;
+    status.online = Boolean(info.online);
+  } catch (e) {
+    const stderr = e && e.stderr ? String(e.stderr) : '';
+    const message = e && e.message ? String(e.message) : '';
+    const combined = stderr || message || 'Unknown ZeroTier info error';
+
+    status.serviceRunning = false;
+    status.error = combined;
+
+    // If the error clearly indicates the CLI is missing, override installed flag
+    if (combined.includes('not found') || combined.includes('command not found')) {
+      status.installed = false;
+    }
+
+    // If service is not running or token is missing, we still consider the CLI installed
+    return status;
+  }
+
+  // Step 3: Query joined networks and IP assignments
+  try {
+    const { stdout } = await execPromise('zerotier-cli -j listnetworks');
+    const networksRaw = JSON.parse(stdout);
+    const networks = Array.isArray(networksRaw) ? networksRaw : [];
+
+    status.networks = networks.map((n) => {
+      const assigned =
+        Array.isArray(n.assignedAddresses) ? n.assignedAddresses :
+        Array.isArray(n.ipAssignments) ? n.ipAssignments :
+        Array.isArray(n.ips) ? n.ips :
+        [];
+
+      return {
+        id: n.nwid || n.id || '',
+        name: n.name || '',
+        status: n.status || '',
+        type: n.type || '',
+        mac: n.mac || '',
+        deviceName: n.portDeviceName || n.dev || '',
+        assignedIps: assigned
+      };
+    });
+  } catch (e) {
+    const stderr = e && e.stderr ? String(e.stderr) : '';
+    const message = e && e.message ? String(e.message) : '';
+    const combined = stderr || message;
+    if (combined) {
+      status.error = status.error || combined;
+    }
+  }
+
+  return status;
+}
 
 // Initialize license manager (will use env variables if available)
 const licenseManager = initializeLicenseManager();
@@ -3295,6 +3429,158 @@ app.delete('/api/network/bridge/:name', requireAdmin, async (req, res) => {
     await db.run('DELETE FROM bridges WHERE name = ?', [req.params.name]);
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ZEROTIER API
+app.get('/api/zerotier/status', requireAdmin, async (req, res) => {
+  try {
+    const status = await getZeroTierStatus();
+    res.json(status);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/zerotier/install', requireAdmin, async (req, res) => {
+  try {
+    if (zeroTierInstallState.running) {
+      return res.status(400).json({
+        error: 'ZeroTier installation is already in progress',
+        status: zeroTierInstallState
+      });
+    }
+
+    const currentStatus = await getZeroTierStatus();
+    if (currentStatus.installed) {
+      return res.status(400).json({
+        error: 'ZeroTier is already installed',
+        status: currentStatus
+      });
+    }
+
+    resetZeroTierInstallState();
+    zeroTierInstallState.running = true;
+    zeroTierInstallState.progress = 5;
+    zeroTierInstallState.startedAt = Date.now();
+    zeroTierInstallState.lastUpdateAt = Date.now();
+
+    // Use official install script. The AJC service is expected to run with sufficient privileges.
+    const installCommand = 'curl -s https://install.zerotier.com | bash';
+
+    zeroTierInstallProcess = spawn('bash', ['-c', installCommand], {
+      env: process.env
+    });
+
+    appendZeroTierLog('[Installer] Starting ZeroTier installation...');
+
+    zeroTierInstallProcess.stdout.on('data', (data) => {
+      appendZeroTierLog(data);
+      if (zeroTierInstallState.progress < 90) {
+        zeroTierInstallState.progress = Math.min(90, zeroTierInstallState.progress + 3);
+      }
+    });
+
+    zeroTierInstallProcess.stderr.on('data', (data) => {
+      appendZeroTierLog('[stderr] ' + data.toString());
+      if (zeroTierInstallState.progress < 90) {
+        zeroTierInstallState.progress = Math.min(90, zeroTierInstallState.progress + 2);
+      }
+    });
+
+    zeroTierInstallProcess.on('error', (err) => {
+      appendZeroTierLog('[Installer] Failed to start: ' + err.message);
+      zeroTierInstallState.running = false;
+      zeroTierInstallState.success = false;
+      zeroTierInstallState.error = err.message;
+      zeroTierInstallState.finishedAt = Date.now();
+    });
+
+    zeroTierInstallProcess.on('close', async (code) => {
+      zeroTierInstallProcess = null;
+      zeroTierInstallState.running = false;
+      zeroTierInstallState.finishedAt = Date.now();
+
+      if (code === 0) {
+        zeroTierInstallState.success = true;
+        zeroTierInstallState.progress = 100;
+        appendZeroTierLog('[Installer] ZeroTier installation completed successfully.');
+
+        // Refresh status to ensure CLI and service are visible
+        try {
+          const status = await getZeroTierStatus();
+          appendZeroTierLog(`[Installer] Detected ZeroTier node ${status.nodeId || 'unknown'} (online=${status.online}).`);
+        } catch (e) {
+          appendZeroTierLog('[Installer] Post-install status check failed: ' + (e && e.message ? e.message : String(e)));
+        }
+      } else {
+        zeroTierInstallState.success = false;
+        zeroTierInstallState.error = `Installer exited with code ${code}`;
+        if (zeroTierInstallState.progress < 100) {
+          zeroTierInstallState.progress = Math.max(zeroTierInstallState.progress, 50);
+        }
+        appendZeroTierLog(`[Installer] ZeroTier installation failed with exit code ${code}.`);
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'ZeroTier installation started',
+      status: zeroTierInstallState
+    });
+  } catch (err) {
+    zeroTierInstallState.running = false;
+    zeroTierInstallState.success = false;
+    zeroTierInstallState.error = err.message;
+    zeroTierInstallState.finishedAt = Date.now();
+    appendZeroTierLog('[Installer] Error while starting installation: ' + err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/zerotier/install-status', requireAdmin, async (req, res) => {
+  try {
+    res.json(zeroTierInstallState);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/zerotier/join', requireAdmin, async (req, res) => {
+  try {
+    const networkId = (req.body && typeof req.body.networkId === 'string') ? req.body.networkId.trim() : '';
+    if (!networkId) {
+      return res.status(400).json({ error: 'Network ID is required' });
+    }
+
+    if (!/^[0-9a-fA-F]{16}$/.test(networkId)) {
+      return res.status(400).json({ error: 'Network ID must be a 16-character hexadecimal string' });
+    }
+
+    const status = await getZeroTierStatus();
+    if (!status.installed) {
+      return res.status(400).json({ error: 'ZeroTier is not installed' });
+    }
+
+    const { stdout, stderr } = await execPromise(`zerotier-cli join ${networkId}`);
+    const output = (stdout || '').toString().trim();
+    const errorOutput = (stderr || '').toString().trim();
+
+    if (errorOutput && !output) {
+      return res.status(500).json({
+        error: 'ZeroTier join failed',
+        details: errorOutput
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Join command sent to ZeroTier',
+      output,
+      details: errorOutput
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // NODEMCU FLASHER API
