@@ -52,6 +52,7 @@ const HardwareManager: React.FC = () => {
   }, [board, boardModel, pin]);
 
   const isOrangePi = board === 'orange_pi';
+  const isX64 = board === 'x64_pc';
 
   const currentOrangeModelKey = boardModel || ORANGE_PI_DEFAULT_MODEL;
   const currentOrangePinsMap = opiMappings[currentOrangeModelKey]?.pins || {};
@@ -112,7 +113,7 @@ const HardwareManager: React.FC = () => {
         coinPin: pin,
         boardModel: board === 'orange_pi' ? boardModel : null,
         coinSlots: coinSlots,
-        relayPin: board === 'none' || board === 'nodemcu_esp' ? null : relayPin,
+        relayPin: board === 'none' || board === 'nodemcu_esp' || board === 'x64_pc' ? null : relayPin,
         relayActiveMode: relayPin != null ? relayActiveMode : 'high'
       });
       setSuccess(true);
@@ -295,6 +296,23 @@ const HardwareManager: React.FC = () => {
                      </button>
                    </div>
                  </div>
+               </div>
+             ) : isX64 ? (
+               <div className="flex flex-col sm:flex-row gap-4">
+                 <div className="flex-1 bg-slate-50 rounded-lg p-3 border border-slate-200">
+                   <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">x64 PC Mode</div>
+                   <p className="text-[10px] text-slate-600">
+                     GPIO pin selection and relay output are disabled on x64 PC. This mode uses the serial or NodeMCU bridge for coinslot input.
+                   </p>
+                 </div>
+                 <button
+                   onClick={handleSave}
+                   disabled={saving}
+                   className="admin-btn-primary sm:w-48 py-3 rounded-lg font-black text-[10px] uppercase tracking-[0.2em] transition-all shadow-lg active:scale-95 disabled:opacity-50 flex justify-center items-center gap-2"
+                 >
+                   <Save size={12} />
+                   {saving ? 'Saving...' : 'Apply Config'}
+                 </button>
                </div>
              ) : (
                <div className="flex flex-col sm:flex-row gap-4">
