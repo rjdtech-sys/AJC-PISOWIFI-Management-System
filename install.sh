@@ -116,7 +116,7 @@ echo -e "${GREEN}Installing global build tools...${NC}"
 if [[ "$DEB_ARCH" == "amd64" || "$DEB_ARCH" == "arm64" ]]; then
     npm install -g npm@latest node-gyp pm2
 else
-    npm install -g node-gyp pm2
+    npm install -g node-gyp@10 pm2
 fi
 
 echo -e "${GREEN}[5/8] Preparing Project Directory...${NC}"
