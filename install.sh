@@ -95,11 +95,21 @@ echo -e "${GREEN}Installing esptool...${NC}"
 pip3 install --break-system-packages --upgrade esptool || pip3 install --upgrade esptool
 
 echo -e "${GREEN}[4/8] Installing Node.js v20 (LTS)...${NC}"
-if ! command -v node &> /dev/null || [[ $(node -v | cut -d'.' -f1) != "v20" ]]; then
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-    apt-get install -y nodejs
+DEB_ARCH=$(dpkg --print-architecture 2>/dev/null || echo "")
+if [[ "$DEB_ARCH" == "amd64" || "$DEB_ARCH" == "arm64" ]]; then
+    if ! command -v node &> /dev/null || [[ $(node -v | cut -d'.' -f1) != "v20" ]]; then
+        curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+        apt-get install -y nodejs
+    else
+        echo -e "${BLUE}Node.js $(node -v) is already installed.${NC}"
+    fi
 else
-    echo -e "${BLUE}Node.js $(node -v) is already installed.${NC}"
+    if ! command -v node &> /dev/null; then
+        echo -e "${YELLOW}Using distro Node.js for architecture ${DEB_ARCH:-unknown}.${NC}"
+        apt-get install -y nodejs npm
+    else
+        echo -e "${BLUE}Node.js $(node -v) is already installed.${NC}"
+    fi
 fi
 
 # Ensure build tools for native modules (sqlite3, serialport) are ready
