@@ -1171,9 +1171,6 @@ async function getMacFromIp(ip) {
     }
   } catch (e) {}
 
-  // 5. Fallback: Check Active Sessions in DB
-  // Solves issue where idle devices (ARP expired) get disconnected despite having time.
-  // We trust the IP-MAC mapping from the active session.
   try {
     const session = await db.get('SELECT mac FROM sessions WHERE ip = ? AND remaining_seconds > 0', [ip]);
     if (session && session.mac) {
@@ -1184,6 +1181,56 @@ async function getMacFromIp(ip) {
   }
 
   return null;
+}
+
+async function applyRewardsForPurchase(mac, clientIp, pesos) {
+  try {
+    if (!mac) return;
+    const amount = typeof pesos === 'number' ? Math.floor(pesos) : 0;
+    if (!amount || amount <= 0) return;
+
+    const row = await db.get("SELECT value FROM config WHERE key = 'rewards_config'");
+    if (!row || !row.value) return;
+
+    let cfg;
+    try {
+      cfg = JSON.parse(row.value);
+    } catch (e) {
+      return;
+    }
+
+    if (!cfg || !cfg.enabled) return;
+
+    const threshold = parseInt(cfg.thresholdPesos, 10);
+    const rewardCredit = parseInt(cfg.rewardCreditPesos, 10);
+
+    if (!threshold || threshold <= 0 || !rewardCredit || rewardCredit <= 0) return;
+
+    const units = Math.floor(amount / threshold);
+    if (!units || units <= 0) return;
+
+    const bonusPesos = units * rewardCredit;
+
+    const existing = await db.get('SELECT id, credit_pesos, credit_minutes FROM wifi_devices WHERE mac = ?', [mac]);
+    if (existing) {
+      await db.run(
+        'UPDATE wifi_devices SET credit_pesos = credit_pesos + ?, last_seen = ? WHERE id = ?',
+        [bonusPesos, Date.now(), existing.id]
+      );
+    } else {
+      const id = `device_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      await db.run(
+        'INSERT INTO wifi_devices (id, mac, ip, hostname, interface, ssid, signal, connected_at, last_seen, is_active, custom_name, credit_pesos, credit_minutes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [id, mac, clientIp || '', '', '', '', 0, Date.now(), Date.now(), 0, '', bonusPesos, 0]
+      );
+    }
+
+    console.log(
+      `[REWARDS] Granted bonus credit for ${mac} | ₱${bonusPesos} from ₱${amount}`
+    );
+  } catch (e) {
+    console.error('[REWARDS] Failed to apply rewards:', e);
+  }
 }
 
 // Explicitly serve tailwind.js to fix 404 issues
@@ -1728,6 +1775,10 @@ app.post('/api/credits/add', async (req, res) => {
     } else {
       console.log(`[CREDIT] Added credit for ${mac} | Session ID=${token || 'NONE'} | ₱${safePesos}`);
     }
+    try {
+      await applyRewardsForPurchase(mac, clientIp, safePesos);
+    } catch (e) {}
+
     res.json({ success: true });
   } catch (err) {
     console.error('[CREDIT] Error adding credit:', err);
@@ -1954,6 +2005,10 @@ app.post('/api/credits/use', async (req, res) => {
       `[CREDIT] Used credit for ${mac} | Session ID=${tokenToUse || 'NONE'} | ₱${pesos}, ${minutes}m (remaining ₱${remainingPesos}, ${remainingMinutes}m)`
     );
 
+    try {
+      await applyRewardsForPurchase(mac, clientIp, pesos);
+    } catch (e) {}
+
     res.json({ success: true, remainingMinutes: remainingMinutes });
   } catch (err) {
     console.error('[CREDIT] Error using credit:', err);
@@ -2118,7 +2173,6 @@ app.post('/api/sessions/start', async (req, res) => {
       );
     }
     
-    // Whitelist the device in firewall
     await network.whitelistMAC(mac, clientIp);
     if (migratedOldMac && migratedOldIp) {
       await network.blockMAC(migratedOldMac, migratedOldIp);
@@ -2127,7 +2181,6 @@ app.post('/api/sessions/start', async (req, res) => {
     console.log(`[AUTH] Session started for ${mac} (${clientIp}) - ${seconds}s, ₱${pesos}, Limits: ${downloadLimit}/${uploadLimit} Mbps`);
     console.log(`[AUTH] New user connected: MAC=${mac} | Session ID=${tokenToUse}`);
     
-    // Sync sale to cloud (non-blocking)
     syncSaleToCloud({
       amount: pesos,
       session_duration: seconds,
@@ -2136,6 +2189,7 @@ app.post('/api/sessions/start', async (req, res) => {
     }).catch(err => {
       console.error('[Sync] Failed to sync sale to cloud:', err);
     });
+    await applyRewardsForPurchase(mac, clientIp, pesos);
     
     coinSlotLocks.delete(slot);
     try {
@@ -2414,6 +2468,62 @@ app.delete('/api/gaming/rules/:id', requireAdmin, async (req, res) => {
       }
     }
     
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/rewards/config', requireAdmin, async (req, res) => {
+  try {
+    const row = await db.get("SELECT value FROM config WHERE key = 'rewards_config'");
+    let cfg = {
+      enabled: false,
+      thresholdPesos: 20,
+      rewardCreditPesos: 1
+    };
+
+    if (row && row.value) {
+      try {
+        const parsed = JSON.parse(row.value);
+        if (typeof parsed.enabled === 'boolean') {
+          cfg.enabled = parsed.enabled;
+        }
+        const t = parseInt(parsed.thresholdPesos, 10);
+        if (!isNaN(t) && t > 0) {
+          cfg.thresholdPesos = t;
+        }
+        const r = parseInt(parsed.rewardCreditPesos, 10);
+        if (!isNaN(r) && r >= 0) {
+          cfg.rewardCreditPesos = r;
+        }
+      } catch (e) {}
+    }
+
+    res.json(cfg);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/rewards/config', requireAdmin, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const enabled = !!body.enabled;
+    const threshold = parseInt(body.thresholdPesos, 10);
+    const reward = parseInt(body.rewardCreditPesos, 10);
+
+    if (!threshold || threshold <= 0 || isNaN(threshold) || isNaN(reward) || reward < 0) {
+      return res.status(400).json({ error: 'Invalid reward configuration.' });
+    }
+
+    const payload = JSON.stringify({
+      enabled,
+      thresholdPesos: threshold,
+      rewardCreditPesos: reward
+    });
+
+    await db.run(
+      "INSERT INTO config (key, value) VALUES ('rewards_config', ?) ON CONFLICT(key) DO UPDATE SET value = ?",
+      [payload, payload]
+    );
+
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

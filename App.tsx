@@ -18,6 +18,7 @@ import MultiWanSettings from './components/Admin/MultiWanSettings';
 import ChatManager from './components/Admin/ChatManager';
 import VoucherManager from './components/Admin/VoucherManager';
 import RemoteManager from './components/Admin/RemoteManager';
+import RewardsSettings from './components/Admin/RewardsSettings';
 import { apiClient } from './lib/api';
 import { initAdminTheme, setAdminTheme } from './lib/theme';
 
@@ -350,6 +351,7 @@ const App: React.FC = () => {
                 <SidebarItem disabled={licenseStatus.isRevoked} active={activeTab === AdminTab.Chat} onClick={() => setActiveTab(AdminTab.Chat)} icon="💬" label="Chat" collapsed={!sidebarOpen} />
                 <SidebarItem disabled={licenseStatus.isRevoked} active={activeTab === AdminTab.Machines} onClick={() => setActiveTab(AdminTab.Machines)} icon="🤖" label="Machines" collapsed={!sidebarOpen} />
                 <SidebarItem disabled={licenseStatus.isRevoked} active={activeTab === AdminTab.Vouchers} onClick={() => setActiveTab(AdminTab.Vouchers)} icon="🎟️" label="Vouchers" collapsed={!sidebarOpen} />
+                <SidebarItem disabled={licenseStatus.isRevoked} active={activeTab === AdminTab.Rewards} onClick={() => setActiveTab(AdminTab.Rewards)} icon="🎁" label="Rewards" collapsed={!sidebarOpen} />
                 <SidebarItem disabled={licenseStatus.isRevoked} active={activeTab === AdminTab.SalesInventory} onClick={() => setActiveTab(AdminTab.SalesInventory)} icon="📒" label="Sales Inventory" collapsed={!sidebarOpen} />
                 <SidebarItem disabled={licenseStatus.isRevoked} active={activeTab === AdminTab.Remote} onClick={() => setActiveTab(AdminTab.Remote)} icon="🛰️" label="Remote" collapsed={!sidebarOpen} />
                 <SidebarItem active={activeTab === AdminTab.System} onClick={() => setActiveTab(AdminTab.System)} icon="⚙️" label="System" collapsed={!sidebarOpen} />
@@ -423,6 +425,7 @@ const App: React.FC = () => {
                   {activeTab === AdminTab.Vouchers && <VoucherManager />}
                   {activeTab === AdminTab.SalesInventory && <SalesInventory sessions={activeSessions} />}
                   {activeTab === AdminTab.Remote && <RemoteManager />}
+                  {activeTab === AdminTab.Rewards && <RewardsSettings />}
                   {activeTab === AdminTab.System && <SystemSettings />}
                   {activeTab === AdminTab.Updater && <SystemUpdater />}
                 </div>

@@ -149,6 +149,20 @@ export const apiClient = {
     await handleResponse(res);
   },
 
+  async getRewardsConfig(): Promise<{ enabled: boolean; thresholdPesos: number; rewardCreditPesos: number }> {
+    const res = await fetch(`${API_BASE}/rewards/config`, { headers: getHeaders() });
+    return handleResponse(res);
+  },
+
+  async saveRewardsConfig(enabled: boolean, thresholdPesos: number, rewardCreditPesos: number): Promise<void> {
+    const res = await fetch(`${API_BASE}/rewards/config`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ enabled, thresholdPesos, rewardCreditPesos })
+    });
+    await handleResponse(res);
+  },
+
   async getGamingRules(): Promise<any[]> {
     const res = await fetch(`${API_BASE}/gaming/rules`, { headers: getHeaders() });
     return handleResponse(res);
