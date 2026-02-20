@@ -17,29 +17,6 @@ const opiMappings: Record<string, { name?: string; pins: Record<number, number> 
 const ORANGE_PI_MODELS = ['orange_pi_one', 'orange_pi_zero_3', 'orange_pi_pc', 'orange_pi_5'];
 const ORANGE_PI_DEFAULT_MODEL = 'orange_pi_one';
 
-const RPI_BCM_TO_PHYSICAL: Record<number, number> = {
-  2: 3,
-  3: 5,
-  4: 7,
-  17: 11,
-  27: 13,
-  22: 15,
-  10: 19,
-  9: 21,
-  11: 23,
-  5: 29,
-  6: 31,
-  13: 33,
-  19: 35,
-  26: 37,
-  14: 8,
-  15: 10
-};
-
-const RPI_BCM_PINS = Object.keys(RPI_BCM_TO_PHYSICAL)
-  .map(p => parseInt(p, 10))
-  .sort((a, b) => RPI_BCM_TO_PHYSICAL[a] - RPI_BCM_TO_PHYSICAL[b]);
-
 const HardwareManager: React.FC = () => {
   const [board, setBoard] = useState<BoardType>('none');
   const [pin, setPin] = useState(2);
@@ -75,8 +52,7 @@ const HardwareManager: React.FC = () => {
   }, [board, boardModel, pin]);
 
   const isOrangePi = board === 'orange_pi';
-  const isRaspberryPi = board === 'raspberry_pi';
-  const isX64Pc = board === 'x64_pc';
+  const isX64 = board === 'x64_pc';
 
   const currentOrangeModelKey = boardModel || ORANGE_PI_DEFAULT_MODEL;
   const currentOrangePinsMap = opiMappings[currentOrangeModelKey]?.pins || {};
@@ -137,7 +113,7 @@ const HardwareManager: React.FC = () => {
         coinPin: pin,
         boardModel: board === 'orange_pi' ? boardModel : null,
         coinSlots: coinSlots,
-        relayPin: board === 'none' || board === 'nodemcu_esp' ? null : relayPin,
+        relayPin: board === 'none' || board === 'nodemcu_esp' || board === 'x64_pc' ? null : relayPin,
         relayActiveMode: relayPin != null ? relayActiveMode : 'high'
       });
       setSuccess(true);
@@ -321,59 +297,18 @@ const HardwareManager: React.FC = () => {
                    </div>
                  </div>
                </div>
-             ) : isRaspberryPi ? (
-               <div className="space-y-4">
-                 <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
-                   <div className="flex justify-between items-center mb-3">
-                     <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Coin Pin (Main)</label>
-                     <div className="text-[10px] font-bold text-slate-900 bg-white px-2 py-0.5 rounded border border-slate-200">
-                       GPIO {pin}
-                     </div>
-                   </div>
-                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                     {RPI_BCM_PINS.map(bcm => {
-                       const physical = RPI_BCM_TO_PHYSICAL[bcm];
-                       return (
-                         <button
-                           key={bcm}
-                           type="button"
-                           onClick={() => setPin(bcm)}
-                           className={`p-3 rounded-lg border text-left transition-all ${
-                             pin === bcm
-                               ? 'border-blue-600 bg-blue-50 text-blue-700 shadow-sm'
-                               : 'border-slate-200 text-slate-600 hover:border-slate-400'
-                           }`}
-                         >
-                           <div className="text-[11px] font-black tracking-wide">
-                             {physical ? `P${physical}` : `BCM ${bcm}`}
-                           </div>
-                           <div className="text-[9px] text-slate-500">{`GPIO ${bcm}`}</div>
-                         </button>
-                       );
-                     })}
-                   </div>
-                 </div>
-                 <button
-                   onClick={handleSave}
-                   disabled={saving}
-                   className="admin-btn-primary w-full sm:w-48 py-3 rounded-lg font-black text-[10px] uppercase tracking-[0.2em] transition-all shadow-lg active:scale-95 disabled:opacity-50 flex justify-center items-center gap-2"
-                 >
-                   <Save size={12} />
-                   {saving ? 'Saving...' : 'Apply Config'}
-                 </button>
-               </div>
-             ) : isX64Pc ? (
-               <div className="space-y-4">
-                 <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
-                   <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-2">Coin Input</div>
+             ) : isX64 ? (
+               <div className="flex flex-col sm:flex-row gap-4">
+                 <div className="flex-1 bg-slate-50 rounded-lg p-3 border border-slate-200">
+                   <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">x64 PC Mode</div>
                    <p className="text-[10px] text-slate-600">
-                     x64 PC uses external NodeMCU devices for coin pulses. Configure NodeMCU units in the Sub-Vendo Bridge section below.
+                     GPIO pin selection and relay output are disabled on x64 PC. This mode uses the serial or NodeMCU bridge for coinslot input.
                    </p>
                  </div>
                  <button
                    onClick={handleSave}
                    disabled={saving}
-                   className="admin-btn-primary w-full sm:w-48 py-3 rounded-lg font-black text-[10px] uppercase tracking-[0.2em] transition-all shadow-lg active:scale-95 disabled:opacity-50 flex justify-center items-center gap-2"
+                   className="admin-btn-primary sm:w-48 py-3 rounded-lg font-black text-[10px] uppercase tracking-[0.2em] transition-all shadow-lg active:scale-95 disabled:opacity-50 flex justify-center items-center gap-2"
                  >
                    <Save size={12} />
                    {saving ? 'Saving...' : 'Apply Config'}
@@ -386,12 +321,12 @@ const HardwareManager: React.FC = () => {
                      <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Coin Pin (Main)</label>
                      <div className="text-[10px] font-bold text-slate-900 bg-white px-2 py-0.5 rounded border border-slate-200">GPIO {pin}</div>
                    </div>
-                   <input 
-                     type="range" 
-                     min="2" 
-                     max="27" 
-                     value={pin} 
-                     onChange={(e) => setPin(parseInt(e.target.value))}
+                   <input
+                     type="range"
+                     min="2"
+                     max="27"
+                     value={pin}
+                     onChange={(e) => setPin(parseInt(e.target.value, 10))}
                      className="w-full accent-slate-900 h-1.5 rounded-lg appearance-none bg-slate-200 cursor-pointer"
                    />
                  </div>
@@ -470,11 +405,9 @@ const HardwareManager: React.FC = () => {
                 <div className="flex justify-between border-b border-slate-200/50 pb-1">
                   <span className="text-slate-500 uppercase">Input:</span>
                   <span className="font-bold text-slate-900">
-                    {isX64Pc
-                      ? 'NodeMCU (Wireless)'
-                      : isOrangePi && typeof orangeGpioForSelectedPin === 'number'
-                        ? `Pin ${pin} (GPIO ${orangeGpioForSelectedPin})`
-                        : `GPIO ${pin}`}
+                    {isOrangePi && typeof orangeGpioForSelectedPin === 'number'
+                      ? `Pin ${pin} (GPIO ${orangeGpioForSelectedPin})`
+                      : `GPIO ${pin}`}
                   </span>
                 </div>
                 {board === 'orange_pi' && (
