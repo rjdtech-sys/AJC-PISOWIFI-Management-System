@@ -175,21 +175,30 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
 
     const checkOnlineStatus = async () => {
       try {
-        if (typeof navigator !== 'undefined' && !navigator.onLine) {
-          if (!cancelled) setIsOnline(false);
-          return;
-        }
-
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 2500);
 
         try {
-          await fetch('https://1.1.1.1', {
-            mode: 'no-cors',
+          const res = await fetch('/api/network/internet-status', {
+            method: 'GET',
             cache: 'no-store',
             signal: controller.signal
           });
-          if (!cancelled) setIsOnline(true);
+
+          if (!res.ok) {
+            if (!cancelled) setIsOnline(false);
+          } else {
+            let online = false;
+            try {
+              const data = await res.json();
+              if (data && typeof data.online === 'boolean') {
+                online = data.online;
+              }
+            } catch {
+              online = false;
+            }
+            if (!cancelled) setIsOnline(online);
+          }
         } catch {
           if (!cancelled) setIsOnline(false);
         } finally {

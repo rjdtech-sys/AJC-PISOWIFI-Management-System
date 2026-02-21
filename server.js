@@ -2349,6 +2349,21 @@ app.post('/api/network/refresh', async (req, res) => {
   }
 });
 
+// INTERNET STATUS API - Board/System internet connectivity for portal landing page
+app.get('/api/network/internet-status', async (req, res) => {
+  try {
+    const target = '1.1.1.1';
+    try {
+      await execPromise(`ping -c 1 -W 1 ${target}`);
+      return res.json({ online: true, target });
+    } catch (e) {
+      return res.json({ online: false, target });
+    }
+  } catch (err) {
+    return res.status(500).json({ online: false, error: err.message });
+  }
+});
+
 app.get('/api/config/qos', requireAdmin, async (req, res) => {
   try {
     const result = await db.get("SELECT value FROM config WHERE key = 'qos_discipline'");
