@@ -1419,7 +1419,7 @@ app.use(async (req, res, next) => {
   const url = req.url.toLowerCase();
   const clientIp = req.ip.replace('::ffff:', '');
 
-  if (url.startsWith('/api') || url.startsWith('/dist') || url.startsWith('/assets') || host.includes('localhost') || host.includes('127.0.0.1')) {
+  if (url.startsWith('/api') || url.startsWith('/dist') || url.startsWith('/assets') || url.startsWith('/admin') || host.includes('localhost') || host.includes('127.0.0.1')) {
     return next();
   }
 
