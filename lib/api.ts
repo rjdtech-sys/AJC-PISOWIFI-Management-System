@@ -102,6 +102,20 @@ export const apiClient = {
     await handleResponse(res);
   },
 
+  async getCentralizedKey(): Promise<{ key: string }> {
+    const res = await fetch(`${API_BASE}/config/centralized-key`, { headers: getHeaders() });
+    return handleResponse(res);
+  },
+
+  async saveCentralizedKey(key: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/config/centralized-key`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ key })
+    });
+    await handleResponse(res);
+  },
+
   // Get Portal Configuration
   async getPortalConfig(): Promise<any> {
     const res = await fetch(`${API_BASE}/portal/config`, { headers: getHeaders() });

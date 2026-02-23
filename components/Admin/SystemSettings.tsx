@@ -162,6 +162,9 @@ const SystemSettings: React.FC = () => {
           <ChangePasswordForm />
         </section>
 
+        {/* Centralized Key Card */}
+        <CentralizedKeyCard />
+
         {/* Manual Controls Card */}
         <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
           <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Service Management</h3>
@@ -531,6 +534,74 @@ const NodeMCUFlasher: React.FC = () => {
             {output}
           </div>
         )}
+      </div>
+    </section>
+  );
+};
+
+const CentralizedKeyCard: React.FC = () => {
+  const [key, setKey] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    loadKey();
+  }, []);
+
+  const loadKey = async () => {
+    try {
+      const res = await apiClient.getCentralizedKey();
+      setKey(res.key);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleSave = async () => {
+    setLoading(true);
+    setMessage('');
+    try {
+      await apiClient.saveCentralizedKey(key);
+      setMessage('✅ Connected');
+    } catch (e: any) {
+      setMessage('Failed: ' + e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 h-full">
+      <div className="flex items-center gap-2 mb-4">
+        <span className="text-lg">☁️</span>
+        <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Centralized Cloud</h3>
+      </div>
+      
+      <div className="space-y-3">
+        <div>
+          <label className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Centralized Key</label>
+          <input 
+            type="text" 
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500 text-xs"
+            placeholder="Enter key..."
+          />
+        </div>
+        
+        {message && <p className={`text-[10px] font-bold ${message.includes('Failed') ? 'text-red-500' : 'text-green-500'}`}>{message}</p>}
+        
+        <button 
+          onClick={handleSave}
+          disabled={loading}
+          className="w-full bg-indigo-600 text-white py-2 rounded-lg font-black text-[10px] uppercase tracking-widest shadow-md shadow-indigo-600/10 disabled:opacity-50 hover:bg-indigo-700 transition-all"
+        >
+          {loading ? 'Connecting...' : 'Connect & Sync'}
+        </button>
+        
+        <p className="text-[8px] text-slate-400 leading-tight border-t border-slate-100 pt-2 mt-2">
+          Links this machine to the centralized cloud dashboard to record active sessions and devices.
+        </p>
       </div>
     </section>
   );

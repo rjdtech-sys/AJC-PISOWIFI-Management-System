@@ -2796,6 +2796,39 @@ app.post('/api/config/central-portal', requireAdmin, async (req, res) => {
   }
 });
 
+// Centralized Key API
+app.get('/api/config/centralized-key', requireAdmin, async (req, res) => {
+  try {
+    const row = await db.get('SELECT value FROM config WHERE key = ?', ['centralizedKey']);
+    res.json({ key: row?.value || '' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/config/centralized-key', requireAdmin, async (req, res) => {
+  try {
+    const key = req.body.key || '';
+    await db.run(
+      'INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)',
+      ['centralizedKey', key]
+    );
+    
+    // Trigger a sync check in background
+    try {
+        if (key && edgeSync) {
+            edgeSync.checkCentralizedKey(key);
+        }
+    } catch(e) {
+        console.error('Failed to trigger key check:', e);
+    }
+    
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // NODEMCU DEVICE REGISTRATION API
 app.post('/api/nodemcu/register', async (req, res) => {
   try {
