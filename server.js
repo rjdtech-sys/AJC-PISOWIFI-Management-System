@@ -3561,14 +3561,41 @@ app.post('/api/system/update', requireAdmin, uploadBackup.single('file'), async 
         }
     });
     
-    // Cleanup
+    // Cleanup uploaded update package
     fs.unlinkSync(req.file.path);
     
-    res.json({ success: true, message: 'System updated successfully. Restarting...' });
+    // Run dependency install and build, then reboot entire system
+    res.json({ success: true, message: 'System update applied. Running npm install, build, and rebooting...' });
     
-    // Restart logic
-    setTimeout(() => {
-        process.exit(0); // PM2 should restart it
+    setTimeout(async () => {
+        try {
+            await execPromise('npm install --unsafe-perm --no-audit --no-fund --build-from-source', {
+                cwd: __dirname
+            });
+        } catch (e) {
+            console.error('[System Update] npm install failed:', e.message || e);
+        }
+
+        try {
+            await execPromise('npm run build', {
+                cwd: __dirname
+            });
+        } catch (e) {
+            console.error('[System Update] npm run build failed:', e.message || e);
+        }
+
+        try {
+            await execPromise('sync').catch(() => {});
+        } catch (_) {}
+
+        try {
+            exec('sudo reboot').unref();
+        } catch (e) {
+            console.error('[System Update] Reboot command failed:', e.message || e);
+            try {
+                process.exit(0);
+            } catch (_) {}
+        }
     }, 2000);
   } catch (err) {
     console.error('Update failed:', err);
