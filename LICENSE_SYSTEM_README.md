@@ -325,7 +325,7 @@ For issues or questions:
 
 ## 📜 License
 
-This licensing system is part of the AJC PisoWiFi Management System v3.4.0-beta.1+
+This licensing system is part of the AJC PisoWiFi Management System v3.6.0-ONLINE-BETA+
 
 ---
 
