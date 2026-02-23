@@ -1296,6 +1296,20 @@ app.get('/generate_204', async (req, res) => {
     if (session) {
       return res.status(204).send();
     }
+    
+    // Roaming Check: If no local session, try to pull from cloud via EdgeSync
+    // This allows seamless roaming when user moves between APs
+    try {
+        if (edgeSync && edgeSync.vendorId) {
+             // We do this check only if we are "online" and configured
+             const roamingSession = await edgeSync.checkRoamingForMac(mac);
+             if (roamingSession) {
+                 return res.status(204).send();
+             }
+        }
+    } catch(e) {
+        // Fallback to captive portal if roaming check fails
+    }
   }
   
   // Not authorized - serve portal directly
