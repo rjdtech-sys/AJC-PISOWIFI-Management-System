@@ -3547,11 +3547,10 @@ app.post('/api/system/restore', requireAdmin, uploadBackup.single('file'), async
   }
 });
 
-app.post('/api/system/update', requireAdmin, uploadBackup.single('file'), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-  
+// SYSTEM UPDATE UTILITY FUNCTION
+async function applyUpdate(filePath, res) {
   try {
-    const zip = new AdmZip(req.file.path);
+    const zip = new AdmZip(filePath);
     const zipEntries = zip.getEntries();
     
     // Extract each entry unless it's the database
@@ -3562,7 +3561,7 @@ app.post('/api/system/update', requireAdmin, uploadBackup.single('file'), async 
     });
     
     // Cleanup uploaded update package
-    fs.unlinkSync(req.file.path);
+    fs.unlinkSync(filePath);
     
     // Run dependency install and build, then reboot entire system
     res.json({ success: true, message: 'System update applied. Running npm install, build, and rebooting...' });
@@ -3601,6 +3600,93 @@ app.post('/api/system/update', requireAdmin, uploadBackup.single('file'), async 
     console.error('Update failed:', err);
     res.status(500).json({ error: 'Update failed: ' + err.message });
   }
+}
+
+app.post('/api/system/update', requireAdmin, uploadBackup.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+  await applyUpdate(req.file.path, res);
+});
+
+// CLOUD UPDATE API
+app.get('/api/system/available-updates', requireAdmin, async (req, res) => {
+    try {
+        if (!edgeSync.supabase) {
+             return res.status(503).json({ error: 'Cloud sync not configured' });
+        }
+        
+        // List files in 'updates' bucket
+        const { data, error } = await edgeSync.supabase.storage
+            .from('updates')
+            .list('', {
+                limit: 10,
+                offset: 0,
+                sortBy: { column: 'created_at', order: 'desc' },
+            });
+            
+        if (error) {
+            console.error('[Cloud Update] List error:', error);
+            // If bucket not found, try 'firmware' bucket just in case
+            if (error.message.includes('Bucket not found')) {
+                 const { data: fwData, error: fwError } = await edgeSync.supabase.storage
+                    .from('firmware')
+                    .list('', { limit: 10, sortBy: { column: 'created_at', order: 'desc' } });
+                 
+                 if (fwError) throw error; // Throw original error if both fail
+                 
+                 const updates = fwData.filter(f => f.name.endsWith('.nxs'));
+                 return res.json(updates.map(u => ({ ...u, bucket: 'firmware' })));
+            }
+            throw error;
+        }
+        
+        // Filter for .nxs files
+        const updates = data.filter(f => f.name.endsWith('.nxs'));
+        res.json(updates.map(u => ({ ...u, bucket: 'updates' })));
+    } catch (err) {
+        console.error('[Cloud Update] Failed to list updates:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/system/download-and-update', requireAdmin, async (req, res) => {
+    const { filename, bucket } = req.body;
+    if (!filename) return res.status(400).json({ error: 'Filename is required' });
+    const bucketName = bucket || 'updates';
+
+    try {
+        if (!edgeSync.supabase) {
+             return res.status(503).json({ error: 'Cloud sync not configured' });
+        }
+
+        console.log(`[System Update] Downloading ${filename} from bucket ${bucketName}...`);
+        
+        const { data, error } = await edgeSync.supabase.storage
+            .from(bucketName)
+            .download(filename);
+
+        if (error) throw error;
+        
+        // Save to temp file
+        const tempPath = path.join(__dirname, 'uploads/backups', `cloud_update_${Date.now()}.nxs`);
+        
+        // Ensure directory exists
+        const dir = path.dirname(tempPath);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+        // Convert Blob/File to Buffer
+        const arrayBuffer = await data.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        
+        fs.writeFileSync(tempPath, buffer);
+        console.log(`[System Update] Downloaded to ${tempPath}`);
+        
+        // Apply update
+        await applyUpdate(tempPath, res);
+        
+    } catch (err) {
+        console.error('[System Update] Cloud update failed:', err);
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // NETWORK API

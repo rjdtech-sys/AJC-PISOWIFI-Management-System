@@ -4,9 +4,69 @@ const SystemUpdater: React.FC = () => {
   const [isBackupLoading, setIsBackupLoading] = useState(false);
   const [isRestoreLoading, setIsRestoreLoading] = useState(false);
   const [isUpdateLoading, setIsUpdateLoading] = useState(false);
+  const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
+  const [availableUpdates, setAvailableUpdates] = useState<any[]>([]);
+  const [isInstallingCloudUpdate, setIsInstallingCloudUpdate] = useState<string | null>(null);
   
   const restoreFileRef = useRef<HTMLInputElement>(null);
   const updateFileRef = useRef<HTMLInputElement>(null);
+
+  const handleCheckUpdates = async () => {
+    setIsCheckingUpdates(true);
+    try {
+        const token = localStorage.getItem('ajc_admin_token');
+        const headers: HeadersInit = {};
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+
+        const res = await fetch('/api/system/available-updates', { headers });
+        const data = await res.json();
+        
+        if (res.ok) {
+            setAvailableUpdates(data);
+            if (data.length === 0) {
+                alert('No updates found in the cloud.');
+            }
+        } else {
+            throw new Error(data.error || 'Failed to check updates');
+        }
+    } catch (error: any) {
+        alert(error.message);
+    } finally {
+        setIsCheckingUpdates(false);
+    }
+  };
+
+  const handleCloudUpdate = async (filename: string, bucket: string) => {
+    if (!confirm(`Are you sure you want to install ${filename}? The system will restart automatically.`)) return;
+
+    setIsInstallingCloudUpdate(filename);
+    try {
+        const token = localStorage.getItem('ajc_admin_token');
+        const headers: HeadersInit = {
+            'Content-Type': 'application/json'
+        };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+
+        const res = await fetch('/api/system/download-and-update', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ filename, bucket })
+        });
+        
+        const data = await res.json();
+        
+        if (res.ok) {
+            alert('Update initiated. The system will restart automatically.');
+            window.location.reload();
+        } else {
+            throw new Error(data.error || 'Update failed');
+        }
+    } catch (error: any) {
+        alert(error.message);
+    } finally {
+        setIsInstallingCloudUpdate(null);
+    }
+  };
 
   const handleBackup = async () => {
     setIsBackupLoading(true);
@@ -136,6 +196,68 @@ const SystemUpdater: React.FC = () => {
   return (
     <div className="max-w-4xl mx-auto space-y-8 pb-20 animate-in fade-in slide-in-from-bottom-2 duration-500">
       
+      {/* Cloud Update Section */}
+      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 bg-indigo-100 text-indigo-600 rounded-lg">
+             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+             </svg>
+          </div>
+          <div>
+            <h3 className="text-lg font-bold text-slate-900">Cloud Update</h3>
+            <p className="text-sm text-slate-500">Check and install updates directly from the cloud server.</p>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+            <button
+            onClick={handleCheckUpdates}
+            disabled={isCheckingUpdates}
+            className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold text-sm uppercase tracking-wide hover:bg-indigo-700 transition-all shadow-md disabled:opacity-50"
+            >
+            {isCheckingUpdates ? 'Checking for Updates...' : 'Check for Updates'}
+            </button>
+            
+            {availableUpdates.length > 0 && (
+                <div className="mt-4 border border-slate-200 rounded-lg overflow-hidden">
+                    <table className="min-w-full divide-y divide-slate-200">
+                        <thead className="bg-slate-50">
+                            <tr>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Filename</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Date</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Size</th>
+                                <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-slate-200">
+                            {availableUpdates.map((update, index) => (
+                                <tr key={index}>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">{update.name}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
+                                        {new Date(update.created_at).toLocaleDateString()}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
+                                        {(update.metadata?.size / 1024 / 1024).toFixed(2)} MB
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                        <button 
+                                            onClick={() => handleCloudUpdate(update.name, update.bucket)}
+                                            disabled={!!isInstallingCloudUpdate}
+                                            className="text-indigo-600 hover:text-indigo-900 font-bold disabled:opacity-50"
+                                        >
+                                            {isInstallingCloudUpdate === update.name ? 'Installing...' : 'Install'}
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+        </div>
+      </div>
+
       {/* Backup Section */}
       <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
         <div className="flex items-center gap-3 mb-4">
