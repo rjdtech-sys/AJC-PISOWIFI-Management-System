@@ -44,6 +44,9 @@ const RemoteManager: React.FC = () => {
   const [joinBusy, setJoinBusy] = useState<boolean>(false);
   const [joinMessage, setJoinMessage] = useState<string | null>(null);
   const [joinError, setJoinError] = useState<string | null>(null);
+  const [leaveBusyId, setLeaveBusyId] = useState<string | null>(null);
+  const [leaveError, setLeaveError] = useState<string | null>(null);
+  const [leaveMessage, setLeaveMessage] = useState<string | null>(null);
 
   const getAdminHeaders = (customHeaders: HeadersInit = {}): HeadersInit => {
     const headers: Record<string, string> = {
@@ -212,6 +215,37 @@ const RemoteManager: React.FC = () => {
     }
   };
 
+  const handleLeaveNetwork = async (networkId: string) => {
+    if (!networkId) {
+      return;
+    }
+    setLeaveBusyId(networkId);
+    setLeaveError(null);
+    setLeaveMessage(null);
+    try {
+      const res = await fetch('/api/zerotier/leave', {
+        method: 'POST',
+        headers: getAdminHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ networkId })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) {
+        const message = data.error || `HTTP ${res.status}`;
+        setLeaveError(message);
+      } else {
+        setLeaveMessage(data.message || 'Leave command sent to ZeroTier.');
+        setTimeout(() => {
+          loadStatus();
+        }, 1500);
+      }
+    } catch (e: any) {
+      console.error('Failed to leave ZeroTier network', e);
+      setLeaveError(e?.message || 'Failed to leave ZeroTier network.');
+    } finally {
+      setLeaveBusyId(null);
+    }
+  };
+
   const installProgress = useMemo(() => {
     if (!installState) return 0;
     if (typeof installState.progress !== 'number' || isNaN(installState.progress)) return 0;
@@ -331,50 +365,83 @@ const RemoteManager: React.FC = () => {
                 </h3>
                 {effectiveStatus?.networks && effectiveStatus.networks.length > 0 ? (
                   <div className="space-y-2">
-                    {effectiveStatus.networks.map((net) => (
-                      <div
-                        key={net.id || net.name}
-                        className="border border-slate-200 rounded-xl p-3 bg-slate-50 flex flex-col gap-1"
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex flex-col">
-                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-700">
-                              {net.name || 'Unnamed Network'}
-                            </span>
-                            <span className="text-[10px] font-mono text-slate-500">
-                              {net.id || 'Unknown ID'}
-                            </span>
+                    {effectiveStatus.networks.map((net) => {
+                      const id = net.id || '';
+                      const busy = leaveBusyId === id;
+                      return (
+                        <div
+                          key={id || net.name}
+                          className="border border-slate-200 rounded-xl p-3 bg-slate-50 flex flex-col gap-1"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex flex-col">
+                              <span className="text-[10px] font-black uppercase tracking-widest text-slate-700">
+                                {net.name || 'Unnamed Network'}
+                              </span>
+                              <span className="text-[10px] font-mono text-slate-500">
+                                {id || 'Unknown ID'}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest ${
+                                  net.status === 'OK'
+                                    ? 'bg-green-100 text-green-700'
+                                    : 'bg-amber-100 text-amber-700'
+                                }`}
+                              >
+                                {net.status || 'Unknown'}
+                              </span>
+                              {id && (
+                                <button
+                                  onClick={() => handleLeaveNetwork(id)}
+                                  disabled={busy}
+                                  className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border active:scale-95 transition-all ${
+                                    busy
+                                      ? 'bg-slate-200 border-slate-200 text-slate-500 cursor-not-allowed'
+                                      : 'bg-red-50 border-red-200 text-red-600 hover:bg-red-100'
+                                  }`}
+                                >
+                                  {busy ? 'Leaving...' : 'Leave'}
+                                </button>
+                              )}
+                            </div>
                           </div>
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest ${
-                              net.status === 'OK'
-                                ? 'bg-green-100 text-green-700'
-                                : 'bg-amber-100 text-amber-700'
-                            }`}
-                          >
-                            {net.status || 'Unknown'}
-                          </span>
+                          <div className="grid grid-cols-2 gap-2 mt-2 text-[9px] font-bold uppercase tracking-widest text-slate-500">
+                            <div>
+                              <span>Type: </span>
+                              <span className="text-slate-700">{net.type || '-'}</span>
+                            </div>
+                            <div>
+                              <span>Interface: </span>
+                              <span className="text-slate-700">{net.deviceName || '-'}</span>
+                            </div>
+                            <div className="col-span-2">
+                              <span>Assigned IPs: </span>
+                              <span className="text-slate-700 font-mono">
+                                {net.assignedIps && net.assignedIps.length > 0
+                                  ? net.assignedIps.join(', ')
+                                  : '-'}
+                              </span>
+                            </div>
+                          </div>
                         </div>
-                        <div className="grid grid-cols-2 gap-2 mt-2 text-[9px] font-bold uppercase tracking-widest text-slate-500">
-                          <div>
-                            <span>Type: </span>
-                            <span className="text-slate-700">{net.type || '-'}</span>
+                      );
+                    })}
+                    {(leaveError || leaveMessage) && (
+                      <div className="mt-2 space-y-1">
+                        {leaveError && (
+                          <div className="bg-red-50 border border-red-200 rounded-xl p-2 text-[10px] text-red-700 font-bold uppercase tracking-widest">
+                            {leaveError}
                           </div>
-                          <div>
-                            <span>Interface: </span>
-                            <span className="text-slate-700">{net.deviceName || '-'}</span>
+                        )}
+                        {leaveMessage && (
+                          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-2 text-[10px] text-emerald-700 font-bold uppercase tracking-widest">
+                            {leaveMessage}
                           </div>
-                          <div className="col-span-2">
-                            <span>Assigned IPs: </span>
-                            <span className="text-slate-700 font-mono">
-                              {net.assignedIps && net.assignedIps.length > 0
-                                ? net.assignedIps.join(', ')
-                                : '-'}
-                            </span>
-                          </div>
-                        </div>
+                        )}
                       </div>
-                    ))}
+                    )}
                   </div>
                 ) : (
                   <div className="text-[10px] text-slate-500 font-bold uppercase tracking-widest bg-slate-50 border border-dashed border-slate-200 rounded-xl p-3">

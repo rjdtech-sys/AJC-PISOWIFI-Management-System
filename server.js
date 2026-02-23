@@ -3763,6 +3763,44 @@ app.post('/api/zerotier/join', requireAdmin, async (req, res) => {
   }
 });
 
+app.post('/api/zerotier/leave', requireAdmin, async (req, res) => {
+  try {
+    const networkId = (req.body && typeof req.body.networkId === 'string') ? req.body.networkId.trim() : '';
+    if (!networkId) {
+      return res.status(400).json({ error: 'Network ID is required' });
+    }
+
+    if (!/^[0-9a-fA-F]{16}$/.test(networkId)) {
+      return res.status(400).json({ error: 'Network ID must be a 16-character hexadecimal string' });
+    }
+
+    const status = await getZeroTierStatus();
+    if (!status.installed) {
+      return res.status(400).json({ error: 'ZeroTier is not installed' });
+    }
+
+    const { stdout, stderr } = await execPromise(`zerotier-cli leave ${networkId}`);
+    const output = (stdout || '').toString().trim();
+    const errorOutput = (stderr || '').toString().trim();
+
+    if (errorOutput && !output) {
+      return res.status(500).json({
+        error: 'ZeroTier leave failed',
+        details: errorOutput
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Leave command sent to ZeroTier',
+      output,
+      details: errorOutput
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // NODEMCU FLASHER API
 app.get('/api/system/usb-devices', requireAdmin, async (req, res) => {
   try {
