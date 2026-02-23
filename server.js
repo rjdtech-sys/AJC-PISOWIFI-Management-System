@@ -3614,9 +3614,12 @@ app.get('/api/system/available-updates', requireAdmin, async (req, res) => {
              return res.status(503).json({ error: 'Cloud sync not configured' });
         }
         
-        // List files in 'updates' bucket
+        // List files in 'UPDATE FILE' bucket (as requested by user)
+        // We prioritize this bucket name, but fall back to 'updates' and 'firmware'
+        const primaryBucket = 'UPDATE FILE';
+        
         const { data, error } = await edgeSync.supabase.storage
-            .from('updates')
+            .from(primaryBucket)
             .list('', {
                 limit: 10,
                 offset: 0,
@@ -3624,24 +3627,35 @@ app.get('/api/system/available-updates', requireAdmin, async (req, res) => {
             });
             
         if (error) {
-            console.error('[Cloud Update] List error:', error);
-            // If bucket not found, try 'firmware' bucket just in case
-            if (error.message.includes('Bucket not found')) {
-                 const { data: fwData, error: fwError } = await edgeSync.supabase.storage
-                    .from('firmware')
-                    .list('', { limit: 10, sortBy: { column: 'created_at', order: 'desc' } });
-                 
-                 if (fwError) throw error; // Throw original error if both fail
-                 
-                 const updates = fwData.filter(f => f.name.endsWith('.nxs'));
-                 return res.json(updates.map(u => ({ ...u, bucket: 'firmware' })));
+            console.warn(`[Cloud Update] Primary bucket '${primaryBucket}' error:`, error.message);
+            
+            // Fallback 1: 'updates'
+            const { data: updatesData, error: updatesError } = await edgeSync.supabase.storage
+                .from('updates')
+                .list('', { limit: 10, sortBy: { column: 'created_at', order: 'desc' } });
+                
+            if (!updatesError && updatesData) {
+                const updates = updatesData.filter(f => f.name.endsWith('.nxs'));
+                return res.json(updates.map(u => ({ ...u, bucket: 'updates' })));
             }
-            throw error;
+            
+            // Fallback 2: 'firmware'
+            const { data: fwData, error: fwError } = await edgeSync.supabase.storage
+                .from('firmware')
+                .list('', { limit: 10, sortBy: { column: 'created_at', order: 'desc' } });
+                
+            if (!fwError && fwData) {
+                const updates = fwData.filter(f => f.name.endsWith('.nxs'));
+                return res.json(updates.map(u => ({ ...u, bucket: 'firmware' })));
+            }
+            
+            // If all fail, throw the original error or a generic one
+            throw error || updatesError || new Error('No update buckets found');
         }
         
         // Filter for .nxs files
         const updates = data.filter(f => f.name.endsWith('.nxs'));
-        res.json(updates.map(u => ({ ...u, bucket: 'updates' })));
+        res.json(updates.map(u => ({ ...u, bucket: primaryBucket })));
     } catch (err) {
         console.error('[Cloud Update] Failed to list updates:', err);
         res.status(500).json({ error: err.message });
@@ -3651,7 +3665,8 @@ app.get('/api/system/available-updates', requireAdmin, async (req, res) => {
 app.post('/api/system/download-and-update', requireAdmin, async (req, res) => {
     const { filename, bucket } = req.body;
     if (!filename) return res.status(400).json({ error: 'Filename is required' });
-    const bucketName = bucket || 'updates';
+    // Default to 'UPDATE FILE' if not specified, as requested by user
+    const bucketName = bucket || 'UPDATE FILE';
 
     try {
         if (!edgeSync.supabase) {
