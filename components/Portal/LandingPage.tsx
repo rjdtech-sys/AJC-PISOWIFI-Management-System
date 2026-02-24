@@ -36,6 +36,7 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
   const [isVoucherLoading, setIsVoucherLoading] = useState<boolean>(false);
   const [creditPesos, setCreditPesos] = useState(0);
   const [creditMinutes, setCreditMinutes] = useState(0);
+  const [hasAutoSelected, setHasAutoSelected] = useState(false);
 
   // Hardcoded default rates in case the API fetch returns nothing
   const defaultRates: Rate[] = [
@@ -215,20 +216,28 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
     : sessions.find(s => s.mac === myMac);
 
   useEffect(() => {
+    if (hasAutoSelected) return;
     if (clientVlanId === null) return;
     if (availableSlots.length === 0) return;
-    if (selectedSlot !== 'main') return;
 
     const vlanSlots = availableSlots.filter(slot => slot.vlanId === clientVlanId && (!slot.license || slot.license.isValid));
-    if (vlanSlots.length === 0) return;
+    
+    if (vlanSlots.length > 0) {
+      const onlineSlots = vlanSlots.filter(slot => slot.isOnline);
+      const primarySlot = onlineSlots[0] || vlanSlots[0];
 
-    const onlineSlots = vlanSlots.filter(slot => slot.isOnline);
-    const primarySlot = onlineSlots[0] || vlanSlots[0];
-
-    if (primarySlot && primarySlot.macAddress && primarySlot.macAddress !== selectedSlot) {
-      setSelectedSlot(primarySlot.macAddress);
+      if (primarySlot && primarySlot.macAddress) {
+        if (selectedSlot !== primarySlot.macAddress) {
+           setSelectedSlot(primarySlot.macAddress);
+        }
+        setHasAutoSelected(true);
+      }
+    } else {
+        // If no matching VLAN slots, we still mark as "processed" to avoid re-checking
+        // unless we want to keep trying? No, availableSlots is loaded once.
+        setHasAutoSelected(true);
     }
-  }, [clientVlanId, availableSlots, selectedSlot]);
+  }, [clientVlanId, availableSlots, selectedSlot, hasAutoSelected]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
