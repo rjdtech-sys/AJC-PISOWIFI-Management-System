@@ -2101,16 +2101,42 @@ app.post('/api/sessions/start', async (req, res) => {
       }
     }
 
-    // Lookup matching rate to apply speed limits
-    // Prioritize exact match on pesos and minutes, then fallback to pesos
-    let rate = await db.get('SELECT * FROM rates WHERE pesos = ? AND minutes = ?', [pesos, minutes]);
-    if (!rate) {
-      rate = await db.get('SELECT * FROM rates WHERE pesos = ?', [pesos]);
+    // Check if slot is NodeMCU
+    let rate = null;
+    let isNodeMCU = false;
+    
+    // Try to find if requestedSlot is a NodeMCU MAC
+    // NodeMCU slots usually pass MAC address as slot ID
+    if (requestedSlot && typeof requestedSlot === 'string' && requestedSlot.includes(':')) {
+       const nodemcuResult = await db.get('SELECT value FROM config WHERE key = ?', ['nodemcuDevices']);
+       const nodemcuDevices = nodemcuResult?.value ? JSON.parse(nodemcuResult.value) : [];
+       const nodeDevice = nodemcuDevices.find(d => d.macAddress === requestedSlot);
+       
+       if (nodeDevice && nodeDevice.rates && nodeDevice.rates.length > 0) {
+          isNodeMCU = true;
+          // Match rate by pesos and minutes (since minutes is passed from frontend selection)
+          rate = nodeDevice.rates.find(r => r.pesos === pesos && r.minutes === minutes);
+          if (!rate) {
+             rate = nodeDevice.rates.find(r => r.pesos === pesos);
+          }
+          if (rate) {
+             console.log(`[AUTH] Using NodeMCU specific rate for ${nodeDevice.name}: ${pesos} PHP -> ${rate.minutes} mins, Pausable: ${rate.is_pausable}`);
+          }
+       }
+    }
+
+    if (!rate && !isNodeMCU) {
+      // Lookup matching rate to apply speed limits
+      // Prioritize exact match on pesos and minutes, then fallback to pesos
+      rate = await db.get('SELECT * FROM rates WHERE pesos = ? AND minutes = ?', [pesos, minutes]);
+      if (!rate) {
+        rate = await db.get('SELECT * FROM rates WHERE pesos = ?', [pesos]);
+      }
     }
 
     const downloadLimit = rate ? (rate.download_limit || 0) : 0;
     const uploadLimit = rate ? (rate.upload_limit || 0) : 0;
-    const pausable = rate && typeof rate.is_pausable === 'number' ? rate.is_pausable : 1;
+    const pausable = rate && typeof rate.is_pausable !== 'undefined' ? rate.is_pausable : 1;
     const seconds = minutes * 60;
 
     let requestedToken = getSessionToken(req);
@@ -3196,6 +3222,7 @@ app.get('/api/nodemcu/available', async (req, res) => {
           macAddress: d.macAddress,
           isOnline,
           vlanId: d.vlanId,
+          rates: d.rates || [],
           license: {
             isValid: license.isValid,
             isTrial: license.licenseType === 'trial',

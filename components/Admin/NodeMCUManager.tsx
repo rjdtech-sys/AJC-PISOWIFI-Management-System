@@ -643,48 +643,88 @@ const NodeMCUManager: React.FC<NodeMCUManagerProps> = ({ devices, onUpdateDevice
                     + Add Rate
                   </button>
                 </div>
-                <div className="space-y-2 max-h-48 overflow-y-auto pr-1 scrollbar-thin">
+                <div className="space-y-2 max-h-64 overflow-y-auto pr-1 scrollbar-thin">
                   {selectedDevice.rates.map((rate, index) => (
-                    <div key={index} className="flex gap-2 items-center bg-slate-50 p-2 rounded-lg border border-slate-100">
-                      <div className="flex-1 flex gap-2">
-                        <div className="relative flex-1">
-                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[8px] font-black text-slate-400">₱</span>
-                          <input
-                            type="number"
-                            value={rate.pesos}
-                            onChange={(e) => {
-                              const updatedRates = [...selectedDevice.rates];
-                              updatedRates[index].pesos = Number(e.target.value);
-                              setSelectedDevice({ ...selectedDevice, rates: updatedRates });
-                            }}
-                            className="w-full pl-5 pr-2 py-1.5 bg-white border border-slate-200 rounded text-[10px] font-black outline-none"
-                          />
+                    <div key={index} className="flex flex-col gap-2 bg-slate-50 p-3 rounded-lg border border-slate-100">
+                      <div className="flex gap-2 items-center">
+                        <div className="flex-1 flex gap-2">
+                          <div className="relative flex-1">
+                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[8px] font-black text-slate-400">₱</span>
+                            <input
+                              type="number"
+                              value={rate.pesos}
+                              onChange={(e) => {
+                                const updatedRates = [...selectedDevice.rates];
+                                updatedRates[index].pesos = Number(e.target.value);
+                                setSelectedDevice({ ...selectedDevice, rates: updatedRates });
+                              }}
+                              className="w-full pl-5 pr-2 py-1.5 bg-white border border-slate-200 rounded text-[10px] font-black outline-none"
+                              placeholder="Amount"
+                            />
+                          </div>
+                          <div className="relative flex-1">
+                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[8px] font-black text-slate-400">MIN</span>
+                            <input
+                              type="number"
+                              value={rate.minutes}
+                              onChange={(e) => {
+                                const updatedRates = [...selectedDevice.rates];
+                                updatedRates[index].minutes = Number(e.target.value);
+                                setSelectedDevice({ ...selectedDevice, rates: updatedRates });
+                              }}
+                              className="w-full pl-2 pr-7 py-1.5 bg-white border border-slate-200 rounded text-[10px] font-black outline-none"
+                              placeholder="Duration"
+                            />
+                          </div>
                         </div>
-                        <div className="relative flex-1">
-                          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[8px] font-black text-slate-400">MIN</span>
-                          <input
-                            type="number"
-                            value={rate.minutes}
+                        <button
+                          onClick={() => {
+                            const updatedRates = selectedDevice.rates.filter((_, i) => i !== index);
+                            setSelectedDevice({ ...selectedDevice, rates: updatedRates });
+                          }}
+                          className="p-1.5 text-rose-400 hover:text-rose-600 transition-colors"
+                        >
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+                      
+                      <div className="flex gap-2">
+                        <div className="flex-1">
+                          <select
+                            value={rate.is_pausable === 0 ? 'consumable' : 'pausable'}
                             onChange={(e) => {
                               const updatedRates = [...selectedDevice.rates];
-                              updatedRates[index].minutes = Number(e.target.value);
+                              updatedRates[index].is_pausable = e.target.value === 'pausable' ? 1 : 0;
+                              // If consumable, expiration is usually not applicable or set to null, but let's keep it consistent with main rates behavior
+                              if (e.target.value === 'consumable') {
+                                updatedRates[index].expiration_hours = undefined;
+                              }
                               setSelectedDevice({ ...selectedDevice, rates: updatedRates });
                             }}
-                            className="w-full pl-2 pr-7 py-1.5 bg-white border border-slate-200 rounded text-[10px] font-black outline-none"
-                          />
+                            className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded text-[9px] font-black outline-none uppercase"
+                          >
+                            <option value="pausable">PAUSABLE</option>
+                            <option value="consumable">CONSUMABLE</option>
+                          </select>
+                        </div>
+                        <div className="flex-1 relative">
+                           <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[8px] font-black text-slate-400">HRS</span>
+                           <input
+                              type="number"
+                              value={rate.expiration_hours || ''}
+                              onChange={(e) => {
+                                const updatedRates = [...selectedDevice.rates];
+                                updatedRates[index].expiration_hours = e.target.value ? Number(e.target.value) : undefined;
+                                setSelectedDevice({ ...selectedDevice, rates: updatedRates });
+                              }}
+                              className="w-full pl-2 pr-7 py-1.5 bg-white border border-slate-200 rounded text-[10px] font-black outline-none"
+                              placeholder="Expiration (Opt)"
+                              disabled={rate.is_pausable === 0}
+                           />
                         </div>
                       </div>
-                      <button
-                        onClick={() => {
-                          const updatedRates = selectedDevice.rates.filter((_, i) => i !== index);
-                          setSelectedDevice({ ...selectedDevice, rates: updatedRates });
-                        }}
-                        className="p-1.5 text-rose-400 hover:text-rose-600 transition-colors"
-                      >
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </button>
                     </div>
                   ))}
                 </div>
