@@ -36,6 +36,7 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
   const [isVoucherLoading, setIsVoucherLoading] = useState<boolean>(false);
   const [creditPesos, setCreditPesos] = useState(0);
   const [creditMinutes, setCreditMinutes] = useState(0);
+  const [userHasSelectedSlot, setUserHasSelectedSlot] = useState(false);
 
   // Hardcoded default rates in case the API fetch returns nothing
   const defaultRates: Rate[] = [
@@ -232,20 +233,34 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
     : sessions.find(s => s.mac === myMac);
 
   useEffect(() => {
+    // If the user has manually selected a slot, do not override
+    if (userHasSelectedSlot) return;
+
+    // Must have a detected VLAN ID
     if (clientVlanId === null) return;
+    
+    // Must have available slots loaded
     if (availableSlots.length === 0) return;
-    if (selectedSlot !== 'main') return;
 
-    const vlanSlots = availableSlots.filter(slot => slot.vlanId === clientVlanId && (!slot.license || slot.license.isValid));
-    if (vlanSlots.length === 0) return;
+    // Use loose comparison (==) to handle string/number differences
+    // Also, ensure we prioritize online slots
+    const vlanSlots = availableSlots.filter(slot => 
+      slot.vlanId == clientVlanId && 
+      (!slot.license || slot.license.isValid)
+    );
+    
+    if (vlanSlots.length > 0) {
+      // Prioritize online slots
+      const onlineSlots = vlanSlots.filter(slot => slot.isOnline);
+      const primarySlot = onlineSlots[0] || vlanSlots[0];
 
-    const onlineSlots = vlanSlots.filter(slot => slot.isOnline);
-    const primarySlot = onlineSlots[0] || vlanSlots[0];
-
-    if (primarySlot && primarySlot.macAddress && primarySlot.macAddress !== selectedSlot) {
-      setSelectedSlot(primarySlot.macAddress);
+      if (primarySlot && primarySlot.macAddress) {
+        if (selectedSlot !== primarySlot.macAddress) {
+           setSelectedSlot(primarySlot.macAddress);
+        }
+      }
     }
-  }, [clientVlanId, availableSlots, selectedSlot]);
+  }, [clientVlanId, availableSlots, selectedSlot, userHasSelectedSlot]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -672,7 +687,10 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
               <div className="relative">
                 <select
                   value={selectedSlot}
-                  onChange={(e) => setSelectedSlot(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedSlot(e.target.value);
+                    setUserHasSelectedSlot(true);
+                  }}
                   className="w-full appearance-none bg-white border-2 border-slate-100 rounded-xl py-3 px-4 text-xs font-black uppercase tracking-widest text-slate-700 focus:outline-none focus:border-blue-600 focus:ring-0 transition-all"
                 >
                   <option value="main">🏠 Main Machine</option>
