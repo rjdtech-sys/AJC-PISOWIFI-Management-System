@@ -57,6 +57,8 @@ export interface Rate {
   is_pausable?: number;
   download_limit?: number; // Mbps
   upload_limit?: number; // Mbps
+  duration_unit?: 'minutes' | 'hours' | 'days';
+  expiration_unit?: 'minutes' | 'hours' | 'days';
 }
 
 export interface QoSConfig {

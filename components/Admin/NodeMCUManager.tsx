@@ -662,19 +662,44 @@ const NodeMCUManager: React.FC<NodeMCUManagerProps> = ({ devices, onUpdateDevice
                               placeholder="Amount"
                             />
                           </div>
-                          <div className="relative flex-1">
-                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[8px] font-black text-slate-400">MIN</span>
+                          <div className="relative flex-1 flex">
                             <input
                               type="number"
-                              value={rate.minutes}
+                              value={rate.duration_unit === 'hours' ? (rate.minutes / 60) : (rate.duration_unit === 'days' ? (rate.minutes / 1440) : rate.minutes)}
                               onChange={(e) => {
+                                const val = Number(e.target.value);
                                 const updatedRates = [...selectedDevice.rates];
-                                updatedRates[index].minutes = Number(e.target.value);
+                                let mins = val;
+                                if (rate.duration_unit === 'hours') mins = val * 60;
+                                else if (rate.duration_unit === 'days') mins = val * 1440;
+                                updatedRates[index].minutes = mins;
                                 setSelectedDevice({ ...selectedDevice, rates: updatedRates });
                               }}
-                              className="w-full pl-2 pr-7 py-1.5 bg-white border border-slate-200 rounded text-[10px] font-black outline-none"
+                              className="w-full pl-2 pr-1 py-1.5 bg-white border border-slate-200 rounded-l text-[10px] font-black outline-none"
                               placeholder="Duration"
                             />
+                            <select
+                               value={rate.duration_unit || 'minutes'}
+                               onChange={(e) => {
+                                 const unit = e.target.value as 'minutes' | 'hours' | 'days';
+                                 const updatedRates = [...selectedDevice.rates];
+                                 // Convert current minutes to new unit for display consistency? 
+                                 // Actually, usually we keep the minutes value but interpret it differently?
+                                 // No, we want to keep the TIME amount constant but change unit representation if possible,
+                                 // OR we assume user is changing unit to enter new value.
+                                 // Let's assume user wants to switch unit to enter value in that unit.
+                                 // But if we just switch unit, the input value (derived from minutes) will change.
+                                 // Example: 60 mins -> switch to hours -> input becomes 1. Correct.
+                                 // Example: 50 mins -> switch to hours -> input becomes 0.833.
+                                 updatedRates[index].duration_unit = unit;
+                                 setSelectedDevice({ ...selectedDevice, rates: updatedRates });
+                               }}
+                               className="bg-slate-50 border border-l-0 border-slate-200 rounded-r text-[9px] font-black outline-none px-1 uppercase"
+                            >
+                              <option value="minutes">MIN</option>
+                              <option value="hours">HRS</option>
+                              <option value="days">DAYS</option>
+                            </select>
                           </div>
                         </div>
                         <button
@@ -709,21 +734,39 @@ const NodeMCUManager: React.FC<NodeMCUManagerProps> = ({ devices, onUpdateDevice
                             <option value="consumable">CONSUMABLE</option>
                           </select>
                         </div>
-                        <div className="flex-1 relative">
-                           <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[8px] font-black text-slate-400">HRS</span>
-                           <input
-                              type="number"
-                              value={rate.expiration_hours || ''}
-                              onChange={(e) => {
-                                const updatedRates = [...selectedDevice.rates];
-                                updatedRates[index].expiration_hours = e.target.value ? Number(e.target.value) : undefined;
-                                setSelectedDevice({ ...selectedDevice, rates: updatedRates });
-                              }}
-                              className="w-full pl-2 pr-7 py-1.5 bg-white border border-slate-200 rounded text-[10px] font-black outline-none"
-                              placeholder="Expiration (Opt)"
-                              disabled={rate.is_pausable === 0}
-                           />
-                        </div>
+                          <div className="relative flex-1 flex">
+                             <input
+                                type="number"
+                                value={rate.expiration_unit === 'minutes' ? ((rate.expiration_hours || 0) * 60) : (rate.expiration_unit === 'days' ? ((rate.expiration_hours || 0) / 24) : (rate.expiration_hours || 0))}
+                                onChange={(e) => {
+                                  const val = Number(e.target.value);
+                                  const updatedRates = [...selectedDevice.rates];
+                                  let hrs = val;
+                                  if (rate.expiration_unit === 'minutes') hrs = val / 60;
+                                  else if (rate.expiration_unit === 'days') hrs = val * 24;
+                                  updatedRates[index].expiration_hours = hrs;
+                                  setSelectedDevice({ ...selectedDevice, rates: updatedRates });
+                                }}
+                                className="w-full pl-2 pr-1 py-1.5 bg-white border border-slate-200 rounded-l text-[10px] font-black outline-none"
+                                placeholder="Expiration"
+                                disabled={rate.is_pausable === 0}
+                             />
+                             <select
+                                value={rate.expiration_unit || 'hours'}
+                                onChange={(e) => {
+                                  const unit = e.target.value as 'minutes' | 'hours' | 'days';
+                                  const updatedRates = [...selectedDevice.rates];
+                                  updatedRates[index].expiration_unit = unit;
+                                  setSelectedDevice({ ...selectedDevice, rates: updatedRates });
+                                }}
+                                className="bg-slate-50 border border-l-0 border-slate-200 rounded-r text-[9px] font-black outline-none px-1 uppercase"
+                                disabled={rate.is_pausable === 0}
+                             >
+                               <option value="minutes">MIN</option>
+                               <option value="hours">HRS</option>
+                               <option value="days">DAYS</option>
+                             </select>
+                          </div>
                       </div>
                     </div>
                   ))}
