@@ -239,27 +239,50 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
     // If the user has manually selected a slot, do not override
     if (userHasSelectedSlot) return;
 
-    // Must have a detected VLAN ID
-    if (clientVlanId === null) return;
+    // Check if we have a recommended NodeMCU from backend (most reliable)
+    // The backend does advanced checks (VLAN, IP Route, License, Online Status)
+    // We trust this recommendation above all else.
+    // Note: We already set this in fetchWhoAmI, but this ensures it sticks
+    // if availableSlots loads later or something resets it.
     
-    // Must have available slots loaded
-    if (availableSlots.length === 0) return;
+    // If we have available slots, let's try to auto-select
+    if (availableSlots.length > 0) {
+      
+      // 1. Try to find a slot that matches the client's VLAN
+      let bestSlot = null;
+      
+      if (clientVlanId !== null) {
+        // Find slots on the same VLAN
+        const vlanSlots = availableSlots.filter(slot => 
+          (slot.vlanId == clientVlanId) && 
+          (!slot.license || slot.license.isValid)
+        );
+        
+        // Prioritize online slots in the same VLAN
+        const onlineVlanSlots = vlanSlots.filter(s => s.isOnline);
+        
+        if (onlineVlanSlots.length > 0) {
+          bestSlot = onlineVlanSlots[0];
+        } else if (vlanSlots.length > 0) {
+          bestSlot = vlanSlots[0];
+        }
+      }
 
-    // Use loose comparison (==) to handle string/number differences
-    // Also, ensure we prioritize online slots
-    const vlanSlots = availableSlots.filter(slot => 
-      slot.vlanId == clientVlanId && 
-      (!slot.license || slot.license.isValid)
-    );
-    
-    if (vlanSlots.length > 0) {
-      // Prioritize online slots
-      const onlineSlots = vlanSlots.filter(slot => slot.isOnline);
-      const primarySlot = onlineSlots[0] || vlanSlots[0];
+      // 2. Fallback: If no VLAN match found (maybe config is missing vlanId),
+      // but we are NOT on the main machine (implied by having a vlanId or just being on a network),
+      // and there is exactly ONE online NodeMCU, assume it's the one.
+      if (!bestSlot && availableSlots.length > 0) {
+         const onlineSlots = availableSlots.filter(s => s.isOnline && (!s.license || s.license.isValid));
+         // Only auto-select if there's exactly one online NodeMCU to avoid ambiguity
+         // unless we are sure we are not on main.
+         if (onlineSlots.length === 1) {
+            bestSlot = onlineSlots[0];
+         }
+      }
 
-      if (primarySlot && primarySlot.macAddress) {
-        if (selectedSlot !== primarySlot.macAddress) {
-           setSelectedSlot(primarySlot.macAddress);
+      if (bestSlot && bestSlot.macAddress) {
+        if (selectedSlot !== bestSlot.macAddress) {
+           setSelectedSlot(bestSlot.macAddress);
         }
       }
     }
