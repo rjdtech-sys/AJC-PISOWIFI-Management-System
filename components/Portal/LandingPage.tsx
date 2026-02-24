@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Rate, UserSession } from '../../types';
 import CoinModal from './CoinModal';
 import ChatWidget from './ChatWidget';
@@ -26,7 +26,7 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
   const [isOnline, setIsOnline] = useState<boolean | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [config, setConfig] = useState<PortalConfig>(DEFAULT_PORTAL_CONFIG);
-  const [availableSlots, setAvailableSlots] = useState<{id: string, name: string, macAddress: string, isOnline: boolean, vlanId?: number, license?: { isValid: boolean, isTrial: boolean, isExpired: boolean }}[]>([]);
+  const [availableSlots, setAvailableSlots] = useState<{id: string, name: string, macAddress: string, isOnline: boolean, vlanId?: number, rates?: Rate[], license?: { isValid: boolean, isTrial: boolean, isExpired: boolean }}[]>([]);
   const [selectedSlot, setSelectedSlot] = useState<string>('main');
   const [slotError, setSlotError] = useState<string | null>(null);
   const [canInsertCoin, setCanInsertCoin] = useState(true);
@@ -44,7 +44,15 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
     { id: '10', pesos: 10, minutes: 240 }
   ];
 
-  const activeRates = (rates && rates.length > 0) ? rates : defaultRates;
+  const activeRates = useMemo(() => {
+    if (selectedSlot !== 'main') {
+      const slot = availableSlots.find(s => s.macAddress === selectedSlot);
+      if (slot && slot.rates && slot.rates.length > 0) {
+        return slot.rates;
+      }
+    }
+    return (rates && rates.length > 0) ? rates : defaultRates;
+  }, [selectedSlot, availableSlots, rates]);
 
   // Get fallback ID immediately without waiting for server
   const getFallbackId = () => {
