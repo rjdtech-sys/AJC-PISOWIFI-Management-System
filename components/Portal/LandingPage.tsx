@@ -127,6 +127,9 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
         if (typeof data.vlanId === 'number') {
           setClientVlanId(data.vlanId);
         }
+        if (data.recommendedNodeMCU && data.recommendedNodeMCU.macAddress) {
+          setSelectedSlot(data.recommendedNodeMCU.macAddress);
+        }
         setCanInsertCoin(data.canInsertCoin !== false);
         setIsRevoked(data.isRevoked === true);
         setCreditPesos(typeof data.creditPesos === 'number' ? data.creditPesos : 0);

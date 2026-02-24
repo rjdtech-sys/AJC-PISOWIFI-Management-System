@@ -1504,7 +1504,6 @@ app.get('/api/whoami', async (req, res) => {
   const clientIp = req.ip ? req.ip.replace('::ffff:', '') : '';
   const mac = await getMacFromIp(clientIp);
   
-  // Check license status for portal restrictions
   let isRevoked = false;
   let canOperate = true;
   let canInsertCoin = true;
@@ -1599,6 +1598,45 @@ app.get('/api/whoami', async (req, res) => {
     console.error('[WhoAmI] VLAN detection error:', e.message);
   }
 
+  let recommendedNodeMCU = null;
+  if (vlanId !== null) {
+    try {
+      const devicesResult = await db.get('SELECT value FROM config WHERE key = ?', ['nodemcuDevices']);
+      const devices = devicesResult?.value ? JSON.parse(devicesResult.value) : [];
+      if (Array.isArray(devices) && devices.length > 0) {
+        const nowTs = Date.now();
+        const nodeLicenseManager = getNodeMCULicenseManager();
+        const matching = devices.filter(d => d.status === 'accepted' && d.vlanId == vlanId);
+        let bestDevice = null;
+        for (const d of matching) {
+          const lastSeenTs = d.lastSeen ? new Date(d.lastSeen).getTime() : 0;
+          const isOnline = lastSeenTs && (nowTs - lastSeenTs) < 15000;
+          if (!isOnline) continue;
+          let license = null;
+          try {
+            license = await nodeLicenseManager.verifyLicense(d.macAddress);
+          } catch (e) {}
+          if (license && license.isValid) {
+            bestDevice = d;
+            break;
+          }
+          if (!bestDevice) {
+            bestDevice = d;
+          }
+        }
+        if (bestDevice) {
+          recommendedNodeMCU = {
+            id: bestDevice.id,
+            macAddress: bestDevice.macAddress,
+            name: bestDevice.name || ''
+          };
+        }
+      }
+    } catch (e) {
+      console.error('[WhoAmI] NodeMCU recommendation error:', e);
+    }
+  }
+
   res.json({ 
     ip: clientIp, 
     mac: mac || 'unknown',
@@ -1607,7 +1645,8 @@ app.get('/api/whoami', async (req, res) => {
     canInsertCoin,
     creditPesos,
     creditMinutes,
-    vlanId
+    vlanId,
+    recommendedNodeMCU
   });
   try {
     if (mac) {
