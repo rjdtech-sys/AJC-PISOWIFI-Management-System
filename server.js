@@ -2230,14 +2230,20 @@ app.post('/api/sessions/start', async (req, res) => {
     console.log(`[AUTH] Session started for ${mac} (${clientIp}) - ${seconds}s, ₱${pesos}, Limits: ${downloadLimit}/${uploadLimit} Mbps`);
     console.log(`[AUTH] New user connected: MAC=${mac} | Session ID=${tokenToUse}`);
     
-    syncSaleToCloud({
-      amount: pesos,
-      session_duration: seconds,
-      customer_mac: mac,
-      transaction_type: 'coin_insert'
-    }).catch(err => {
-      console.error('[Sync] Failed to sync sale to cloud:', err);
-    });
+    // Only sync sale to MAIN sales_logs if NOT a NodeMCU device (to avoid double counting)
+    if (!isNodeMCU) {
+      syncSaleToCloud({
+        amount: pesos,
+        session_duration: seconds,
+        customer_mac: mac,
+        transaction_type: 'coin_insert'
+      }).catch(err => {
+        console.error('[Sync] Failed to sync sale to cloud:', err);
+      });
+    } else {
+      console.log(`[AUTH] Skipping main sales log for NodeMCU device (Handled by NodeMCU Listener)`);
+    }
+
     await applyRewardsForPurchase(mac, clientIp, pesos);
     
     coinSlotLocks.delete(slot);
