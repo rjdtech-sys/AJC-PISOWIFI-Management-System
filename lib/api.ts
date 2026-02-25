@@ -107,6 +107,11 @@ export const apiClient = {
     return handleResponse(res);
   },
 
+  async getSyncStatus(): Promise<any> {
+    const res = await fetch(`${API_BASE}/sync/status`, { headers: getHeaders() });
+    return handleResponse(res);
+  },
+
   async saveCentralizedKey(key: string): Promise<void> {
     const res = await fetch(`${API_BASE}/config/centralized-key`, {
       method: 'POST',

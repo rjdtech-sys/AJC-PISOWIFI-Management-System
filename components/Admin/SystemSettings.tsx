@@ -618,9 +618,11 @@ const CentralizedKeyCard: React.FC = () => {
   const [key, setKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+  const [syncStatus, setSyncStatus] = useState<any>(null);
 
   useEffect(() => {
     loadKey();
+    loadSyncStatus();
   }, []);
 
   const loadKey = async () => {
@@ -632,12 +634,22 @@ const CentralizedKeyCard: React.FC = () => {
     }
   };
 
+  const loadSyncStatus = async () => {
+    try {
+      const status = await apiClient.getSyncStatus();
+      setSyncStatus(status);
+    } catch (e) {
+      console.error('Failed to load sync status', e);
+    }
+  };
+
   const handleSave = async () => {
     setLoading(true);
     setMessage('');
     try {
       await apiClient.saveCentralizedKey(key);
       setMessage('✅ Connected');
+      await loadSyncStatus();
     } catch (e: any) {
       setMessage('Failed: ' + e.message);
     } finally {
@@ -647,9 +659,19 @@ const CentralizedKeyCard: React.FC = () => {
 
   return (
     <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 h-full">
-      <div className="flex items-center gap-2 mb-4">
-        <span className="text-lg">☁️</span>
-        <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Centralized Cloud</h3>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <span className="text-lg">☁️</span>
+          <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Centralized Cloud</h3>
+        </div>
+        <div 
+          className={`w-3 h-3 rounded-full transition-colors duration-500 ${
+            syncStatus?.configured && syncStatus?.hasCentralizedKey 
+            ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]' 
+            : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]'
+          }`} 
+          title={syncStatus?.configured && syncStatus?.hasCentralizedKey ? 'Synced with Cloud' : 'Not Synced'}
+        ></div>
       </div>
       
       <div className="space-y-3">
