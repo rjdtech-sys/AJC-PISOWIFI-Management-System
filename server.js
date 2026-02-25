@@ -179,6 +179,9 @@ function cleanupExpiredCoinSlotLocks() {
   const now = Date.now();
   for (const [slot, lock] of coinSlotLocks.entries()) {
     if (!lock || typeof lock.expiresAt !== 'number' || lock.expiresAt <= now) {
+      if (slot === 'main') {
+        try { setRelayState(false); } catch (e) {}
+      }
       coinSlotLocks.delete(slot);
     }
   }
@@ -1848,6 +1851,11 @@ app.post('/api/coinslot/reserve', async (req, res) => {
   const lockId = crypto.randomBytes(16).toString('hex');
   const expiresAt = now + COINSLOT_LOCK_TTL_MS;
   coinSlotLocks.set(slot, { lockId, ownerMac: mac, ownerIp: clientIp, ownerToken: token || null, createdAt: now, expiresAt });
+  
+  if (slot === 'main') {
+    try { setRelayState(true); } catch (e) {}
+  }
+  
   res.json({ success: true, slot, lockId, expiresAt });
 });
 
@@ -1887,6 +1895,9 @@ app.post('/api/coinslot/release', async (req, res) => {
 
   const existing = coinSlotLocks.get(slot);
   if (existing && existing.lockId === lockId) {
+    if (slot === 'main') {
+      try { setRelayState(false); } catch (e) {}
+    }
     coinSlotLocks.delete(slot);
   }
 
