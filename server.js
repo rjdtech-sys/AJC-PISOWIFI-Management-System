@@ -3572,6 +3572,46 @@ app.post('/api/system/reset', requireAdmin, async (req, res) => {
     await db.factoryResetDB();
     await network.cleanupAllNetworkSettings();
     
+    // Clear uploads directory
+    const uploadsDir = path.join(__dirname, 'uploads');
+    if (fs.existsSync(uploadsDir)) {
+        console.log('[System] Cleaning uploads directory...');
+        try {
+            fs.rmSync(uploadsDir, { recursive: true, force: true });
+            fs.mkdirSync(path.join(uploadsDir, 'audio'), { recursive: true });
+        } catch (e) {
+            console.error('[System] Failed to clean uploads:', e.message);
+        }
+    }
+
+    // Additional System Cleanup for Image Preparation
+    try {
+        console.log('[System] Performing deep system cleanup...');
+        
+        // 1. PM2 and Logs
+        await execPromise('pm2 flush').catch(() => {});
+        await execPromise('journalctl --vacuum-time=1s').catch(() => {});
+        await execPromise('rm -rf ~/.pm2/logs/*').catch(() => {});
+        
+        // 2. Shell History (for all users)
+        await execPromise('rm -f /root/.bash_history').catch(() => {});
+        await execPromise('rm -f /home/*/.bash_history').catch(() => {});
+        
+        // 3. ZeroTier Identity (so cloned images get new IDs)
+        if (fs.existsSync('/var/lib/zerotier-one')) {
+             await execPromise('rm -f /var/lib/zerotier-one/identity.secret').catch(() => {});
+             await execPromise('rm -f /var/lib/zerotier-one/identity.public').catch(() => {});
+             await execPromise('rm -rf /var/lib/zerotier-one/networks.d/*').catch(() => {});
+        }
+
+        // 4. DHCP Client Leases (if any)
+        await execPromise('rm -f /var/lib/dhcp/*').catch(() => {});
+        await execPromise('rm -f /var/lib/dhcpcd/*').catch(() => {});
+        
+    } catch (e) {
+        console.error('[System] Cleanup warning:', e.message);
+    }
+
     // Send success response first
     res.json({ success: true, message: 'System reset complete. Rebooting now...' });
     
