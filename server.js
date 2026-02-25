@@ -4743,8 +4743,8 @@ app.put('/api/devices/:id', requireAdmin, async (req, res) => {
       const session = await db.get('SELECT * FROM sessions WHERE mac = ?', [updatedDevice.mac]);
       if (session) {
         // Update session with new time and ensure limits are synced
-        const newSessionUpdates = ['remaining_seconds = ?'];
-        const newSessionValues = [sessionTime];
+        const newSessionUpdates = ['remaining_seconds = ?', 'updated_at = ?'];
+        const newSessionValues = [sessionTime, new Date().toISOString()];
         
         // Sync device limits to session
         if (downloadLimit !== undefined || updatedDevice.download_limit) {
