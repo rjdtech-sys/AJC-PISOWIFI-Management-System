@@ -102,7 +102,7 @@ export const apiClient = {
     await handleResponse(res);
   },
 
-  async getCentralizedKey(): Promise<{ key: string }> {
+  async getCentralizedKey(): Promise<{ key: string; syncEnabled: boolean }> {
     const res = await fetch(`${API_BASE}/config/centralized-key`, { headers: getHeaders() });
     return handleResponse(res);
   },
@@ -112,11 +112,15 @@ export const apiClient = {
     return handleResponse(res);
   },
 
-  async saveCentralizedKey(key: string): Promise<void> {
+  async saveCentralizedKey(key?: string, syncEnabled?: boolean): Promise<void> {
+    const body: any = {};
+    if (typeof key !== 'undefined') body.key = key;
+    if (typeof syncEnabled !== 'undefined') body.syncEnabled = syncEnabled;
+
     const res = await fetch(`${API_BASE}/config/centralized-key`, {
       method: 'POST',
       headers: getHeaders(),
-      body: JSON.stringify({ key })
+      body: JSON.stringify(body)
     });
     await handleResponse(res);
   },

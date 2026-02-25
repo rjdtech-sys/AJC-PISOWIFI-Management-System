@@ -619,6 +619,7 @@ const CentralizedKeyCard: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [syncStatus, setSyncStatus] = useState<any>(null);
+  const [syncEnabled, setSyncEnabled] = useState(true);
 
   useEffect(() => {
     loadKey();
@@ -629,6 +630,7 @@ const CentralizedKeyCard: React.FC = () => {
     try {
       const res = await apiClient.getCentralizedKey();
       setKey(res.key);
+      setSyncEnabled(res.syncEnabled !== false);
     } catch (e) {
       console.error(e);
     }
@@ -647,7 +649,7 @@ const CentralizedKeyCard: React.FC = () => {
     setLoading(true);
     setMessage('');
     try {
-      await apiClient.saveCentralizedKey(key);
+      await apiClient.saveCentralizedKey(key, syncEnabled);
       setMessage('✅ Connected');
       await loadSyncStatus();
     } catch (e: any) {
@@ -657,6 +659,18 @@ const CentralizedKeyCard: React.FC = () => {
     }
   };
 
+  const toggleSync = async () => {
+      const newState = !syncEnabled;
+      setSyncEnabled(newState);
+      // Auto-save when toggled
+      try {
+          await apiClient.saveCentralizedKey(undefined, newState);
+          await loadSyncStatus();
+      } catch (e) {
+          console.error('Failed to save sync state', e);
+      }
+  };
+
   return (
     <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 h-full">
       <div className="flex items-center justify-between mb-4">
@@ -664,14 +678,23 @@ const CentralizedKeyCard: React.FC = () => {
           <span className="text-lg">☁️</span>
           <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Centralized Cloud</h3>
         </div>
-        <div 
-          className={`w-3 h-3 rounded-full transition-colors duration-500 ${
-            syncStatus?.configured && syncStatus?.hasCentralizedKey 
-            ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]' 
-            : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]'
-          }`} 
-          title={syncStatus?.configured && syncStatus?.hasCentralizedKey ? 'Synced with Cloud' : 'Not Synced'}
-        ></div>
+        <div className="flex items-center gap-2">
+            <button 
+                onClick={toggleSync}
+                className={`relative w-8 h-4 rounded-full transition-colors duration-200 ${syncEnabled ? 'bg-indigo-600' : 'bg-slate-300'}`}
+                title={syncEnabled ? 'Sync Enabled' : 'Sync Disabled'}
+            >
+                <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full shadow-sm transition-transform duration-200 ${syncEnabled ? 'translate-x-4' : 'translate-x-0'}`}></div>
+            </button>
+            <div 
+              className={`w-3 h-3 rounded-full transition-colors duration-500 ${
+                syncStatus?.configured && syncStatus?.hasCentralizedKey && syncStatus?.syncEnabled
+                ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]' 
+                : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]'
+              }`} 
+              title={syncStatus?.configured && syncStatus?.hasCentralizedKey && syncStatus?.syncEnabled ? 'Synced with Cloud' : 'Not Synced'}
+            ></div>
+        </div>
       </div>
       
       <div className="space-y-3">

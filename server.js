@@ -2998,8 +2998,13 @@ app.post('/api/config/central-portal', requireAdmin, async (req, res) => {
 // Centralized Key API
 app.get('/api/config/centralized-key', requireAdmin, async (req, res) => {
   try {
-    const row = await db.get('SELECT value FROM config WHERE key = ?', ['centralizedKey']);
-    res.json({ key: row?.value || '' });
+    const keyRow = await db.get('SELECT value FROM config WHERE key = ?', ['centralizedKey']);
+    const syncEnabledRow = await db.get('SELECT value FROM config WHERE key = ?', ['centralizedSyncEnabled']);
+    
+    res.json({ 
+        key: keyRow?.value || '',
+        syncEnabled: syncEnabledRow?.value !== '0' // Default to true if not set or '1'
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -3007,19 +3012,35 @@ app.get('/api/config/centralized-key', requireAdmin, async (req, res) => {
 
 app.post('/api/config/centralized-key', requireAdmin, async (req, res) => {
   try {
-    const key = req.body.key || '';
-    await db.run(
-      'INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)',
-      ['centralizedKey', key]
-    );
+    const { key, syncEnabled } = req.body;
     
-    // Trigger a sync check in background
-    try {
-        if (key && edgeSync) {
-            edgeSync.checkCentralizedKey(key);
+    if (typeof key !== 'undefined') {
+        await db.run(
+          'INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)',
+          ['centralizedKey', key]
+        );
+    }
+
+    if (typeof syncEnabled !== 'undefined') {
+        await db.run(
+          'INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)',
+          ['centralizedSyncEnabled', syncEnabled ? '1' : '0']
+        );
+    }
+    
+    // Update EdgeSync instance configuration immediately
+    if (edgeSync) {
+        if (typeof key !== 'undefined') edgeSync.centralizedKey = key;
+        if (typeof syncEnabled !== 'undefined') edgeSync.syncEnabled = syncEnabled;
+        
+        // Trigger a sync check in background if enabled and key exists
+        if (edgeSync.centralizedKey && edgeSync.syncEnabled) {
+             try {
+                edgeSync.checkCentralizedKey(edgeSync.centralizedKey);
+            } catch(e) {
+                console.error('Failed to trigger key check:', e);
+            }
         }
-    } catch(e) {
-        console.error('Failed to trigger key check:', e);
     }
     
     res.json({ success: true });
