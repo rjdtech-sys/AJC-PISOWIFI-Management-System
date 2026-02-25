@@ -4760,6 +4760,11 @@ app.put('/api/devices/:id', requireAdmin, async (req, res) => {
         await db.run(`UPDATE sessions SET ${newSessionUpdates.join(', ')} WHERE mac = ?`, newSessionValues);
         
         console.log(`[ADMIN] Updated session for ${updatedDevice.mac}: time=${sessionTime}s, DL=${downloadLimit || updatedDevice.download_limit}, UL=${uploadLimit || updatedDevice.upload_limit}`);
+
+        // FORCE SYNC TO CLOUD IMMEDIATELY if time is set to 0 or any update
+        if (edgeSync) {
+            edgeSync.syncDeviceToCloud(updatedDevice.mac, sessionTime, session.total_paid || 0);
+        }
       }
     }
     
@@ -4827,6 +4832,11 @@ app.post('/api/devices/:id/disconnect', requireAdmin, async (req, res) => {
     // Remove session if it exists
     const existingSession = await db.get('SELECT * FROM sessions WHERE mac = ?', [device.mac]);
     if (existingSession) {
+      // FORCE SYNC TO CLOUD AS 0 TIME BEFORE DELETING
+      if (edgeSync) {
+         await edgeSync.syncDeviceToCloud(device.mac, 0, existingSession.total_paid || 0);
+      }
+
       await db.run('DELETE FROM sessions WHERE mac = ?', [device.mac]);
     }
     
