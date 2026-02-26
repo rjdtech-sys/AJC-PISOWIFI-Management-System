@@ -3399,7 +3399,13 @@ app.post('/api/nodemcu/:deviceId/coinsout', requireAdmin, async (req, res) => {
     // Sync to cloud if needed (optional but recommended)
     try {
       if (edgeSync) {
-        await edgeSync.syncNodeMCUDevice(updatedDevices[deviceIndex]);
+        // Record history and sync state
+        await edgeSync.recordNodeMCUCoinsOut(
+            updatedDevices[deviceIndex],
+            gross,
+            net,
+            date || new Date().toISOString()
+        );
       }
     } catch (e) {
       console.error('Failed to sync coins-out update to cloud:', e);
