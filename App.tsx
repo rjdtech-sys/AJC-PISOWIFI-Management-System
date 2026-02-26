@@ -32,7 +32,22 @@ const App: React.FC = () => {
 
   const [isAdmin, setIsAdmin] = useState(isCurrentlyAdminPath());
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [activeTab, setActiveTab] = useState<AdminTab>(AdminTab.Analytics);
+
+  // Initialize activeTab from localStorage if available
+  const [activeTab, setActiveTab] = useState<AdminTab>(() => {
+    const savedTab = localStorage.getItem('ajc_admin_last_tab');
+    // Simple validation to ensure the saved value is a valid enum value
+    if (savedTab && Object.values(AdminTab).includes(savedTab as AdminTab)) {
+      return savedTab as AdminTab;
+    }
+    return AdminTab.Analytics;
+  });
+
+  // Persist activeTab to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('ajc_admin_last_tab', activeTab);
+  }, [activeTab]);
+
   const [licenseStatus, setLicenseStatus] = useState<{ isLicensed: boolean, isRevoked: boolean, canOperate: boolean }>({ isLicensed: true, isRevoked: false, canOperate: true });
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [rates, setRates] = useState<Rate[]>([]);
