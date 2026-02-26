@@ -7,6 +7,7 @@ import {
   CustomThemeValues,
   getStoredAdminTheme,
   setAdminTheme,
+  applyAdminTheme,
   getCustomThemes,
   saveCustomThemes
 } from '../../lib/theme';
@@ -58,7 +59,12 @@ const ThemeSettings: React.FC = () => {
 
   const handleThemeChange = (id: ThemeId) => {
     setCurrentTheme(id);
-    setAdminTheme(id);
+    applyAdminTheme(id);
+  };
+
+  const saveThemePreference = () => {
+    setAdminTheme(currentTheme);
+    alert('Theme saved successfully!');
   };
 
   const startNewCustomTheme = () => {
@@ -140,7 +146,15 @@ const ThemeSettings: React.FC = () => {
             <span className="p-1.5 bg-blue-600 rounded-lg text-white">🎨</span>
             Theme Engine
           </h2>
-          <p className="text-slate-400 text-[9px] font-bold uppercase tracking-tighter mt-1">Select visual architecture for admin dashboard</p>
+          <div className="flex justify-between items-start">
+            <p className="text-slate-400 text-[9px] font-bold uppercase tracking-tighter mt-1">Select visual architecture for admin dashboard</p>
+            <button
+              onClick={saveThemePreference}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold uppercase tracking-wider hover:bg-blue-700 transition-colors shadow-sm"
+            >
+              Save Theme Preference
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -212,13 +226,21 @@ const ThemeSettings: React.FC = () => {
               Gumawa at i-save ang sarili mong admin theme presets
             </p>
           </div>
-          <button
-            onClick={startNewCustomTheme}
-            className="admin-btn-primary inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest"
-          >
-            <span>＋</span>
-            New Theme
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={saveThemePreference}
+              className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-emerald-700 transition-colors shadow-sm"
+            >
+              Save Theme Preference
+            </button>
+            <button
+              onClick={startNewCustomTheme}
+              className="admin-btn-primary inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest"
+            >
+              <span>＋</span>
+              New Theme
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

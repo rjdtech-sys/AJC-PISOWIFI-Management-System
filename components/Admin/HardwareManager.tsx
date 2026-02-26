@@ -401,29 +401,29 @@ const HardwareManager: React.FC = () => {
                  <div className="mt-3 flex flex-wrap items-center gap-3">
                    <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Relay Mode</span>
                    <div className="flex items-center gap-2 text-[10px] font-bold">
-                     <button
-                       type="button"
-                       onClick={() => setRelayActiveMode('high')}
-                       className={`px-2 py-1 rounded border ${
-                         relayActiveMode === 'high'
-                           ? 'border-slate-900 bg-slate-900 text-white'
-                           : 'border-slate-300 text-slate-600'
-                       }`}
-                     >
-                       Active High
-                     </button>
-                     <button
-                       type="button"
-                       onClick={() => setRelayActiveMode('low')}
-                       className={`px-2 py-1 rounded border ${
-                         relayActiveMode === 'low'
-                           ? 'border-slate-900 bg-slate-900 text-white'
-                           : 'border-slate-300 text-slate-600'
-                       }`}
-                     >
-                       Active Low
-                     </button>
-                   </div>
+                      <button
+                        type="button"
+                        onClick={() => setRelayActiveMode('high')}
+                        className={`px-2 py-1 rounded border transition-all ${
+                          relayActiveMode === 'high'
+                            ? 'admin-btn-primary'
+                            : 'border-slate-300 text-slate-600'
+                        }`}
+                      >
+                        Active High
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRelayActiveMode('low')}
+                        className={`px-2 py-1 rounded border transition-all ${
+                          relayActiveMode === 'low'
+                            ? 'admin-btn-primary'
+                            : 'border-slate-300 text-slate-600'
+                        }`}
+                      >
+                        Active Low
+                      </button>
+                    </div>
                  </div>
                </div>
              ) : isX64 ? (
@@ -475,32 +475,32 @@ const HardwareManager: React.FC = () => {
                      className="w-full accent-slate-900 h-1.5 rounded-lg appearance-none bg-slate-200 cursor-pointer"
                    />
                    <div className="mt-3 flex flex-wrap items-center gap-3">
-                     <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Relay Mode</span>
-                     <div className="flex items-center gap-2 text-[10px] font-bold">
-                       <button
-                         type="button"
-                         onClick={() => setRelayActiveMode('high')}
-                         className={`px-2 py-1 rounded border ${
-                           relayActiveMode === 'high'
-                             ? 'border-slate-900 bg-slate-900 text-white'
-                             : 'border-slate-300 text-slate-600'
-                         }`}
-                       >
-                         Active High
-                       </button>
-                       <button
-                         type="button"
-                         onClick={() => setRelayActiveMode('low')}
-                         className={`px-2 py-1 rounded border ${
-                           relayActiveMode === 'low'
-                             ? 'border-slate-900 bg-slate-900 text-white'
-                             : 'border-slate-300 text-slate-600'
-                         }`}
-                       >
-                         Active Low
-                       </button>
-                     </div>
-                   </div>
+                    <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Relay Mode</span>
+                    <div className="flex items-center gap-2 text-[10px] font-bold">
+                      <button
+                        type="button"
+                        onClick={() => setRelayActiveMode('high')}
+                        className={`px-2 py-1 rounded border transition-all ${
+                          relayActiveMode === 'high'
+                            ? 'admin-btn-primary'
+                            : 'border-slate-300 text-slate-600'
+                        }`}
+                      >
+                        Active High
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRelayActiveMode('low')}
+                        className={`px-2 py-1 rounded border transition-all ${
+                          relayActiveMode === 'low'
+                            ? 'admin-btn-primary'
+                            : 'border-slate-300 text-slate-600'
+                        }`}
+                      >
+                        Active Low
+                      </button>
+                    </div>
+                  </div>
                  </div>
                  <button
                    onClick={handleSave}
@@ -611,23 +611,23 @@ const HardwareManager: React.FC = () => {
 
       {/* Sub-Vendo Controller Section */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-100 bg-slate-950 flex items-center justify-between">
+        <div className="px-4 py-3 border-b border-slate-100 admin-sidebar flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-600 rounded-lg text-white">
+            <div className="p-2 bg-white/10 rounded-lg text-white">
               <Wifi size={16} />
             </div>
             <div>
               <h3 className="text-[10px] font-black text-white uppercase tracking-widest">
                 Sub-Vendo Bridge
               </h3>
-              <p className="text-[8px] text-slate-400 font-bold uppercase tracking-widest">
+              <p className="text-[8px] text-white/70 font-bold uppercase tracking-widest">
                 {nodemcuDevices.length} ACTIVE NODES
               </p>
             </div>
           </div>
           
           <div className="bg-white/5 rounded-lg px-3 py-2 border border-white/10">
-            <div className="text-[8px] font-black text-blue-400 uppercase tracking-wider mb-0.5">License System</div>
+            <div className="text-[8px] font-black text-blue-200 uppercase tracking-wider mb-0.5">License System</div>
             <div className="text-sm font-black text-white tracking-widest font-mono">
               HYBRID
             </div>
