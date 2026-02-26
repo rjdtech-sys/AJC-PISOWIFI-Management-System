@@ -5734,8 +5734,9 @@ server.listen(80, '0.0.0.0', async () => {
   console.log('[AJC] System Engine Online @ Port 80');
   try {
     await db.init();
+    await edgeSync.init(); // Initialize sync after DB is ready
   } catch (e) {
-    console.error('[AJC] Critical DB Init Error:', e);
+    console.error('[AJC] Critical DB/Sync Init Error:', e);
   }
   
   // License Gatekeeper - Check if system can operate
