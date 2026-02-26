@@ -43,6 +43,7 @@ const HardwareManager: React.FC = () => {
     loadMainRevenue();
     
     // Attempt to load last coins out stats from localStorage as fallback
+    // Ensures stats persist even after browser refresh
     const savedStats = localStorage.getItem('main_coins_out_stats');
     if (savedStats) {
         try {
