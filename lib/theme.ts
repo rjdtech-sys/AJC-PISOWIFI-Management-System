@@ -86,6 +86,7 @@ export function getCustomThemes(): StoredCustomTheme[] {
 
 export function saveCustomThemes(themes: StoredCustomTheme[]) {
   localStorage.setItem(CUSTOM_THEMES_KEY, JSON.stringify(themes));
+  apiClient.saveCustomThemes(themes).catch(e => console.error('Failed to sync custom themes:', e));
 }
 
 function applyCustomThemeValues(values: CustomThemeValues) {
@@ -163,7 +164,7 @@ export function getStoredAdminTheme(): ThemeId {
   return (stored as ThemeId) || 'default';
 }
 
-export function setAdminTheme(themeId: ThemeId) {
+export function applyAdminTheme(themeId: ThemeId) {
   localStorage.setItem(ADMIN_THEME_KEY, themeId);
   const isCustom = typeof themeId === 'string' && themeId.startsWith('custom-');
   const baseTheme = isCustom ? 'default' : themeId;
@@ -178,9 +179,31 @@ export function setAdminTheme(themeId: ThemeId) {
   }
 }
 
-export function initAdminTheme() {
-  const theme = getStoredAdminTheme();
-  setAdminTheme(theme);
+export function setAdminTheme(themeId: ThemeId) {
+  applyAdminTheme(themeId);
+  apiClient.saveAdminTheme(themeId).catch(e => console.error('Failed to sync admin theme:', e));
+}
+
+export async function initAdminTheme() {
+  const localTheme = getStoredAdminTheme();
+  applyAdminTheme(localTheme);
+
+  try {
+    const [remoteTheme, remoteCustomThemes] = await Promise.all([
+      apiClient.getAdminTheme(),
+      apiClient.getCustomThemes()
+    ]);
+
+    if (remoteCustomThemes && Array.isArray(remoteCustomThemes)) {
+       localStorage.setItem(CUSTOM_THEMES_KEY, JSON.stringify(remoteCustomThemes));
+    }
+
+    if (remoteTheme && remoteTheme !== localTheme) {
+      applyAdminTheme(remoteTheme as ThemeId);
+    }
+  } catch (e) {
+    // console.error('Failed to sync theme from server:', e);
+  }
 }
 
 // --- Portal Config Utilities ---

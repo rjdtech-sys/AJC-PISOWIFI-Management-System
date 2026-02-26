@@ -488,6 +488,51 @@ app.post('/api/admin/change-password', requireAdmin, async (req, res) => {
   }
 });
 
+// THEME MANAGEMENT API
+app.get('/api/admin/theme', async (req, res) => {
+  try {
+    const result = await db.get('SELECT value FROM config WHERE key = ?', ['admin_theme']);
+    res.json({ theme: result ? result.value : 'default' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/theme', requireAdmin, async (req, res) => {
+  const { theme } = req.body;
+  if (!theme) {
+    return res.status(400).json({ error: 'Theme ID is required' });
+  }
+  try {
+    await db.run('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)', ['admin_theme', theme]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/admin/custom-themes', async (req, res) => {
+  try {
+    const result = await db.get('SELECT value FROM config WHERE key = ?', ['admin_custom_themes']);
+    res.json({ themes: result ? JSON.parse(result.value) : [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/custom-themes', requireAdmin, async (req, res) => {
+  const { themes } = req.body;
+  if (!Array.isArray(themes)) {
+    return res.status(400).json({ error: 'Themes must be an array' });
+  }
+  try {
+    await db.run('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)', ['admin_custom_themes', JSON.stringify(themes)]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // LICENSE MANAGEMENT API
 app.get('/api/license/status', async (req, res) => {
   try {

@@ -917,5 +917,35 @@ export const apiClient = {
       headers: getHeaders() 
     });
     return handleResponse(res);
+  },
+
+  async getAdminTheme(): Promise<string> {
+    const res = await fetch(`${API_BASE}/admin/theme`, { headers: getHeaders() });
+    const data = await handleResponse(res);
+    return data.theme;
+  },
+
+  async saveAdminTheme(theme: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/admin/theme`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ theme })
+    });
+    await handleResponse(res);
+  },
+
+  async getCustomThemes(): Promise<any[]> {
+    const res = await fetch(`${API_BASE}/admin/custom-themes`, { headers: getHeaders() });
+    const data = await handleResponse(res);
+    return data.themes;
+  },
+
+  async saveCustomThemes(themes: any[]): Promise<void> {
+    const res = await fetch(`${API_BASE}/admin/custom-themes`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ themes })
+    });
+    await handleResponse(res);
   }
 };

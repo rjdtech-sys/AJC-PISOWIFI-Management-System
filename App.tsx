@@ -20,7 +20,7 @@ import VoucherManager from './components/Admin/VoucherManager';
 import RemoteManager from './components/Admin/RemoteManager';
 import RewardsSettings from './components/Admin/RewardsSettings';
 import { apiClient } from './lib/api';
-import { initAdminTheme, setAdminTheme } from './lib/theme';
+import { initAdminTheme, setAdminTheme, applyAdminTheme } from './lib/theme';
 
 const App: React.FC = () => {
 
@@ -115,7 +115,7 @@ const App: React.FC = () => {
       initAdminTheme();
     } else {
       // Ensure portal always uses default theme (or specific portal theme logic)
-      setAdminTheme('default');
+      applyAdminTheme('default');
     }
 
     loadData();
@@ -126,7 +126,7 @@ const App: React.FC = () => {
       if (isNowAdmin) {
         initAdminTheme();
       } else {
-        setAdminTheme('default');
+        applyAdminTheme('default');
       }
     };
     window.addEventListener('popstate', handleLocationChange);
@@ -190,11 +190,13 @@ const App: React.FC = () => {
     if (nextState) {
       localStorage.setItem('ajc_admin_mode', 'true');
       window.history.pushState({}, '', '/admin');
+      initAdminTheme();
     } else {
       localStorage.removeItem('ajc_admin_mode');
       localStorage.removeItem('ajc_admin_token');
       setIsAuthenticated(false);
       window.history.pushState({}, '', '/');
+      applyAdminTheme('default');
     }
   };
 
@@ -471,6 +473,7 @@ const App: React.FC = () => {
             onLoginSuccess={(token) => {
               localStorage.setItem('ajc_admin_token', token);
               setIsAuthenticated(true);
+              initAdminTheme();
             }} 
             onBack={() => handleToggleAdmin()} 
           />
