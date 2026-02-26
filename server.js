@@ -2988,6 +2988,7 @@ app.get('/api/config', requireAdmin, async (req, res) => {
     const centralPortalIp = await db.get('SELECT value FROM config WHERE key = ?', ['centralPortalIp']);
     const relayPin = await db.get('SELECT value FROM config WHERE key = ?', ['relayPin']);
     const relayActiveMode = await db.get('SELECT value FROM config WHERE key = ?', ['relayActiveMode']);
+    const mainCoinsOutStats = await db.get('SELECT value FROM config WHERE key = ?', ['main_coins_out_stats']);
     
     res.json({ 
       boardType: board?.value || 'none', 
@@ -3001,7 +3002,8 @@ app.get('/api/config', requireAdmin, async (req, res) => {
       centralPortalIpEnabled: centralPortalIpEnabled?.value === '1' || centralPortalIpEnabled?.value === 'true',
       centralPortalIp: centralPortalIp?.value || '',
       relayPin: relayPin?.value ? parseInt(relayPin.value, 10) : null,
-      relayActiveMode: relayActiveMode?.value === 'low' ? 'low' : 'high'
+      relayActiveMode: relayActiveMode?.value === 'low' ? 'low' : 'high',
+      mainCoinsOutStats: mainCoinsOutStats?.value ? JSON.parse(mainCoinsOutStats.value) : null
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

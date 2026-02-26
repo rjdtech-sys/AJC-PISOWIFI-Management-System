@@ -31,14 +31,138 @@ const HardwareManager: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
 
+  const [lastCoinsOutStats, setLastCoinsOutStats] = useState<{lastCoinsOutGross: number, lastCoinsOutNet: number, lastCoinsOutDate: string} | null>(null);
+  const [showCoinsOutModal, setShowCoinsOutModal] = useState(false);
+  const [coinsOutProcessing, setCoinsOutProcessing] = useState(false);
+  const [coinsOutSharePercent, setCoinsOutSharePercent] = useState<string>('');
+  const [mainRevenue, setMainRevenue] = useState<number>(0);
+
   useEffect(() => {
     loadConfig();
     loadNodemcuDevices();
+    loadMainRevenue();
     
+    // Attempt to load last coins out stats from localStorage as fallback
+    const savedStats = localStorage.getItem('main_coins_out_stats');
+    if (savedStats) {
+        try {
+            setLastCoinsOutStats(JSON.parse(savedStats));
+        } catch (e) {}
+    }
+
     // Refresh device list periodically
-    const interval = setInterval(loadNodemcuDevices, 10000);
+    const interval = setInterval(() => {
+      loadNodemcuDevices();
+      loadMainRevenue();
+    }, 10000);
     return () => clearInterval(interval);
   }, []);
+
+  const loadMainRevenue = async () => {
+    try {
+      const [history, config] = await Promise.all([
+        apiClient.getSalesHistory(),
+        apiClient.getConfig() // We need to check if we can get the specific config key
+      ]);
+      
+      // We need to fetch the specific config key 'main_coins_out_stats'
+       // apiClient.getConfig returns the whole system config object defined in types.
+       // But 'main_coins_out_stats' might not be in SystemConfig type or the main config endpoint return.
+       // We might need a direct way to get this or rely on localStorage/state.
+       // Actually, let's use the local state 'lastCoinsOutStats' if available, or try to find it in localStorage.
+       
+       let lastDate = null;
+       
+       // Try from API config first (robust against cache clearing)
+       if (config && (config as any).mainCoinsOutStats) {
+           const stats = (config as any).mainCoinsOutStats;
+           if (stats.lastCoinsOutDate) {
+               lastDate = new Date(stats.lastCoinsOutDate);
+               // Ensure UI state is in sync with backend
+               setLastCoinsOutStats(stats);
+           }
+       }
+
+       // Fallback to localStorage if not found in config
+       if (!lastDate) {
+           const savedStats = localStorage.getItem('main_coins_out_stats');
+           if (savedStats) {
+              try {
+                  const parsed = JSON.parse(savedStats);
+                  if (parsed.lastCoinsOutDate) lastDate = new Date(parsed.lastCoinsOutDate);
+              } catch(e) {}
+           }
+       }
+       
+       if (Array.isArray(history)) {
+        // Filter for main machine sales
+        const mainSales = history.filter((s: any) => 
+          (s.machine_id === 'main' || !s.machine_id) && 
+          s.transaction_type !== 'coins_out' &&
+          s.type !== 'coins_out'
+        );
+        
+        let filteredSales = mainSales;
+        
+        // If we have a last coins out date, filter sales after that date
+        if (lastDate) {
+            filteredSales = mainSales.filter((s: any) => {
+                const d = new Date(s.timestamp || s.created_at);
+                return d > lastDate;
+            });
+        }
+        
+        // If no last date, we default to ALL time or maybe this month?
+        // NodeMCU logic is "Lifetime" until reset.
+        // So if no last date, we take ALL main sales.
+        
+        const total = filteredSales.reduce((acc, s) => acc + (s.amount || 0), 0);
+        setMainRevenue(total);
+      }
+    } catch (e) {
+      console.error('Failed to load main revenue');
+    }
+  };
+
+  const handleCoinsOut = async () => {
+    setCoinsOutProcessing(true);
+    try {
+      const gross = mainRevenue;
+      const parsedSharePercent = parseFloat(coinsOutSharePercent || '0');
+      const safeSharePercent = isNaN(parsedSharePercent) ? 0 : parsedSharePercent;
+      const shareAmount = gross * (safeSharePercent / 100);
+      const net = gross - shareAmount;
+      
+      const stats = {
+        gross,
+        net,
+        date: new Date().toISOString()
+      };
+
+      await apiClient.saveMainCoinsOut(stats);
+      
+      setLastCoinsOutStats({
+        lastCoinsOutGross: gross,
+        lastCoinsOutNet: net,
+        lastCoinsOutDate: stats.date
+      });
+      
+      localStorage.setItem('main_coins_out_stats', JSON.stringify({
+        lastCoinsOutGross: gross,
+        lastCoinsOutNet: net,
+        lastCoinsOutDate: stats.date
+      }));
+
+      setShowCoinsOutModal(false);
+      setCoinsOutSharePercent('');
+      loadMainRevenue(); // Refresh revenue
+    } catch (err) {
+      console.error('Coins Out failed', err);
+      alert('Failed to save coins out record');
+    } finally {
+      setCoinsOutProcessing(false);
+    }
+  };
 
   useEffect(() => {
     if (board !== 'orange_pi') return;
@@ -71,6 +195,11 @@ const HardwareManager: React.FC = () => {
   const boardModelLabel = isOrangePi && currentOrangeModelKey
     ? (opiMappings[currentOrangeModelKey]?.name || currentOrangeModelKey.replace(/_/g, ' '))
     : null;
+
+  const parsedSharePercent = parseFloat(coinsOutSharePercent || '0');
+  const safeSharePercent = isNaN(parsedSharePercent) ? 0 : parsedSharePercent;
+  const coinsOutShareAmount = mainRevenue * (safeSharePercent / 100);
+  const coinsOutNetIncome = mainRevenue - coinsOutShareAmount;
 
   const loadConfig = async () => {
     try {
@@ -384,6 +513,55 @@ const HardwareManager: React.FC = () => {
                </div>
              )}
           </div>
+
+          {/* Main Machine Revenue Card */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mt-4">
+            <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+               <h3 className="text-[10px] font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+                 <span>💰</span> Main Machine Revenue
+               </h3>
+               <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">Sales & Coins Out</span>
+            </div>
+            <div className="p-4">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Current Revenue</div>
+                  <div className="text-2xl font-black text-slate-800">₱{mainRevenue.toFixed(2)}</div>
+                  <div className="text-[9px] text-slate-400 mt-1">Uncollected</div>
+                </div>
+                <button
+                  onClick={() => setShowCoinsOutModal(true)}
+                  className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors shadow-sm flex items-center gap-2"
+                >
+                  <span>💸</span> Coins Out
+                </button>
+              </div>
+
+              <div className="pt-4 border-t border-slate-100">
+                 <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Last Coins Out</div>
+                 {lastCoinsOutStats ? (
+                   <div className="grid grid-cols-3 gap-2 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                     <div>
+                       <div className="text-[9px] text-slate-500 mb-0.5">Date</div>
+                       <div className="text-[10px] font-bold text-slate-700">{new Date(lastCoinsOutStats.lastCoinsOutDate).toLocaleDateString()}</div>
+                     </div>
+                     <div>
+                       <div className="text-[9px] text-slate-500 mb-0.5">Gross</div>
+                       <div className="text-[10px] font-bold text-slate-700">₱{lastCoinsOutStats.lastCoinsOutGross.toFixed(2)}</div>
+                     </div>
+                     <div>
+                       <div className="text-[9px] text-slate-500 mb-0.5">Net</div>
+                       <div className="text-[10px] font-bold text-emerald-600">₱{lastCoinsOutStats.lastCoinsOutNet.toFixed(2)}</div>
+                     </div>
+                   </div>
+                 ) : (
+                   <div className="text-center text-[10px] text-slate-400 italic py-2 bg-slate-50 rounded-lg">
+                     No previous record found
+                   </div>
+                 )}
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* System Monitor */}
@@ -459,6 +637,88 @@ const HardwareManager: React.FC = () => {
             <NodeMCUManager devices={nodemcuDevices} onUpdateDevices={setNodemcuDevices} />
         </div>
       </div>
+
+      {/* Main Machine Coins Out Modal */}
+      {showCoinsOutModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-white rounded-xl max-w-sm w-full shadow-2xl border border-slate-200 overflow-hidden">
+            <div className="px-4 py-3 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <h3 className="text-[10px] font-black text-slate-900 uppercase tracking-widest">Main Coins-out Summary</h3>
+              <button
+                onClick={() => {
+                  setShowCoinsOutModal(false);
+                  setCoinsOutSharePercent('');
+                }}
+                className="text-slate-400 hover:text-slate-600 transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 flex items-center justify-between">
+                <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Gross Sales Revenue</div>
+                <div className="text-[11px] font-black text-emerald-600">
+                  ₱{mainRevenue.toFixed(2)}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
+                  Share Percentage
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    value={coinsOutSharePercent}
+                    onChange={(e) => setCoinsOutSharePercent(e.target.value)}
+                    placeholder="Halimbawa: 40 para sa 40% na share"
+                    min={0}
+                    max={100}
+                    step="0.01"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-bold outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-black text-slate-400">%</span>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between px-3 py-2 bg-slate-50 rounded-lg border border-slate-200">
+                  <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Net Income ng Coinslot</div>
+                  <div className="text-[11px] font-black text-slate-900">
+                    ₱{coinsOutNetIncome.toFixed(2)}
+                  </div>
+                </div>
+                <div className="flex items-center justify-between px-3 py-2 bg-slate-50 rounded-lg border border-slate-200">
+                  <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Total Share Mula sa Gross</div>
+                  <div className="text-[11px] font-black text-blue-600">
+                    ₱{coinsOutShareAmount.toFixed(2)}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  onClick={handleCoinsOut}
+                  disabled={coinsOutProcessing}
+                  className="flex-1 px-4 py-2.5 bg-emerald-500 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-all shadow-md active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {coinsOutProcessing ? 'Saving...' : 'Save & Reset'}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowCoinsOutModal(false);
+                    setCoinsOutSharePercent('');
+                  }}
+                  disabled={coinsOutProcessing}
+                  className="flex-1 px-4 py-2.5 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-slate-200 transition-all disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
