@@ -32,18 +32,29 @@ const App: React.FC = () => {
 
   const [isAdmin, setIsAdmin] = useState(isCurrentlyAdminPath());
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+<<<<<<< HEAD
 
   // Initialize activeTab from localStorage if available
   const [activeTab, setActiveTab] = useState<AdminTab>(() => {
     const savedTab = localStorage.getItem('ajc_admin_last_tab');
     // Simple validation to ensure the saved value is a valid enum value
+=======
+  
+  // Initialize activeTab from localStorage to persist state across refreshes
+  const [activeTab, setActiveTab] = useState<AdminTab>(() => {
+    const savedTab = localStorage.getItem('ajc_admin_last_tab');
+>>>>>>> cloud
     if (savedTab && Object.values(AdminTab).includes(savedTab as AdminTab)) {
       return savedTab as AdminTab;
     }
     return AdminTab.Analytics;
   });
 
+<<<<<<< HEAD
   // Persist activeTab to localStorage whenever it changes
+=======
+  // Save activeTab to localStorage whenever it changes
+>>>>>>> cloud
   useEffect(() => {
     localStorage.setItem('ajc_admin_last_tab', activeTab);
   }, [activeTab]);
