@@ -3371,6 +3371,47 @@ app.post('/api/nodemcu/:deviceId/rates', requireAdmin, async (req, res) => {
   }
 });
 
+// Update NodeMCU coins-out stats
+app.post('/api/nodemcu/:deviceId/coinsout', requireAdmin, async (req, res) => {
+  try {
+    const { deviceId } = req.params;
+    const { gross, net, share, date } = req.body;
+    
+    const devicesResult = await db.get('SELECT value FROM config WHERE key = ?', ['nodemcuDevices']);
+    const existingDevices = devicesResult?.value ? JSON.parse(devicesResult.value) : [];
+    
+    const deviceIndex = existingDevices.findIndex(d => d.id === deviceId);
+    if (deviceIndex === -1) {
+      return res.status(404).json({ error: 'Device not found' });
+    }
+    
+    const updatedDevices = [...existingDevices];
+    updatedDevices[deviceIndex] = { 
+      ...updatedDevices[deviceIndex], 
+      totalRevenue: 0,
+      lastCoinsOutGross: gross,
+      lastCoinsOutNet: net,
+      lastCoinsOutDate: date || new Date().toISOString()
+    };
+    
+    await db.run('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)', ['nodemcuDevices', JSON.stringify(updatedDevices)]);
+    
+    // Sync to cloud if needed (optional but recommended)
+    try {
+      if (edgeSync) {
+        await edgeSync.syncNodeMCUDevice(updatedDevices[deviceIndex]);
+      }
+    } catch (e) {
+      console.error('Failed to sync coins-out update to cloud:', e);
+    }
+
+    res.json({ success: true, device: updatedDevices[deviceIndex] });
+  } catch (err) {
+    console.error('Error updating NodeMCU coins-out:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // List NodeMCU devices
 app.get('/api/nodemcu/devices', requireAdmin, async (req, res) => {
   try {

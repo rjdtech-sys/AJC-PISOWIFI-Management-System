@@ -47,6 +47,9 @@ export interface NodeMCUDevice {
   rates: Rate[]; // Independent pricing rules for this device
   totalPulses: number;
   totalRevenue: number;
+  lastCoinsOutDate?: string;
+  lastCoinsOutGross?: number;
+  lastCoinsOutNet?: number;
 }
 
 export interface Rate {

@@ -810,6 +810,15 @@ export const apiClient = {
     return handleResponse(res);
   },
 
+  async saveNodeMCUCoinsOut(deviceId: string, data: { gross: number; net: number; share: number; date?: string }): Promise<any> {
+    const res = await fetch(`${API_BASE}/nodemcu/${deviceId}/coinsout`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(data)
+    });
+    return handleResponse(res);
+  },
+
   async updateNodeMCUFirmware(deviceId: string, file: File): Promise<any> {
     const formData = new FormData();
     formData.append('firmware', file);

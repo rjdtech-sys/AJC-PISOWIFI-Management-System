@@ -277,6 +277,51 @@ const NodeMCUManager: React.FC<NodeMCUManagerProps> = ({ devices, onUpdateDevice
     }
   };
 
+  const handleSaveCoinsOut = async () => {
+    if (!coinsOutDevice) return;
+    
+    const gross = coinsOutDevice.totalRevenue ?? 0;
+    const parsedSharePercent = parseFloat(coinsOutSharePercent || '0');
+    const safeSharePercent = isNaN(parsedSharePercent) ? 0 : parsedSharePercent;
+    const shareAmount = gross * (safeSharePercent / 100);
+    const net = gross - shareAmount;
+    
+    try {
+      const response = await apiClient.saveNodeMCUCoinsOut(coinsOutDevice.id, {
+        gross,
+        net,
+        share: shareAmount,
+        date: new Date().toISOString()
+      });
+      
+      if (response.success) {
+        // Update local state
+        const updatedDevices = localDevices.map(d => 
+          d.id === coinsOutDevice.id 
+            ? { 
+                ...d, 
+                totalRevenue: 0, 
+                lastCoinsOutGross: gross, 
+                lastCoinsOutNet: net, 
+                lastCoinsOutDate: new Date().toISOString() 
+              } 
+            : d
+        );
+        setLocalDevices(updatedDevices);
+        onUpdateDevices(updatedDevices);
+        
+        setCoinsOutDevice(null);
+        setCoinsOutSharePercent('');
+        alert('Coins-out saved successfully!');
+      } else {
+        throw new Error(response.error || 'Failed to save coins-out');
+      }
+    } catch (error: any) {
+      console.error('Failed to save coins-out:', error);
+      alert(error.message || 'Failed to save coins-out');
+    }
+  };
+
   const pendingDevices = localDevices.filter(device => device.status === 'pending');
   const acceptedDevices = localDevices.filter(device => device.status === 'accepted');
 
@@ -514,16 +559,30 @@ const NodeMCUManager: React.FC<NodeMCUManagerProps> = ({ devices, onUpdateDevice
                       })()}
                     </td>
                     <td className="px-4 py-2">
-                      <div className="flex items-center gap-3">
-                        <div>
-                          <div className="text-[8px] font-black text-slate-400 uppercase tracking-tighter leading-none">Revenue</div>
-                          <div className="text-[10px] font-black text-emerald-600">₱{device.totalRevenue.toFixed(2)}</div>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-3">
+                          <div>
+                            <div className="text-[8px] font-black text-slate-400 uppercase tracking-tighter leading-none">Current</div>
+                            <div className="text-[10px] font-black text-emerald-600">₱{device.totalRevenue.toFixed(2)}</div>
+                          </div>
+                          <div className="w-px h-6 bg-slate-100"></div>
+                          <div>
+                            <div className="text-[8px] font-black text-slate-400 uppercase tracking-tighter leading-none">Pulses</div>
+                            <div className="text-[10px] font-black text-slate-900">{device.totalPulses}</div>
+                          </div>
                         </div>
-                        <div className="w-px h-6 bg-slate-100"></div>
-                        <div>
-                          <div className="text-[8px] font-black text-slate-400 uppercase tracking-tighter leading-none">Pulses</div>
-                          <div className="text-[10px] font-black text-slate-900">{device.totalPulses}</div>
-                        </div>
+                        
+                        {(device.lastCoinsOutDate || device.lastCoinsOutGross !== undefined) && (
+                           <div className="pt-2 border-t border-slate-50">
+                             <div className="text-[8px] font-black text-slate-400 uppercase tracking-tighter leading-none mb-1">
+                               Last Coins-out: {device.lastCoinsOutDate ? new Date(device.lastCoinsOutDate).toLocaleDateString() : 'N/A'}
+                             </div>
+                             <div className="flex gap-2 text-[9px]">
+                               <span className="font-bold text-slate-500">G: <span className="text-slate-700">₱{(device.lastCoinsOutGross || 0).toFixed(2)}</span></span>
+                               <span className="font-bold text-slate-500">N: <span className="text-emerald-600">₱{(device.lastCoinsOutNet || 0).toFixed(2)}</span></span>
+                             </div>
+                           </div>
+                        )}
                       </div>
                     </td>
                     <td className="px-4 py-2 text-right">
@@ -854,13 +913,19 @@ const NodeMCUManager: React.FC<NodeMCUManagerProps> = ({ devices, onUpdateDevice
 
               <div className="flex gap-2 pt-2">
                 <button
+                  onClick={handleSaveCoinsOut}
+                  className="flex-1 px-4 py-2.5 bg-emerald-500 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-all shadow-md active:scale-95"
+                >
+                  Save & Reset
+                </button>
+                <button
                   onClick={() => {
                     setCoinsOutDevice(null);
                     setCoinsOutSharePercent('');
                   }}
                   className="flex-1 px-4 py-2.5 bg-slate-100 text-slate-600 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-slate-200 transition-all"
                 >
-                  Isara
+                  Cancel
                 </button>
               </div>
             </div>
