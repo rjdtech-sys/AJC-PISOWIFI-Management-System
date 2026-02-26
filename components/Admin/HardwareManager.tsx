@@ -515,54 +515,7 @@ const HardwareManager: React.FC = () => {
              )}
           </div>
 
-          {/* Main Machine Revenue Card */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mt-4">
-            <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
-               <h3 className="text-[10px] font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
-                 <span>💰</span> Main Machine Revenue
-               </h3>
-               <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">Sales & Coins Out</span>
-            </div>
-            <div className="p-4">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Current Revenue</div>
-                  <div className="text-2xl font-black text-slate-800">₱{mainRevenue.toFixed(2)}</div>
-                  <div className="text-[9px] text-slate-400 mt-1">Uncollected</div>
-                </div>
-                <button
-                  onClick={() => setShowCoinsOutModal(true)}
-                  className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors shadow-sm flex items-center gap-2"
-                >
-                  <span>💸</span> Coins Out
-                </button>
-              </div>
 
-              <div className="pt-4 border-t border-slate-100">
-                 <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Last Coins Out</div>
-                 {lastCoinsOutStats ? (
-                   <div className="grid grid-cols-3 gap-2 bg-slate-50 p-2 rounded-lg border border-slate-100">
-                     <div>
-                       <div className="text-[9px] text-slate-500 mb-0.5">Date</div>
-                       <div className="text-[10px] font-bold text-slate-700">{new Date(lastCoinsOutStats.lastCoinsOutDate).toLocaleDateString()}</div>
-                     </div>
-                     <div>
-                       <div className="text-[9px] text-slate-500 mb-0.5">Gross</div>
-                       <div className="text-[10px] font-bold text-slate-700">₱{lastCoinsOutStats.lastCoinsOutGross.toFixed(2)}</div>
-                     </div>
-                     <div>
-                       <div className="text-[9px] text-slate-500 mb-0.5">Net</div>
-                       <div className="text-[10px] font-bold text-emerald-600">₱{lastCoinsOutStats.lastCoinsOutNet.toFixed(2)}</div>
-                     </div>
-                   </div>
-                 ) : (
-                   <div className="text-center text-[10px] text-slate-400 italic py-2 bg-slate-50 rounded-lg">
-                     No previous record found
-                   </div>
-                 )}
-              </div>
-            </div>
-          </div>
         </div>
 
         {/* System Monitor */}
@@ -606,6 +559,69 @@ const HardwareManager: React.FC = () => {
                 <div className="text-green-800 text-[9px] font-bold uppercase tracking-tight">Saved successfully</div>
               </div>
             )}
+          </div>
+        </div>
+      </div>
+
+      {/* Main Machine Revenue Card */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="px-4 py-3 border-b border-slate-100 admin-sidebar flex items-center justify-between">
+           <div className="flex items-center gap-3">
+             <div className="p-2 bg-white/10 rounded-lg text-white">
+               <span className="text-lg">💰</span>
+             </div>
+             <div>
+               <h3 className="text-[10px] font-black text-white uppercase tracking-widest">
+                 Main Machine Revenue
+               </h3>
+               <p className="text-[8px] text-white/70 font-bold uppercase tracking-widest">
+                 Sales & Coins Out
+               </p>
+             </div>
+           </div>
+           <div className="bg-white/5 rounded-lg px-3 py-2 border border-white/10">
+             <div className="text-[8px] font-black text-emerald-200 uppercase tracking-wider mb-0.5">Current</div>
+             <div className="text-sm font-black text-white tracking-widest font-mono">
+               ₱{mainRevenue.toFixed(2)}
+             </div>
+           </div>
+        </div>
+        <div className="p-4">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Current Revenue</div>
+              <div className="text-2xl font-black text-slate-800">₱{mainRevenue.toFixed(2)}</div>
+              <div className="text-[9px] text-slate-400 mt-1">Uncollected Sales</div>
+            </div>
+            <button
+              onClick={() => setShowCoinsOutModal(true)}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors shadow-sm flex items-center gap-2"
+            >
+              <span>💸</span> Coins Out
+            </button>
+          </div>
+
+          <div className="pt-4 border-t border-slate-100">
+             <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Last Coins Out History</div>
+             {lastCoinsOutStats ? (
+               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-slate-50 p-3 rounded-lg border border-slate-100">
+                 <div>
+                   <div className="text-[9px] text-slate-500 mb-0.5 font-bold uppercase">Date</div>
+                   <div className="text-[10px] font-black text-slate-700">{new Date(lastCoinsOutStats.lastCoinsOutDate).toLocaleDateString()}</div>
+                   <div className="text-[8px] text-slate-400">{new Date(lastCoinsOutStats.lastCoinsOutDate).toLocaleTimeString()}</div>
+                 </div>
+                 <div>
+                   <div className="text-[9px] text-slate-500 mb-0.5 font-bold uppercase">Gross</div>
+                   <div className="text-[10px] font-black text-slate-700">₱{lastCoinsOutStats.lastCoinsOutGross.toFixed(2)}</div>
+                 </div>
+                 <div>
+                   <div className="text-[9px] text-slate-500 mb-0.5 font-bold uppercase">Net Income</div>
+                   <div className="text-[10px] font-black text-emerald-600">₱{lastCoinsOutStats.lastCoinsOutNet.toFixed(2)}</div>
+                 </div>
+               </div>
+             ) : (
+               <div className="text-[10px] text-slate-400 italic bg-slate-50 p-3 rounded-lg border border-slate-100 text-center">No coins out history available</div>
+             )}
           </div>
         </div>
       </div>
