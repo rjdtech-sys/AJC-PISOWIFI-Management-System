@@ -563,6 +563,11 @@ export const apiClient = {
     return handleResponse(res);
   },
 
+  async getSalesHistory(): Promise<any[]> {
+    const res = await fetch(`${API_BASE}/sales/history`, { headers: getHeaders() });
+    return handleResponse(res);
+  },
+
   async pauseSession(token: string): Promise<{ success: boolean; message: string }> {
     const res = await fetch(`${API_BASE}/sessions/pause`, {
       method: 'POST',

@@ -5,6 +5,7 @@ import { apiClient } from '../../lib/api';
 
 interface AnalyticsProps {
   sessions: UserSession[];
+  salesHistory?: any[];
 }
 
 interface InterfaceDataPoint {
@@ -13,7 +14,7 @@ interface InterfaceDataPoint {
   tx: number;
 }
 
-const Analytics: React.FC<AnalyticsProps> = ({ sessions }) => {
+const Analytics: React.FC<AnalyticsProps> = ({ sessions, salesHistory }) => {
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [sysInfo, setSysInfo] = useState<{manufacturer: string, model: string, distro: string, arch: string} | null>(null);
   const [activeGraphs, setActiveGraphs] = useState<string[]>([]);
@@ -130,9 +131,16 @@ const Analytics: React.FC<AnalyticsProps> = ({ sessions }) => {
 
   const sumRevenue = (range: 'today' | '7d' | 'month' | 'year') => {
     const now = new Date();
-    return sessions
-      .filter(s => {
-        const d = new Date(s.connectedAt);
+    // Prefer salesHistory (transactions) over sessions (active state)
+    const data = (salesHistory && salesHistory.length > 0) ? salesHistory : sessions;
+    
+    return data
+      .filter((s: any) => {
+        // Handle both transaction timestamp and session connectedAt
+        const dateStr = s.timestamp || s.connectedAt;
+        if (!dateStr) return false;
+        
+        const d = new Date(dateStr);
         if (range === 'today') {
           return d.toDateString() === now.toDateString();
         }
@@ -145,7 +153,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ sessions }) => {
         }
         return d.getFullYear() === now.getFullYear();
       })
-      .reduce((acc, s) => acc + (s.totalPaid || 0), 0);
+      .reduce((acc, s: any) => acc + (s.amount || s.totalPaid || 0), 0);
   };
 
   const hotspotConnected = sessions.filter(s => !s.isPaused && s.remainingSeconds > 0).length;

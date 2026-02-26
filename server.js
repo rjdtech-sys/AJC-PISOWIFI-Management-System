@@ -2201,6 +2201,13 @@ app.get('/api/sales/sessions', requireAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+app.get('/api/sales/history', requireAdmin, async (req, res) => {
+  try {
+    const rows = await db.all('SELECT * FROM sales ORDER BY timestamp DESC');
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.post('/api/sessions/start', async (req, res) => {
   const { minutes, pesos, slot: requestedSlot, lockId } = req.body;
   let clientIp = req.ip ? req.ip.replace('::ffff:', '') : '';
@@ -2383,6 +2390,16 @@ app.post('/api/sessions/start', async (req, res) => {
     console.log(`[AUTH] Session started for ${mac} (${clientIp}) - ${seconds}s, ₱${pesos}, Limits: ${downloadLimit}/${uploadLimit} Mbps`);
     console.log(`[AUTH] New user connected: MAC=${mac} | Session ID=${tokenToUse}`);
     
+    // Record local sale
+    try {
+      await db.run(
+        'INSERT INTO sales (mac, ip, amount, minutes, type, machine_id) VALUES (?, ?, ?, ?, ?, ?)',
+        [mac, clientIp, pesos, minutes, 'coin', requestedSlot || 'main']
+      );
+    } catch (e) {
+      console.error('[SALES] Failed to record local sale:', e);
+    }
+
     // Only sync sale to MAIN sales_logs if NOT a NodeMCU device (to avoid double counting)
     if (!isNodeMCU) {
       syncSaleToCloud({

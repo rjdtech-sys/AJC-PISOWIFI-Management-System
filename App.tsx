@@ -38,6 +38,7 @@ const App: React.FC = () => {
   const [rates, setRates] = useState<Rate[]>([]);
   const [activeSessions, setActiveSessions] = useState<UserSession[]>([]);
   const [salesSessions, setSalesSessions] = useState<UserSession[]>([]);
+  const [salesHistory, setSalesHistory] = useState<any[]>([]);
   const [devices, setDevices] = useState<WifiDevice[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -66,17 +67,23 @@ const App: React.FC = () => {
       const salesSessionsPromise = isAdminRoute
         ? apiClient.getSalesSessions().catch(() => [])
         : Promise.resolve([]);
+      
+      const salesHistoryPromise = isAdminRoute
+        ? apiClient.getSalesHistory().catch(() => [])
+        : Promise.resolve([]);
 
-      const [fetchedRates, sessions, salesHistory, fetchedDevices] = await Promise.all([
+      const [fetchedRates, sessions, salesSessionData, fetchedDevices, salesHistoryData] = await Promise.all([
         apiClient.getRates(),
         sessionsPromise,
         salesSessionsPromise,
-        devicesPromise
+        devicesPromise,
+        salesHistoryPromise
       ]);
       setRates(fetchedRates);
       setActiveSessions(sessions);
       if (isAdminRoute) {
-        setSalesSessions(salesHistory);
+        setSalesSessions(salesSessionData);
+        setSalesHistory(salesHistoryData);
       }
       setDevices(fetchedDevices);
     } catch (err: any) {
@@ -420,7 +427,7 @@ const App: React.FC = () => {
               {/* Scrollable Content Area */}
               <div className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 scroll-smooth">
                 <div className="max-w-7xl mx-auto space-y-6">
-                  {activeTab === AdminTab.Analytics && <Analytics sessions={salesSessions.length ? salesSessions : activeSessions} />}
+                  {activeTab === AdminTab.Analytics && <Analytics sessions={salesSessions.length ? salesSessions : activeSessions} salesHistory={salesHistory} />}
                   {activeTab === AdminTab.Rates && <RatesManager rates={rates} setRates={updateRates} />}
                   {activeTab === AdminTab.Network && <NetworkSettings />}
                   {activeTab === AdminTab.Devices && <DeviceManager sessions={activeSessions} refreshSessions={loadData} refreshDevices={loadData} />}
