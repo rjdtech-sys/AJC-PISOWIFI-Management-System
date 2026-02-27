@@ -956,5 +956,23 @@ export const apiClient = {
       body: JSON.stringify(data)
     });
     return handleResponse(res);
+  },
+
+  async getCompanySettings(): Promise<{ companyName: string, companyLogo: string | null }> {
+    const res = await fetch(`${API_BASE}/settings/company`);
+    return res.json();
+  },
+
+  async updateCompanySettings(formData: FormData): Promise<{ companyName: string, companyLogo: string | null }> {
+    const token = localStorage.getItem('ajc_admin_token');
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetch(`${API_BASE}/settings/company`, {
+      method: 'POST',
+      headers: headers,
+      body: formData
+    });
+    return res.json();
   }
 };

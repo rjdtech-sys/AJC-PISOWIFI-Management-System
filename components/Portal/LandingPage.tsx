@@ -88,6 +88,7 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
     const loadConfig = async () => {
       const cfg = await fetchPortalConfig();
       setConfig(cfg);
+      if (cfg.title) document.title = cfg.title;
     };
     loadConfig();
 

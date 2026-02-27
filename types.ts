@@ -232,7 +232,8 @@ export enum AdminTab {
   Vouchers = 'vouchers',
   SalesInventory = 'sales_inventory',
   Remote = 'remote',
-  Rewards = 'rewards'
+  Rewards = 'rewards',
+  CompanySettings = 'company_settings'
 }
 
 export interface UpdateLog {

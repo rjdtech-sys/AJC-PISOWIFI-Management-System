@@ -19,6 +19,7 @@ import ChatManager from './components/Admin/ChatManager';
 import VoucherManager from './components/Admin/VoucherManager';
 import RemoteManager from './components/Admin/RemoteManager';
 import RewardsSettings from './components/Admin/RewardsSettings';
+import CompanySettings from './components/Admin/CompanySettings';
 import { apiClient } from './lib/api';
 import { initAdminTheme, setAdminTheme, applyAdminTheme } from './lib/theme';
 
@@ -47,6 +48,12 @@ const App: React.FC = () => {
     localStorage.setItem('ajc_admin_last_tab', activeTab);
   }, [activeTab]);
 
+  useEffect(() => {
+    if (isAdmin) {
+      document.title = `${companySettings.companyName} - Admin Panel`;
+    }
+  }, [companySettings, isAdmin]);
+
   const [licenseStatus, setLicenseStatus] = useState<{ isLicensed: boolean, isRevoked: boolean, canOperate: boolean }>({ isLicensed: true, isRevoked: false, canOperate: true });
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [rates, setRates] = useState<Rate[]>([]);
@@ -56,11 +63,23 @@ const App: React.FC = () => {
   const [devices, setDevices] = useState<WifiDevice[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [companySettings, setCompanySettings] = useState<{ companyName: string, companyLogo: string | null }>({
+    companyName: 'AJC PISOWIFI',
+    companyLogo: null
+  });
 
   const loadData = async () => {
     try {
       setError(null);
       
+      // Fetch company settings first to update UI immediately
+      try {
+        const settings = await apiClient.getCompanySettings();
+        setCompanySettings(settings);
+      } catch (e) {
+        console.warn('Failed to fetch company settings');
+      }
+
       // Check license status first
       try {
         const lic = await fetch('/api/license/status').then(r => r.json());
@@ -352,21 +371,34 @@ const App: React.FC = () => {
               <div className={`p-4 border-b border-white/5 flex items-center ${sidebarOpen ? 'justify-between' : 'justify-center'}`}>
                 {sidebarOpen ? (
                   <>
-                    <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 bg-blue-600 rounded flex items-center justify-center font-black text-xs">AJC</div>
+                    <div className="flex items-center gap-2 overflow-hidden">
+                      {companySettings.companyLogo ? (
+                         <img src={companySettings.companyLogo} className="w-8 h-8 object-contain bg-white rounded-md" alt="Logo" />
+                      ) : (
+                         <div className="w-7 h-7 bg-blue-600 rounded flex items-center justify-center font-black text-xs shrink-0">
+                           {companySettings.companyName.substring(0, 3).toUpperCase()}
+                         </div>
+                      )}
                       <h1
-                        className="text-lg font-bold tracking-tight"
+                        className="text-lg font-bold tracking-tight truncate"
                         style={{ color: '#111827' }}
+                        title={companySettings.companyName}
                       >
-                        PISOWIFI
+                        {companySettings.companyName}
                       </h1>
                     </div>
-                    <button onClick={() => setSidebarOpen(false)} className="p-1.5 hover:bg-white/10 rounded-md text-slate-400 md:hidden">
+                    <button onClick={() => setSidebarOpen(false)} className="p-1.5 hover:bg-white/10 rounded-md text-slate-400 md:hidden shrink-0">
                       ✕
                     </button>
                   </>
                 ) : (
-                  <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center font-black text-xs">A</div>
+                  companySettings.companyLogo ? (
+                     <img src={companySettings.companyLogo} className="w-8 h-8 object-contain bg-white rounded-md" alt="Logo" />
+                  ) : (
+                     <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center font-black text-xs">
+                       {companySettings.companyName.substring(0, 1).toUpperCase()}
+                     </div>
+                  )
                 )}
               </div>
               
@@ -387,6 +419,7 @@ const App: React.FC = () => {
             <SidebarItem disabled={!licenseStatus.canOperate && !licenseStatus.isRevoked} active={activeTab === AdminTab.Rewards} onClick={() => setActiveTab(AdminTab.Rewards)} icon="🎁" label="Rewards" collapsed={!sidebarOpen} />
             <SidebarItem disabled={!licenseStatus.canOperate && !licenseStatus.isRevoked} active={activeTab === AdminTab.SalesInventory} onClick={() => setActiveTab(AdminTab.SalesInventory)} icon="📒" label="Sales Inventory" collapsed={!sidebarOpen} />
             <SidebarItem disabled={!licenseStatus.canOperate && !licenseStatus.isRevoked} active={activeTab === AdminTab.Remote} onClick={() => setActiveTab(AdminTab.Remote)} icon="🛰️" label="Remote" collapsed={!sidebarOpen} />
+            <SidebarItem active={activeTab === AdminTab.CompanySettings} onClick={() => setActiveTab(AdminTab.CompanySettings)} icon="🏢" label="Company" collapsed={!sidebarOpen} />
             <SidebarItem active={activeTab === AdminTab.System} onClick={() => setActiveTab(AdminTab.System)} icon="⚙️" label="System" collapsed={!sidebarOpen} />
             <SidebarItem disabled={!licenseStatus.canOperate && !licenseStatus.isRevoked} active={activeTab === AdminTab.Updater} onClick={() => setActiveTab(AdminTab.Updater)} icon="🚀" label="Updater" collapsed={!sidebarOpen} />
           </nav>
@@ -459,6 +492,7 @@ const App: React.FC = () => {
                   {activeTab === AdminTab.SalesInventory && <SalesInventory sessions={salesSessions.length ? salesSessions : activeSessions} />}
                   {activeTab === AdminTab.Remote && <RemoteManager />}
                   {activeTab === AdminTab.Rewards && <RewardsSettings />}
+                  {activeTab === AdminTab.CompanySettings && <CompanySettings />}
                   {activeTab === AdminTab.System && <SystemSettings />}
                   {activeTab === AdminTab.Updater && <SystemUpdater />}
                 </div>

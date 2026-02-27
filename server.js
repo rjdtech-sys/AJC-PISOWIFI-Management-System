@@ -14,6 +14,7 @@ const { verifyPassword, hashPassword } = require('./lib/auth');
 const crypto = require('crypto');
 const multer = require('multer');
 const edgeSync = require('./lib/edge-sync');
+const settings = require('./lib/settings');
 const AdmZip = require('adm-zip');
 
 // PREVENT PROCESS TERMINATION ON TERMINAL DISCONNECT
@@ -528,6 +529,48 @@ app.post('/api/admin/custom-themes', requireAdmin, async (req, res) => {
   try {
     await db.run('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)', ['admin_custom_themes', JSON.stringify(themes)]);
     res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// COMPANY SETTINGS API
+const brandingStorage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const dir = 'uploads/branding/';
+    if (!fs.existsSync(dir)){
+        fs.mkdirSync(dir, { recursive: true });
+    }
+    cb(null, dir);
+  },
+  filename: function (req, file, cb) {
+    const ext = path.extname(file.originalname);
+    cb(null, 'logo-' + Date.now() + ext);
+  }
+});
+
+const uploadBranding = multer({ storage: brandingStorage });
+
+app.get('/api/settings/company', async (req, res) => {
+  try {
+    const data = await settings.getCompanySettings();
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/settings/company', requireAdmin, uploadBranding.single('logo'), async (req, res) => {
+  try {
+    const { companyName } = req.body;
+    let logoPath = null;
+    
+    if (req.file) {
+      logoPath = '/uploads/branding/' + req.file.filename;
+    }
+    
+    const data = await settings.updateCompanySettings(companyName, logoPath);
+    res.json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
