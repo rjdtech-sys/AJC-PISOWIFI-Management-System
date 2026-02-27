@@ -53,6 +53,23 @@ const NetworkSettings: React.FC = () => {
 
   useEffect(() => { loadData(); }, []);
 
+  useEffect(() => {
+    if (interfaces.length > 0) {
+      const validParents = interfaces.filter(i => i.type === 'ethernet' || i.name.startsWith('wlan'));
+      if (validParents.length > 0) {
+        // Check if current parent is valid
+        const currentValid = validParents.find(i => i.name === vlan.parentInterface);
+        if (!currentValid) {
+           setVlan(prev => ({ 
+             ...prev, 
+             parentInterface: validParents[0].name,
+             name: makeSafeVlanName(validParents[0].name, prev.id)
+           }));
+        }
+      }
+    }
+  }, [interfaces]);
+
   const loadData = async () => {
     try {
       setLoading(true);
