@@ -4221,7 +4221,10 @@ app.post('/api/network/vlan', requireAdmin, async (req, res) => {
     await db.run('INSERT OR REPLACE INTO vlans (name, parent, id) VALUES (?, ?, ?)', 
       [createdName, parent, id]);
     res.json({ success: true, name: createdName });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { 
+    console.error('[VLAN] Create Error:', err);
+    res.status(500).json({ error: err.message }); 
+  }
 });
 
 app.delete('/api/network/vlan/:name', requireAdmin, async (req, res) => {
