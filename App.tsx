@@ -48,12 +48,6 @@ const App: React.FC = () => {
     localStorage.setItem('ajc_admin_last_tab', activeTab);
   }, [activeTab]);
 
-  useEffect(() => {
-    if (isAdmin) {
-      document.title = `${companySettings.companyName} - Admin Panel`;
-    }
-  }, [companySettings, isAdmin]);
-
   const [licenseStatus, setLicenseStatus] = useState<{ isLicensed: boolean, isRevoked: boolean, canOperate: boolean }>({ isLicensed: true, isRevoked: false, canOperate: true });
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [rates, setRates] = useState<Rate[]>([]);
@@ -67,6 +61,12 @@ const App: React.FC = () => {
     companyName: 'AJC PISOWIFI',
     companyLogo: null
   });
+
+  useEffect(() => {
+    if (isAdmin) {
+      document.title = `${companySettings.companyName} - Admin Panel`;
+    }
+  }, [companySettings, isAdmin]);
 
   const loadData = async () => {
     try {
