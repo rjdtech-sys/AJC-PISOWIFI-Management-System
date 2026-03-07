@@ -1894,6 +1894,144 @@ app.get('/api/whoami', async (req, res) => {
   } catch (e) {}
 });
 
+// COIN DETECTION ENDPOINT FOR ESP/NODEMCU DEVICES
+app.get('/api/coin/detect', async (req, res) => {
+  console.log(`[HTTP COIN DETECTION] ===== COIN DETECTION REQUEST RECEIVED =====`);
+  console.log(`[HTTP COIN DETECTION] Timestamp: ${new Date().toISOString()}`);
+  console.log(`[HTTP COIN DETECTION] Query params:`, req.query);
+  console.log(`[HTTP COIN DETECTION] IP: ${req.ip}`);
+  
+  const { slot, denomination, device_id } = req.query;
+  
+  if (!denomination) {
+    console.log(`[HTTP COIN DETECTION] ERROR: Missing denomination parameter`);
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Missing denomination parameter' 
+    });
+  }
+  
+  const pesos = parseInt(denomination);
+  if (isNaN(pesos) || pesos <= 0) {
+    console.log(`[HTTP COIN DETECTION] ERROR: Invalid denomination: ${denomination}`);
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Invalid denomination' 
+    });
+  }
+  
+  console.log(`[HTTP COIN DETECTION] Valid coin detection: Slot=${slot || 'main'}, Denomination=${pesos} pesos`);
+  
+  try {
+    // Get the current coin callback from GPIO module
+    const { currentPulseCallback } = require('./lib/gpio');
+    
+    if (currentPulseCallback) {
+      console.log(`[HTTP COIN DETECTION] Processing ${pesos} peso coin...`);
+      currentPulseCallback(pesos);
+      console.log(`[HTTP COIN DETECTION] Coin processed successfully`);
+      
+      // Also emit multi-slot event if slot is specified
+      if (slot) {
+        console.log(`[HTTP COIN DETECTION] Emitting multi-slot event for slot ${slot}`);
+        io.emit('multi-coin-pulse', { 
+          denomination: pesos, 
+          slot_id: slot,
+          device_id: device_id || null
+        });
+      }
+      
+      res.json({ 
+        success: true, 
+        message: `Coin detected: ${pesos} pesos`,
+        slot: slot || 'main',
+        denomination: pesos
+      });
+    } else {
+      console.log(`[HTTP COIN DETECTION] ERROR: No coin callback registered`);
+      res.status(500).json({ 
+        success: false, 
+        error: 'Coin detection not ready' 
+      });
+    }
+  } catch (error) {
+    console.log(`[HTTP COIN DETECTION] ERROR: ${error.message}`);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Internal server error' 
+    });
+  }
+});
+
+// POST endpoint for coin detection (alternative)
+app.post('/api/coin/detect', async (req, res) => {
+  console.log(`[HTTP COIN DETECTION] ===== COIN DETECTION POST REQUEST =====`);
+  console.log(`[HTTP COIN DETECTION] Timestamp: ${new Date().toISOString()}`);
+  console.log(`[HTTP COIN DETECTION] Body:`, req.body);
+  console.log(`[HTTP COIN DETECTION] IP: ${req.ip}`);
+  
+  const { slot, denomination, device_id } = req.body;
+  
+  if (!denomination) {
+    console.log(`[HTTP COIN DETECTION] ERROR: Missing denomination`);
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Missing denomination' 
+    });
+  }
+  
+  const pesos = parseInt(denomination);
+  if (isNaN(pesos) || pesos <= 0) {
+    console.log(`[HTTP COIN DETECTION] ERROR: Invalid denomination: ${denomination}`);
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Invalid denomination' 
+    });
+  }
+  
+  console.log(`[HTTP COIN DETECTION] Valid coin detection: Slot=${slot || 'main'}, Denomination=${pesos} pesos`);
+  
+  try {
+    // Get the current coin callback from GPIO module
+    const { currentPulseCallback } = require('./lib/gpio');
+    
+    if (currentPulseCallback) {
+      console.log(`[HTTP COIN DETECTION] Processing ${pesos} peso coin...`);
+      currentPulseCallback(pesos);
+      console.log(`[HTTP COIN DETECTION] Coin processed successfully`);
+      
+      // Also emit multi-slot event if slot is specified
+      if (slot) {
+        console.log(`[HTTP COIN DETECTION] Emitting multi-slot event for slot ${slot}`);
+        io.emit('multi-coin-pulse', { 
+          denomination: pesos, 
+          slot_id: slot,
+          device_id: device_id || null
+        });
+      }
+      
+      res.json({ 
+        success: true, 
+        message: `Coin detected: ${pesos} pesos`,
+        slot: slot || 'main',
+        denomination: pesos
+      });
+    } else {
+      console.log(`[HTTP COIN DETECTION] ERROR: No coin callback registered`);
+      res.status(500).json({ 
+        success: false, 
+        error: 'Coin detection not ready' 
+      });
+    }
+  } catch (error) {
+    console.log(`[HTTP COIN DETECTION] ERROR: ${error.message}`);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Internal server error' 
+    });
+  }
+});
+
 app.post('/api/coinslot/reserve', async (req, res) => {
   cleanupExpiredCoinSlotLocks();
 
@@ -5537,11 +5675,48 @@ async function bootupRestore(isRestricted = false) {
   const relayPinRow = await db.get('SELECT value FROM config WHERE key = ?', ['relayPin']);
   const relayActiveModeRow = await db.get('SELECT value FROM config WHERE key = ?', ['relayActiveMode']);
   
+  console.log('[SYSTEM] ===== INITIALIZING GPIO COIN DETECTION =====');
+  console.log(`[SYSTEM] Board Type: ${board?.value || 'none'}`);
+  console.log(`[SYSTEM] Coin Pin: ${pin?.value || '2'}`);
+  console.log(`[SYSTEM] Board Model: ${model?.value || 'none'}`);
+  console.log(`[SYSTEM] ESP IP Address: ${espIpAddress?.value || 'none'}`);
+  console.log(`[SYSTEM] ESP Port: ${espPort?.value || '80'}`);
+  
+  if (coinSlots?.value) {
+    try {
+      const slots = JSON.parse(coinSlots.value);
+      console.log(`[SYSTEM] Coin Slots Configured: ${slots.length} slots`);
+      slots.forEach((slot, index) => {
+        console.log(`[SYSTEM]   Slot ${index + 1}: ID=${slot.id}, Pin=${slot.pin}, Denomination=${slot.denomination}, Enabled=${slot.enabled}`);
+      });
+    } catch (e) {
+      console.log(`[SYSTEM] Error parsing coin slots: ${e.message}`);
+    }
+  }
+  
+  if (nodemcuDevices?.value) {
+    try {
+      const devices = JSON.parse(nodemcuDevices.value);
+      console.log(`[SYSTEM] NodeMCU Devices: ${devices.length} devices`);
+      devices.forEach((device, index) => {
+        console.log(`[SYSTEM]   Device ${index + 1}: ${device.name} (${device.ipAddress})`);
+      });
+    } catch (e) {
+      console.log(`[SYSTEM] Error parsing NodeMCU devices: ${e.message}`);
+    }
+  }
+  
   const coinCallback = (pesos) => {
-    console.log(`[MAIN GPIO] Pulse Detected | Amount: ₱${pesos}`);
+    console.log(`[MAIN COIN DETECTION] ===== COIN INSERTED =====`);
+    console.log(`[MAIN COIN DETECTION] Pulse Detected | Amount: ₱${pesos}`);
+    console.log(`[MAIN COIN DETECTION] Timestamp: ${new Date().toISOString()}`);
+    console.log(`[MAIN COIN DETECTION] Emitting events to all connected clients...`);
+    
     io.emit('coin-pulse', { pesos });
     // Also emit multi-slot event for tracking
     io.emit('multi-coin-pulse', { denomination: pesos, slot_id: null });
+    
+    console.log(`[MAIN COIN DETECTION] Events emitted successfully`);
   };
   
   initGPIO(
