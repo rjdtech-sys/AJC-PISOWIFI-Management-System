@@ -6060,53 +6060,8 @@ app.post('/api/vouchers/activate', async (req, res) => {
   }
 });
 
-// Start Background Timers
-setInterval(async () => {
-  try {
-    await db.run(
-      'UPDATE sessions SET remaining_seconds = remaining_seconds - 1 WHERE remaining_seconds > 0 AND (is_paused = 0 OR is_paused IS NULL)'
-    );
+// Background Timers moved to server.listen to ensure DB is initialized
 
-    const expired = await db.all(
-      'SELECT mac, ip FROM sessions WHERE remaining_seconds <= 0 AND (expired_at IS NULL OR expired_at = 0)'
-    );
-    for (const s of expired) {
-      await network.blockMAC(s.mac, s.ip);
-      await db.run('UPDATE sessions SET expired_at = ? WHERE mac = ?', [Date.now(), s.mac]);
-    }
-  } catch (e) { console.error(e); }
-}, 1000);
-
-setInterval(async () => {
-  try {
-    const inactiveSessions = await db.all('SELECT mac, ip FROM sessions WHERE remaining_seconds <= 0');
-    for (const session of inactiveSessions) {
-      await network.removeSpeedLimit(session.mac, session.ip);
-    }
-    const activeSessions = await db.all('SELECT ip FROM sessions WHERE remaining_seconds > 0');
-    const activeIPs = new Set(activeSessions.map(s => s.ip));
-    const { stdout: interfacesOutput } = await execPromise(`ip link show | grep -E "eth|wlan|br|vlan" | awk '{print $2}' | sed 's/:$//'`).catch(() => ({ stdout: '' }));
-    const interfaces = interfacesOutput.trim().split('\n').filter(i => i);
-    for (const iface of interfaces) {
-      try {
-        const { stdout: downloadFilters } = await execPromise(`tc filter show dev ${iface} parent 1:0 2>/dev/null || echo ""`).catch(() => ({ stdout: '' }));
-        const downloadIPs = downloadFilters.match(/\d+\.\d+\.\d+\.\d+/g) || [];
-        for (const ip of downloadIPs) {
-          if (!activeIPs.has(ip)) {
-            await execPromise(`tc filter del dev ${iface} parent 1:0 protocol ip prio 1 u32 match ip dst ${ip} 2>/dev/null || true`).catch(() => {});
-          }
-        }
-        const { stdout: uploadFilters } = await execPromise(`tc filter show dev ${iface} parent ffff: 2>/dev/null || echo ""`).catch(() => ({ stdout: '' }));
-        const uploadIPs = uploadFilters.match(/\d+\.\d+\.\d+\.\d+/g) || [];
-        for (const ip of uploadIPs) {
-          if (!activeIPs.has(ip)) {
-            await execPromise(`tc filter del dev ${iface} parent ffff: protocol ip prio 1 u32 match ip src ${ip} 2>/dev/null || true`).catch(() => {});
-          }
-        }
-      } catch (e) {}
-    }
-  } catch (e) { console.error('[CLEANUP] Periodic TC cleanup error:', e.message); }
-}, 30000);
 
 server.listen(80, '0.0.0.0', async () => {
   console.log('[AJC] System Engine Online @ Port 80');
@@ -6172,6 +6127,54 @@ server.listen(80, '0.0.0.0', async () => {
   const isRevokedNow = verificationStatus.isRevoked || trialStatusInfo.isRevoked;
   const canOperateNow = (isLicensedNow || trialStatusInfo.isTrialActive) && !isRevokedNow;
   await bootupRestore(!canOperateNow);
+
+  // Start Background Timers after DB is fully initialized
+  setInterval(async () => {
+    try {
+      await db.run(
+        'UPDATE sessions SET remaining_seconds = remaining_seconds - 1 WHERE remaining_seconds > 0 AND (is_paused = 0 OR is_paused IS NULL)'
+      );
+
+      const expired = await db.all(
+        'SELECT mac, ip FROM sessions WHERE remaining_seconds <= 0 AND (expired_at IS NULL OR expired_at = 0)'
+      );
+      for (const s of expired) {
+        await network.blockMAC(s.mac, s.ip);
+        await db.run('UPDATE sessions SET expired_at = ? WHERE mac = ?', [Date.now(), s.mac]);
+      }
+    } catch (e) { console.error('[TIMER] Sessions update error:', e.message); }
+  }, 1000);
+
+  setInterval(async () => {
+    try {
+      const inactiveSessions = await db.all('SELECT mac, ip FROM sessions WHERE remaining_seconds <= 0');
+      for (const session of inactiveSessions) {
+        await network.removeSpeedLimit(session.mac, session.ip);
+      }
+      const activeSessions = await db.all('SELECT ip FROM sessions WHERE remaining_seconds > 0');
+      const activeIPs = new Set(activeSessions.map(s => s.ip));
+      const { stdout: interfacesOutput } = await execPromise(`ip link show | grep -E "eth|wlan|br|vlan" | awk '{print $2}' | sed 's/:$//'`).catch(() => ({ stdout: '' }));
+      const interfaces = interfacesOutput.trim().split('\n').filter(i => i);
+      for (const iface of interfaces) {
+        try {
+          const { stdout: downloadFilters } = await execPromise(`tc filter show dev ${iface} parent 1:0 2>/dev/null || echo ""`).catch(() => ({ stdout: '' }));
+          const downloadIPs = downloadFilters.match(/\d+\.\d+\.\d+\.\d+/g) || [];
+          for (const ip of downloadIPs) {
+            if (!activeIPs.has(ip)) {
+              await execPromise(`tc filter del dev ${iface} parent 1:0 protocol ip prio 1 u32 match ip dst ${ip} 2>/dev/null || true`).catch(() => {});
+            }
+          }
+          const { stdout: uploadFilters } = await execPromise(`tc filter show dev ${iface} parent ffff: 2>/dev/null || echo ""`).catch(() => ({ stdout: '' }));
+          const uploadIPs = uploadFilters.match(/\d+\.\d+\.\d+\.\d+/g) || [];
+          for (const ip of uploadIPs) {
+            if (!activeIPs.has(ip)) {
+              await execPromise(`tc filter del dev ${iface} parent ffff: protocol ip prio 1 u32 match ip src ${ip} 2>/dev/null || true`).catch(() => {});
+            }
+          }
+        } catch (e) {}
+      }
+    } catch (e) { console.error('[CLEANUP] Periodic TC cleanup error:', e.message); }
+  }, 30000);
 });
 
 // Catch-all route for frontend (must be last)
