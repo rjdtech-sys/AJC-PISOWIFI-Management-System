@@ -5420,6 +5420,29 @@ app.post('/api/system/restart', requireAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Portal HTML Editor API
+app.get('/api/admin/portal-html', requireAdmin, async (req, res) => {
+  try {
+    const htmlPath = path.join(__dirname, 'index.html');
+    if (fs.existsSync(htmlPath)) {
+      const html = fs.readFileSync(htmlPath, 'utf8');
+      res.json({ html });
+    } else {
+      res.status(404).json({ error: 'index.html not found' });
+    }
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/admin/portal-html', requireAdmin, express.json({ limit: '10mb' }), async (req, res) => {
+  try {
+    const { html } = req.body;
+    if (!html) return res.status(400).json({ error: 'HTML content required' });
+    const htmlPath = path.join(__dirname, 'index.html');
+    fs.writeFileSync(htmlPath, html, 'utf8');
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.post('/api/system/clear-logs', requireAdmin, async (req, res) => {
   try {
     console.log('[System] Clearing logs...');
