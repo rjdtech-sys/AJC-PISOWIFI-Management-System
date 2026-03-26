@@ -55,7 +55,7 @@ const NetworkSettings: React.FC = () => {
 
   useEffect(() => {
     if (interfaces.length > 0) {
-      const validParents = interfaces.filter(i => i.type === 'ethernet' || i.name.startsWith('wlan'));
+      const validParents = interfaces.filter(i => i.type === 'ethernet' || i.name.startsWith('wl'));
       if (validParents.length > 0) {
         // Check if current parent is valid
         const currentValid = validParents.find(i => i.name === vlan.parentInterface);
