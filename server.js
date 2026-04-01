@@ -1470,11 +1470,7 @@ async function tryRoamingRestoreForClient(req, clientIp, mac) {
     const after = await db.get('SELECT remaining_seconds FROM sessions WHERE mac = ? AND remaining_seconds > 0 AND (is_paused = 0 OR is_paused IS NULL)', [mac]);
     if (after) {
       try {
-        const token = getSessionToken(req) || null;
-        await db.run(
-          "UPDATE sessions SET ip = ?, token = CASE WHEN ? IS NULL OR ? = '' THEN token ELSE ? END WHERE mac = ?",
-          [clientIp, token, token, token, mac]
-        );
+        await db.run('UPDATE sessions SET ip = ? WHERE mac = ?', [clientIp, mac]);
         await network.whitelistMAC(mac, clientIp);
       } catch (e) {}
       return true;
