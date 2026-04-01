@@ -4933,11 +4933,28 @@ app.post('/api/devices/scan', requireAdmin, async (req, res) => {
     activeSessions.forEach(session => {
       sessionMap.set(session.mac.toUpperCase(), session);
     });
+
+    if (edgeSync && typeof edgeSync.checkRoamingForMac === 'function') {
+      for (const device of scannedDevices) {
+        const hasLocalSession = sessionMap.has(device.mac.toUpperCase());
+        if (!hasLocalSession) {
+          try {
+            await edgeSync.checkRoamingForMac(device.mac);
+          } catch (e) {}
+        }
+      }
+    }
+
+    const refreshedSessions = await db.all('SELECT mac, ip, remaining_seconds as remainingSeconds, total_paid as totalPaid, connected_at as connectedAt FROM sessions WHERE remaining_seconds > 0');
+    const refreshedSessionMap = new Map();
+    refreshedSessions.forEach(session => {
+      refreshedSessionMap.set(session.mac.toUpperCase(), session);
+    });
     
     // Update or insert scanned devices
     for (const device of scannedDevices) {
       const existingDevice = await db.get('SELECT * FROM wifi_devices WHERE mac = ?', [device.mac]);
-      const session = sessionMap.get(device.mac.toUpperCase());
+      const session = refreshedSessionMap.get(device.mac.toUpperCase());
       
       if (existingDevice) {
         // Update existing device - preserve session data if device has active session
@@ -4969,7 +4986,7 @@ app.post('/api/devices/scan', requireAdmin, async (req, res) => {
     // Merge with session data for accurate remaining time
     const formattedDevices = devices.map(device => {
       const deviceMac = device.mac.toUpperCase();
-      const session = sessionMap.get(deviceMac);
+      const session = refreshedSessionMap.get(deviceMac);
       
       return {
         id: device.id || '',
