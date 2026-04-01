@@ -1892,6 +1892,11 @@ app.get('/api/whoami', async (req, res) => {
               await edgeSync.checkRoamingForMac(mac);
             } catch (e) {}
           }
+          if (edgeSync && typeof edgeSync.checkRoamingForToken === 'function' && mac) {
+            try {
+              await edgeSync.checkRoamingForToken(token, mac);
+            } catch (e) {}
+          }
           const retrySessionByToken = await db.get('SELECT * FROM sessions WHERE token = ?', [token]);
           if (!retrySessionByToken) {
             console.log(`[AUTH] No session found for Session ID=${token}`);
