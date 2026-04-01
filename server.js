@@ -1905,6 +1905,67 @@ app.get('/api/whoami', async (req, res) => {
     }
   }
 
+  const token = getSessionToken(req);
+  let roamingRestored = false;
+  let localRestored = false;
+
+  try {
+    if (mac) {
+      const session = await db.get('SELECT remaining_seconds FROM sessions WHERE mac = ?', [mac]);
+      if (!session || !session.remaining_seconds || session.remaining_seconds <= 0) {
+        const ok = await tryRoamingAuthorize(mac, clientIp, token);
+        if (ok) roamingRestored = true;
+      }
+    }
+  } catch (e) {}
+
+  try {
+    if (token && mac) {
+      const now = Date.now();
+      const last = autoRestoreSeen.get(token);
+      const canAttempt = !last || (now - last) > AUTO_RESTORE_TTL_MS;
+      if (canAttempt) {
+        autoRestoreSeen.set(token, now);
+        const sessionByToken = await db.get('SELECT * FROM sessions WHERE token = ?', [token]);
+        if (sessionByToken && sessionByToken.mac !== mac) {
+          const targetSession = await db.get('SELECT * FROM sessions WHERE mac = ?', [mac]);
+          let extraTime = 0;
+          let extraPaid = 0;
+          if (targetSession) {
+            extraTime = targetSession.remaining_seconds || 0;
+            extraPaid = targetSession.total_paid || 0;
+            await db.run('DELETE FROM sessions WHERE mac = ?', [mac]);
+          }
+          await db.run('DELETE FROM sessions WHERE mac = ?', [sessionByToken.mac]);
+          await db.run(
+            'INSERT INTO sessions (mac, ip, remaining_seconds, total_paid, connected_at, download_limit, upload_limit, token) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [mac, clientIp, (sessionByToken.remaining_seconds || 0) + extraTime, (sessionByToken.total_paid || 0) + extraPaid, sessionByToken.connected_at, sessionByToken.download_limit, sessionByToken.upload_limit, token]
+          );
+          await network.blockMAC(sessionByToken.mac, sessionByToken.ip);
+          await network.whitelistMAC(mac, clientIp);
+          try {
+            res.cookie('ajc_session_token', token, { path: '/', maxAge: 30 * 24 * 60 * 60 * 1000, sameSite: 'lax' });
+          } catch (e) {}
+          localRestored = true;
+          console.log(`[AUTH] Auto-restore triggered: Session ID=${token} moved from ${sessionByToken.mac} to ${mac}`);
+        }
+      }
+    }
+  } catch (e) {}
+
+  try {
+    if (mac) {
+      const session = await db.get('SELECT remaining_seconds FROM sessions WHERE mac = ?', [mac]);
+      const now = Date.now();
+      const last = unauthSeen.get(mac);
+      const shouldLog = !last || (now - last) > UNAUTH_LOG_TTL_MS;
+      if (shouldLog && (!session || !session.remaining_seconds || session.remaining_seconds <= 0)) {
+        unauthSeen.set(mac, now);
+        console.log(`[AUTH] Device with no active time detected: MAC=${mac} | Session ID=${token || 'NONE'}`);
+      }
+    }
+  } catch (e) {}
+
   res.json({ 
     ip: clientIp, 
     mac: mac || 'unknown',
@@ -1914,58 +1975,10 @@ app.get('/api/whoami', async (req, res) => {
     creditPesos,
     creditMinutes,
     vlanId,
-    recommendedNodeMCU
+    recommendedNodeMCU,
+    roamingRestored,
+    localRestored
   });
-  try {
-    if (mac) {
-      const session = await db.get('SELECT remaining_seconds FROM sessions WHERE mac = ?', [mac]);
-      const now = Date.now();
-      const last = unauthSeen.get(mac);
-      const shouldLog = !last || (now - last) > UNAUTH_LOG_TTL_MS;
-      if (shouldLog && (!session || !session.remaining_seconds || session.remaining_seconds <= 0)) {
-        unauthSeen.set(mac, now);
-        const token = getSessionToken(req);
-        console.log(`[AUTH] Device with no active time detected: MAC=${mac} | Session ID=${token || 'NONE'}`);
-      }
-    }
-  } catch (e) {}
-  try {
-    const token = getSessionToken(req);
-    if (token) {
-      const now = Date.now();
-      const last = autoRestoreSeen.get(token);
-      const canAttempt = !last || (now - last) > AUTO_RESTORE_TTL_MS;
-      if (canAttempt) {
-        autoRestoreSeen.set(token, now);
-        const sessionByToken = await db.get('SELECT * FROM sessions WHERE token = ?', [token]);
-        if (sessionByToken) {
-          if (mac && sessionByToken.mac !== mac) {
-            const targetSession = await db.get('SELECT * FROM sessions WHERE mac = ?', [mac]);
-            let extraTime = 0;
-            let extraPaid = 0;
-            if (targetSession) {
-              extraTime = targetSession.remaining_seconds || 0;
-              extraPaid = targetSession.total_paid || 0;
-              await db.run('DELETE FROM sessions WHERE mac = ?', [mac]);
-            }
-            await db.run('DELETE FROM sessions WHERE mac = ?', [sessionByToken.mac]);
-            await db.run(
-              'INSERT INTO sessions (mac, ip, remaining_seconds, total_paid, connected_at, download_limit, upload_limit, token) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-              [mac, clientIp, (sessionByToken.remaining_seconds || 0) + extraTime, (sessionByToken.total_paid || 0) + extraPaid, sessionByToken.connected_at, sessionByToken.download_limit, sessionByToken.upload_limit, token]
-            );
-            await network.blockMAC(sessionByToken.mac, sessionByToken.ip);
-            await network.whitelistMAC(mac, clientIp);
-            try {
-              res.cookie('ajc_session_token', token, { path: '/', maxAge: 30 * 24 * 60 * 60 * 1000, sameSite: 'lax' });
-            } catch (e) {}
-            console.log(`[AUTH] Auto-restore triggered: Session ID=${token} moved from ${sessionByToken.mac} to ${mac}`);
-          }
-        } else {
-          console.log(`[AUTH] No session found for Session ID=${token}`);
-        }
-      }
-    }
-  } catch (e) {}
 });
 
 app.post('/api/coinslot/reserve', async (req, res) => {
