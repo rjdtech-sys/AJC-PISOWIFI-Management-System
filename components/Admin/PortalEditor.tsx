@@ -1,11 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { PortalConfig, fetchPortalConfig, savePortalConfigRemote, DEFAULT_PORTAL_CONFIG, PORTAL_THEMES, PortalTheme } from '../../lib/theme';
+import { PortalConfig, fetchPortalConfig, savePortalConfigRemote, DEFAULT_PORTAL_CONFIG } from '../../lib/theme';
 import { apiClient } from '../../lib/api';
 
 const PortalEditor: React.FC = () => {
   const [config, setConfig] = useState<PortalConfig>(DEFAULT_PORTAL_CONFIG);
-  const [htmlContent, setHtmlContent] = useState<string>('');
-  const [hasHtmlChanges, setHasHtmlChanges] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [macHasChanges, setMacHasChanges] = useState(false);
   const [savedMacConfig, setSavedMacConfig] = useState<{
@@ -36,12 +34,6 @@ const PortalEditor: React.FC = () => {
       });
       setCentralPortalDirty(false);
     }).catch(() => {});
-
-    apiClient.getPortalHtml().then(res => {
-      if (res.html) {
-        setHtmlContent(res.html);
-      }
-    }).catch(() => {});
   }, []);
 
   const [mode, setMode] = useState<'visual' | 'code'>('visual');
@@ -67,23 +59,6 @@ const PortalEditor: React.FC = () => {
     setConfig(payload);
     setHasChanges(false);
     alert('Portal configuration saved successfully!');
-  };
-
-  const handleSaveHtml = async () => {
-    try {
-      await apiClient.savePortalHtml(htmlContent);
-      setHasHtmlChanges(false);
-      alert('Portal HTML saved successfully!');
-    } catch (err) {
-      alert('Failed to save Portal HTML');
-    }
-  };
-
-  const handleApplyTheme = (theme: PortalTheme) => {
-    handleChange('primaryColor', theme.primaryColor);
-    handleChange('secondaryColor', theme.secondaryColor);
-    handleChange('backgroundColor', theme.backgroundColor);
-    handleChange('textColor', theme.textColor);
   };
 
   const handleSaveMacSync = async () => {
@@ -204,29 +179,6 @@ const PortalEditor: React.FC = () => {
 
           {mode === 'visual' && (
             <div className="space-y-4">
-              {/* Theme Selector */}
-              <div>
-                <label className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-2">Portal Themes</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {PORTAL_THEMES.map((theme) => (
-                    <button
-                      key={theme.id}
-                      onClick={() => handleApplyTheme(theme)}
-                      className="p-2 border border-slate-200 rounded-lg flex items-center gap-2 hover:border-blue-500 transition-colors bg-white text-left"
-                    >
-                      <div className="flex gap-1">
-                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: theme.primaryColor }}></div>
-                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: theme.backgroundColor }}></div>
-                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: theme.textColor }}></div>
-                      </div>
-                      <span className="text-[10px] font-bold text-slate-700">{theme.name}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="h-px bg-slate-100"></div>
-
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1.5">Portal Title</label>
@@ -425,33 +377,6 @@ const PortalEditor: React.FC = () => {
 
           {mode === 'code' && (
             <div className="space-y-4">
-              <div>
-                <div className="flex justify-between items-center mb-1.5">
-                  <label className="block text-[9px] font-black text-blue-600 uppercase tracking-widest">Full Landing Page HTML (index.html)</label>
-                  <button 
-                    onClick={handleSaveHtml} 
-                    disabled={!hasHtmlChanges}
-                    className="text-[8px] bg-blue-600 text-white px-3 py-1 rounded font-black hover:bg-blue-700 transition-colors uppercase disabled:opacity-50"
-                  >
-                    Save HTML
-                  </button>
-                </div>
-                <textarea 
-                  value={htmlContent}
-                  onChange={(e) => {
-                    setHtmlContent(e.target.value);
-                    setHasHtmlChanges(true);
-                  }}
-                  placeholder="<html>...</html>"
-                  className="w-full h-96 bg-slate-900 text-blue-400 font-mono text-[10px] p-3 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-                <p className="text-[8px] text-slate-500 mt-1 uppercase font-bold tracking-widest">
-                  Babala: Ingatang huwag burahin ang &lt;div id="root"&gt;&lt;/div&gt; at bundle script.
-                </p>
-              </div>
-
-              <div className="h-px bg-slate-100"></div>
-
               <div>
                 <div className="flex justify-between items-center mb-1.5">
                   <label className="block text-[9px] font-black text-purple-600 uppercase tracking-widest">Custom CSS</label>

@@ -2,21 +2,6 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { getUniqueHardwareId } from './hardware';
 import * as db from './db';
 
-let warnedDnsOffline = false;
-
-function isDnsResolutionError(err: any): boolean {
-  const msg = String(err?.message || err || '');
-  const stack = String(err?.stack || '');
-  const combined = `${msg}\n${stack}`.toLowerCase();
-  return (
-    combined.includes('getaddrinfo') ||
-    combined.includes('onlookupall') ||
-    combined.includes('eai_again') ||
-    combined.includes('enotfound') ||
-    combined.includes('dns')
-  );
-}
-
 interface LicenseRecord {
   id: string;
   license_key: string;
@@ -327,14 +312,7 @@ export class LicenseManager {
         .maybeSingle();
 
       if (error) {
-        if (isDnsResolutionError(error)) {
-          if (!warnedDnsOffline) {
-            console.warn('[License] Remote verification unavailable (DNS). Using local license cache.');
-            warnedDnsOffline = true;
-          }
-        } else {
-          console.error('[License] Remote verification error:', error.message || error);
-        }
+        console.error('[License] Remote verification error:', error);
         
         // If remote verification fails, try local database as fallback
         try {
@@ -355,7 +333,7 @@ export class LicenseManager {
         return { 
           isValid: false, 
           isActivated: false, 
-          error: isDnsResolutionError(error) ? 'Offline: DNS resolution failed' : error.message 
+          error: error.message 
         };
       }
 
@@ -391,14 +369,7 @@ export class LicenseManager {
       };
 
     } catch (error: any) {
-      if (isDnsResolutionError(error)) {
-        if (!warnedDnsOffline) {
-          console.warn('[License] Remote verification unavailable (DNS). Using local license cache.');
-          warnedDnsOffline = true;
-        }
-      } else {
-        console.error('[License] Verification error:', error?.message || error);
-      }
+      console.error('[License] Verification error:', error);
       
       // Try local database as ultimate fallback
       try {
@@ -420,7 +391,7 @@ export class LicenseManager {
       return { 
         isValid: false, 
         isActivated: false, 
-        error: isDnsResolutionError(error) ? 'Offline: DNS resolution failed' : error.message 
+        error: error.message 
       };
     }
   }

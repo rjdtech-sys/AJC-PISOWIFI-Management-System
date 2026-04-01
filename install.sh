@@ -92,8 +92,7 @@ case $BOARD in
 esac
 
 echo -e "${GREEN}Installing esptool...${NC}"
-# Try to install via apt first to avoid PEP 668 issues, fallback to pip without --upgrade
-apt-get install -y esptool || pip3 install --break-system-packages esptool || pip3 install esptool
+pip3 install --break-system-packages --upgrade esptool || pip3 install --upgrade esptool
 
 echo -e "${GREEN}[4/8] Installing Node.js v20 (LTS)...${NC}"
 DEB_ARCH=$(dpkg --print-architecture 2>/dev/null || echo "")

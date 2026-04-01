@@ -5,26 +5,12 @@
 import { execSync } from 'child_process';
 import * as fs from 'fs';
 
-let warnedNoSerial = false;
-let cachedHardwareSerial: string | null | undefined;
-
-function readTextIfExists(filePath: string): string | null {
-  try {
-    if (!fs.existsSync(filePath)) return null;
-    const v = fs.readFileSync(filePath, 'utf-8').trim();
-    return v ? v : null;
-  } catch {
-    return null;
-  }
-}
-
 /**
  * Extract the Orange Pi CPU serial number from /proc/cpuinfo
  * This is a hardware-unique identifier that cannot be changed
  * @returns The CPU serial number or null if not found
  */
 export function getHardwareSerial(): string | null {
-  if (cachedHardwareSerial !== undefined) return cachedHardwareSerial;
   try {
     // First, try to read /proc/cpuinfo directly
     if (fs.existsSync('/proc/cpuinfo')) {
@@ -41,8 +27,7 @@ export function getHardwareSerial(): string | null {
       const revisionMatch = cpuInfo.match(/^Revision\s*:\s*([0-9a-fA-F]+)$/m);
       
       if (hardwareMatch && revisionMatch) {
-        cachedHardwareSerial = `${hardwareMatch[1].trim()}-${revisionMatch[1].trim()}`;
-        return cachedHardwareSerial;
+        return `${hardwareMatch[1].trim()}-${revisionMatch[1].trim()}`;
       }
     }
     
@@ -53,19 +38,13 @@ export function getHardwareSerial(): string | null {
     
     const serialMatch = output.match(/^Serial\s*:\s*([0-9a-fA-F]+)$/m);
     if (serialMatch && serialMatch[1]) {
-      cachedHardwareSerial = serialMatch[1].trim();
-      return cachedHardwareSerial;
+      return serialMatch[1].trim();
     }
     
-    cachedHardwareSerial = null;
-    if (!warnedNoSerial) {
-      console.warn('[Hardware] Could not extract serial from /proc/cpuinfo');
-      warnedNoSerial = true;
-    }
-    return cachedHardwareSerial;
+    console.warn('[Hardware] Could not extract serial from /proc/cpuinfo');
+    return null;
   } catch (error) {
     console.error('[Hardware] Error extracting hardware serial:', error);
-    cachedHardwareSerial = null;
     return null;
   }
 }
@@ -79,33 +58,15 @@ export async function getUniqueHardwareId(): Promise<string> {
   if (serial) {
     return `CPU-${serial}`;
   }
-
-  const dmiUuid = readTextIfExists('/sys/class/dmi/id/product_uuid');
-  if (dmiUuid && !/^0{8}-0{4}-0{4}-0{4}-0{12}$/i.test(dmiUuid)) {
-    return `DMI-${dmiUuid.replace(/-/g, '')}`;
-  }
-
-  const machineId = readTextIfExists('/etc/machine-id') || readTextIfExists('/var/lib/dbus/machine-id');
-  if (machineId) {
-    return `MID-${machineId.replace(/-/g, '')}`;
-  }
   
   // Fallback to MAC address of primary network interface
   try {
-    try {
-      const jsonOut = execSync('ip -j link show', { encoding: 'utf-8' });
-      const links = JSON.parse(jsonOut);
-      if (Array.isArray(links)) {
-        const mac = links
-          .map((l: any) => String(l?.address || '').trim())
-          .find((m: string) => /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/i.test(m) && m !== '00:00:00:00:00:00');
-        if (mac) return `MAC-${mac.replace(/:/g, '')}`;
-      }
-    } catch {}
-
-    const output = execSync('ip link show | grep "link/ether" | head -1', { encoding: 'utf-8' });
+    const output = execSync('ip link show | grep "link/ether" | head -1', { 
+      encoding: 'utf-8' 
+    });
     const macMatch = output.match(/([0-9a-fA-F:]{17})/);
-    if (macMatch && macMatch[1]) return `MAC-${macMatch[1].replace(/:/g, '')}`;
+    if (macMatch && macMatch[1]) {
+      return `MAC-${macMatch[1].replace(/:/g, '')}`;
     }
   } catch (error) {
     console.error('[Hardware] Error extracting MAC address:', error);

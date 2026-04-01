@@ -55,7 +55,7 @@ const NetworkSettings: React.FC = () => {
 
   useEffect(() => {
     if (interfaces.length > 0) {
-      const validParents = interfaces.filter(i => i.type === 'ethernet' || i.name.startsWith('wl'));
+      const validParents = interfaces.filter(i => i.type === 'ethernet' || i.name.startsWith('wlan'));
       if (validParents.length > 0) {
         // Check if current parent is valid
         const currentValid = validParents.find(i => i.name === vlan.parentInterface);
@@ -263,7 +263,7 @@ const NetworkSettings: React.FC = () => {
   const isPotentialWifi = (iface: NetworkInterface) => {
     const name = (iface.name || '').toLowerCase();
     const type = (iface.type || '').toLowerCase();
-    return type === 'wifi' || name.startsWith('wl') || name.startsWith('ap') || name.startsWith('ra');
+    return type === 'wifi' || name.startsWith('wlan') || name.startsWith('ap') || name.startsWith('ra');
   };
 
   return (

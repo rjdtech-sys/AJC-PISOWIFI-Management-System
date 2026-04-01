@@ -141,20 +141,6 @@ export const apiClient = {
     await handleResponse(res);
   },
 
-  async getPortalHtml(): Promise<{ html: string }> {
-    const res = await fetch(`${API_BASE}/admin/portal-html`, { headers: getHeaders() });
-    return handleResponse(res);
-  },
-
-  async savePortalHtml(html: string): Promise<void> {
-    const res = await fetch(`${API_BASE}/admin/portal-html`, {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify({ html })
-    });
-    await handleResponse(res);
-  },
-
   // Get QoS Configuration
   async getQoSConfig(): Promise<QoSConfig> {
     const res = await fetch(`${API_BASE}/config/qos`, { headers: getHeaders() });

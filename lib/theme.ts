@@ -123,50 +123,6 @@ function clearCustomThemeValues() {
   rootStyle.removeProperty('--sidebar-text');
 }
 
-export interface PortalTheme {
-  id: string;
-  name: string;
-  primaryColor: string;
-  secondaryColor: string;
-  backgroundColor: string;
-  textColor: string;
-}
-
-export const PORTAL_THEMES: PortalTheme[] = [
-  {
-    id: 'classic',
-    name: 'Classic Blue',
-    primaryColor: '#2563eb',
-    secondaryColor: '#1e40af',
-    backgroundColor: '#f8fafc',
-    textColor: '#0f172a'
-  },
-  {
-    id: 'dark',
-    name: 'Midnight Dark',
-    primaryColor: '#38bdf8',
-    secondaryColor: '#0ea5e9',
-    backgroundColor: '#0f172a',
-    textColor: '#f8fafc'
-  },
-  {
-    id: 'eco',
-    name: 'Eco Green',
-    primaryColor: '#16a34a',
-    secondaryColor: '#15803d',
-    backgroundColor: '#f0fdf4',
-    textColor: '#14532d'
-  },
-  {
-    id: 'sunset',
-    name: 'Sunset Orange',
-    primaryColor: '#ea580c',
-    secondaryColor: '#c2410c',
-    backgroundColor: '#fff7ed',
-    textColor: '#431407'
-  }
-];
-
 export interface PortalConfig {
   title: string;
   subtitle: string;
