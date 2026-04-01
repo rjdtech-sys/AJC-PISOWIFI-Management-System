@@ -1446,47 +1446,28 @@ app.get('/success', (req, res) => {
 });
 
 // CAPTIVE PORTAL DETECTION ENDPOINTS
-async function tryRoamingRestoreForClient(req, clientIp, mac) {
-  try {
-    if (!mac) return false;
-    const local = await db.get('SELECT remaining_seconds FROM sessions WHERE mac = ? AND remaining_seconds > 0 AND (is_paused = 0 OR is_paused IS NULL)', [mac]);
-    if (local) return true;
-
-    if (!edgeSync || !edgeSync.vendorId) return false;
-
-    try {
-      if (typeof edgeSync.checkRoamingForMac === 'function') {
-        await edgeSync.checkRoamingForMac(mac);
-      }
-    } catch (e) {}
-
-    const token = getSessionToken(req);
-    if (token && typeof edgeSync.checkRoamingForToken === 'function') {
-      try {
-        await edgeSync.checkRoamingForToken(token, mac);
-      } catch (e) {}
-    }
-
-    const after = await db.get('SELECT remaining_seconds FROM sessions WHERE mac = ? AND remaining_seconds > 0 AND (is_paused = 0 OR is_paused IS NULL)', [mac]);
-    if (after) {
-      try {
-        await db.run('UPDATE sessions SET ip = ? WHERE mac = ?', [clientIp, mac]);
-        await network.whitelistMAC(mac, clientIp);
-      } catch (e) {}
-      return true;
-    }
-  } catch (e) {}
-  return false;
-}
-
 app.get('/generate_204', async (req, res) => {
   const clientIp = req.ip ? req.ip.replace('::ffff:', '') : '';
   const mac = await getMacFromIp(clientIp);
   
   if (mac) {
-    const ok = await tryRoamingRestoreForClient(req, clientIp, mac);
-    if (ok) {
+    const session = await db.get('SELECT mac FROM sessions WHERE mac = ? AND remaining_seconds > 0 AND (is_paused = 0 OR is_paused IS NULL)', [mac]);
+    if (session) {
       return res.status(204).send();
+    }
+    
+    // Roaming Check: If no local session, try to pull from cloud via EdgeSync
+    // This allows seamless roaming when user moves between APs
+    try {
+        if (edgeSync && edgeSync.vendorId) {
+             // We do this check only if we are "online" and configured
+             const roamingSession = await edgeSync.checkRoamingForMac(mac);
+             if (roamingSession) {
+                 return res.status(204).send();
+             }
+        }
+    } catch(e) {
+        // Fallback to captive portal if roaming check fails
     }
   }
   
@@ -1499,8 +1480,8 @@ app.get('/hotspot-detect.html', async (req, res) => {
   const mac = await getMacFromIp(clientIp);
   
   if (mac) {
-    const ok = await tryRoamingRestoreForClient(req, clientIp, mac);
-    if (ok) {
+    const session = await db.get('SELECT mac FROM sessions WHERE mac = ? AND remaining_seconds > 0 AND (is_paused = 0 OR is_paused IS NULL)', [mac]);
+    if (session) {
       return res.type('text/plain').send('Success');
     }
   }
@@ -1514,8 +1495,8 @@ app.get('/ncsi.txt', async (req, res) => {
   const mac = await getMacFromIp(clientIp);
   
   if (mac) {
-    const ok = await tryRoamingRestoreForClient(req, clientIp, mac);
-    if (ok) {
+    const session = await db.get('SELECT mac FROM sessions WHERE mac = ? AND remaining_seconds > 0 AND (is_paused = 0 OR is_paused IS NULL)', [mac]);
+    if (session) {
       return res.type('text/plain').send('Microsoft NCSI');
     }
   }
@@ -1529,8 +1510,8 @@ app.get('/connecttest.txt', async (req, res) => {
   const mac = await getMacFromIp(clientIp);
   
   if (mac) {
-    const ok = await tryRoamingRestoreForClient(req, clientIp, mac);
-    if (ok) {
+    const session = await db.get('SELECT mac FROM sessions WHERE mac = ? AND remaining_seconds > 0 AND (is_paused = 0 OR is_paused IS NULL)', [mac]);
+    if (session) {
       return res.type('text/plain').send('Success');
     }
   }
@@ -1544,8 +1525,8 @@ app.get('/success.txt', async (req, res) => {
   const mac = await getMacFromIp(clientIp);
   
   if (mac) {
-    const ok = await tryRoamingRestoreForClient(req, clientIp, mac);
-    if (ok) {
+    const session = await db.get('SELECT mac FROM sessions WHERE mac = ? AND remaining_seconds > 0 AND (is_paused = 0 OR is_paused IS NULL)', [mac]);
+    if (session) {
       return res.type('text/plain').send('Success');
     }
   }
@@ -1560,8 +1541,8 @@ app.get('/library/test/success.html', async (req, res) => {
   const mac = await getMacFromIp(clientIp);
   
   if (mac) {
-    const ok = await tryRoamingRestoreForClient(req, clientIp, mac);
-    if (ok) {
+    const session = await db.get('SELECT mac FROM sessions WHERE mac = ? AND remaining_seconds > 0 AND (is_paused = 0 OR is_paused IS NULL)', [mac]);
+    if (session) {
       return res.type('text/plain').send('Success');
     }
   }
@@ -1906,27 +1887,7 @@ app.get('/api/whoami', async (req, res) => {
             console.log(`[AUTH] Auto-restore triggered: Session ID=${token} moved from ${sessionByToken.mac} to ${mac}`);
           }
         } else {
-          if (edgeSync && typeof edgeSync.checkRoamingForMac === 'function' && mac) {
-            try {
-              await edgeSync.checkRoamingForMac(mac);
-            } catch (e) {}
-          }
-          if (edgeSync && typeof edgeSync.checkRoamingForToken === 'function' && mac) {
-            try {
-              await edgeSync.checkRoamingForToken(token, mac);
-            } catch (e) {}
-          }
-          try {
-            const restoredSession = await db.get('SELECT remaining_seconds FROM sessions WHERE mac = ?', [mac]);
-            if (restoredSession && (restoredSession.remaining_seconds || 0) > 0) {
-              await db.run('UPDATE sessions SET ip = ? WHERE mac = ?', [clientIp, mac]);
-              await network.whitelistMAC(mac, clientIp);
-            }
-          } catch (e) {}
-          const retrySessionByToken = await db.get('SELECT * FROM sessions WHERE token = ?', [token]);
-          if (!retrySessionByToken) {
-            console.log(`[AUTH] No session found for Session ID=${token}`);
-          }
+          console.log(`[AUTH] No session found for Session ID=${token}`);
         }
       }
     }
@@ -4972,28 +4933,11 @@ app.post('/api/devices/scan', requireAdmin, async (req, res) => {
     activeSessions.forEach(session => {
       sessionMap.set(session.mac.toUpperCase(), session);
     });
-
-    if (edgeSync && typeof edgeSync.checkRoamingForMac === 'function') {
-      for (const device of scannedDevices) {
-        const hasLocalSession = sessionMap.has(device.mac.toUpperCase());
-        if (!hasLocalSession) {
-          try {
-            await edgeSync.checkRoamingForMac(device.mac);
-          } catch (e) {}
-        }
-      }
-    }
-
-    const refreshedSessions = await db.all('SELECT mac, ip, remaining_seconds as remainingSeconds, total_paid as totalPaid, connected_at as connectedAt FROM sessions WHERE remaining_seconds > 0');
-    const refreshedSessionMap = new Map();
-    refreshedSessions.forEach(session => {
-      refreshedSessionMap.set(session.mac.toUpperCase(), session);
-    });
     
     // Update or insert scanned devices
     for (const device of scannedDevices) {
       const existingDevice = await db.get('SELECT * FROM wifi_devices WHERE mac = ?', [device.mac]);
-      const session = refreshedSessionMap.get(device.mac.toUpperCase());
+      const session = sessionMap.get(device.mac.toUpperCase());
       
       if (existingDevice) {
         // Update existing device - preserve session data if device has active session
@@ -5025,7 +4969,7 @@ app.post('/api/devices/scan', requireAdmin, async (req, res) => {
     // Merge with session data for accurate remaining time
     const formattedDevices = devices.map(device => {
       const deviceMac = device.mac.toUpperCase();
-      const session = refreshedSessionMap.get(deviceMac);
+      const session = sessionMap.get(deviceMac);
       
       return {
         id: device.id || '',
@@ -5941,6 +5885,54 @@ app.post('/api/vouchers/activate', async (req, res) => {
   }
 });
 
+// Start Background Timers
+setInterval(async () => {
+  try {
+    await db.run(
+      'UPDATE sessions SET remaining_seconds = remaining_seconds - 1 WHERE remaining_seconds > 0 AND (is_paused = 0 OR is_paused IS NULL)'
+    );
+
+    const expired = await db.all(
+      'SELECT mac, ip FROM sessions WHERE remaining_seconds <= 0 AND (expired_at IS NULL OR expired_at = 0)'
+    );
+    for (const s of expired) {
+      await network.blockMAC(s.mac, s.ip);
+      await db.run('UPDATE sessions SET expired_at = ? WHERE mac = ?', [Date.now(), s.mac]);
+    }
+  } catch (e) { console.error(e); }
+}, 1000);
+
+setInterval(async () => {
+  try {
+    const inactiveSessions = await db.all('SELECT mac, ip FROM sessions WHERE remaining_seconds <= 0');
+    for (const session of inactiveSessions) {
+      await network.removeSpeedLimit(session.mac, session.ip);
+    }
+    const activeSessions = await db.all('SELECT ip FROM sessions WHERE remaining_seconds > 0');
+    const activeIPs = new Set(activeSessions.map(s => s.ip));
+    const { stdout: interfacesOutput } = await execPromise(`ip link show | grep -E "eth|wlan|br|vlan" | awk '{print $2}' | sed 's/:$//'`).catch(() => ({ stdout: '' }));
+    const interfaces = interfacesOutput.trim().split('\n').filter(i => i);
+    for (const iface of interfaces) {
+      try {
+        const { stdout: downloadFilters } = await execPromise(`tc filter show dev ${iface} parent 1:0 2>/dev/null || echo ""`).catch(() => ({ stdout: '' }));
+        const downloadIPs = downloadFilters.match(/\d+\.\d+\.\d+\.\d+/g) || [];
+        for (const ip of downloadIPs) {
+          if (!activeIPs.has(ip)) {
+            await execPromise(`tc filter del dev ${iface} parent 1:0 protocol ip prio 1 u32 match ip dst ${ip} 2>/dev/null || true`).catch(() => {});
+          }
+        }
+        const { stdout: uploadFilters } = await execPromise(`tc filter show dev ${iface} parent ffff: 2>/dev/null || echo ""`).catch(() => ({ stdout: '' }));
+        const uploadIPs = uploadFilters.match(/\d+\.\d+\.\d+\.\d+/g) || [];
+        for (const ip of uploadIPs) {
+          if (!activeIPs.has(ip)) {
+            await execPromise(`tc filter del dev ${iface} parent ffff: protocol ip prio 1 u32 match ip src ${ip} 2>/dev/null || true`).catch(() => {});
+          }
+        }
+      } catch (e) {}
+    }
+  } catch (e) { console.error('[CLEANUP] Periodic TC cleanup error:', e.message); }
+}, 30000);
+
 server.listen(80, '0.0.0.0', async () => {
   console.log('[AJC] System Engine Online @ Port 80');
   try {
@@ -5948,53 +5940,6 @@ server.listen(80, '0.0.0.0', async () => {
   } catch (e) {
     console.error('[AJC] Critical DB Init Error:', e);
   }
-
-  setInterval(async () => {
-    try {
-      await db.run(
-        'UPDATE sessions SET remaining_seconds = remaining_seconds - 1 WHERE remaining_seconds > 0 AND (is_paused = 0 OR is_paused IS NULL)'
-      );
-
-      const expired = await db.all(
-        'SELECT mac, ip FROM sessions WHERE remaining_seconds <= 0 AND (expired_at IS NULL OR expired_at = 0)'
-      );
-      for (const s of expired) {
-        await network.blockMAC(s.mac, s.ip);
-        await db.run('UPDATE sessions SET expired_at = ? WHERE mac = ?', [Date.now(), s.mac]);
-      }
-    } catch (e) { console.error(e); }
-  }, 1000);
-
-  setInterval(async () => {
-    try {
-      const inactiveSessions = await db.all('SELECT mac, ip FROM sessions WHERE remaining_seconds <= 0');
-      for (const session of inactiveSessions) {
-        await network.removeSpeedLimit(session.mac, session.ip);
-      }
-      const activeSessions = await db.all('SELECT ip FROM sessions WHERE remaining_seconds > 0');
-      const activeIPs = new Set(activeSessions.map(s => s.ip));
-      const { stdout: interfacesOutput } = await execPromise(`ip link show | grep -E "eth|wlan|br|vlan" | awk '{print $2}' | sed 's/:$//'`).catch(() => ({ stdout: '' }));
-      const interfaces = interfacesOutput.trim().split('\n').filter(i => i);
-      for (const iface of interfaces) {
-        try {
-          const { stdout: downloadFilters } = await execPromise(`tc filter show dev ${iface} parent 1:0 2>/dev/null || echo ""`).catch(() => ({ stdout: '' }));
-          const downloadIPs = downloadFilters.match(/\d+\.\d+\.\d+\.\d+/g) || [];
-          for (const ip of downloadIPs) {
-            if (!activeIPs.has(ip)) {
-              await execPromise(`tc filter del dev ${iface} parent 1:0 protocol ip prio 1 u32 match ip dst ${ip} 2>/dev/null || true`).catch(() => {});
-            }
-          }
-          const { stdout: uploadFilters } = await execPromise(`tc filter show dev ${iface} parent ffff: 2>/dev/null || echo ""`).catch(() => ({ stdout: '' }));
-          const uploadIPs = uploadFilters.match(/\d+\.\d+\.\d+\.\d+/g) || [];
-          for (const ip of uploadIPs) {
-            if (!activeIPs.has(ip)) {
-              await execPromise(`tc filter del dev ${iface} parent ffff: protocol ip prio 1 u32 match ip src ${ip} 2>/dev/null || true`).catch(() => {});
-            }
-          }
-        } catch (e) {}
-      }
-    } catch (e) { console.error('[CLEANUP] Periodic TC cleanup error:', e.message); }
-  }, 30000);
   
   // License Gatekeeper - Check if system can operate
   console.log('[License] Checking license and trial status...');
