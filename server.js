@@ -1445,6 +1445,32 @@ app.get('/success', (req, res) => {
   `);
 });
 
+async function tryRoamingAuthorize(mac, clientIp, sessionToken) {
+  try {
+    if (!mac || !clientIp) return false;
+    if (!edgeSync || !edgeSync.vendorId) return false;
+    let roamingSession = await edgeSync.checkRoamingForMac(mac);
+    if (!roamingSession && sessionToken) {
+      roamingSession = await edgeSync.checkRoamingForToken(sessionToken, mac, clientIp);
+    }
+    if (!roamingSession) return false;
+    try {
+      await db.run('UPDATE sessions SET ip = ? WHERE mac = ?', [clientIp, mac]);
+    } catch (e) {}
+    if (sessionToken) {
+      try {
+        await db.run('UPDATE sessions SET token = ? WHERE mac = ? AND (token IS NULL OR token = "")', [sessionToken, mac]);
+      } catch (e) {}
+    }
+    try {
+      await network.whitelistMAC(mac, clientIp);
+    } catch (e) {}
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 // CAPTIVE PORTAL DETECTION ENDPOINTS
 app.get('/generate_204', async (req, res) => {
   const clientIp = req.ip ? req.ip.replace('::ffff:', '') : '';
@@ -1461,8 +1487,8 @@ app.get('/generate_204', async (req, res) => {
     try {
         if (edgeSync && edgeSync.vendorId) {
              // We do this check only if we are "online" and configured
-             const roamingSession = await edgeSync.checkRoamingForMac(mac);
-             if (roamingSession) {
+             const ok = await tryRoamingAuthorize(mac, clientIp, getSessionToken(req));
+             if (ok) {
                  return res.status(204).send();
              }
         }
@@ -1484,6 +1510,10 @@ app.get('/hotspot-detect.html', async (req, res) => {
     if (session) {
       return res.type('text/plain').send('Success');
     }
+    const ok = await tryRoamingAuthorize(mac, clientIp, getSessionToken(req));
+    if (ok) {
+      return res.type('text/plain').send('Success');
+    }
   }
   
   // Not authorized - serve portal directly
@@ -1497,6 +1527,10 @@ app.get('/ncsi.txt', async (req, res) => {
   if (mac) {
     const session = await db.get('SELECT mac FROM sessions WHERE mac = ? AND remaining_seconds > 0 AND (is_paused = 0 OR is_paused IS NULL)', [mac]);
     if (session) {
+      return res.type('text/plain').send('Microsoft NCSI');
+    }
+    const ok = await tryRoamingAuthorize(mac, clientIp, getSessionToken(req));
+    if (ok) {
       return res.type('text/plain').send('Microsoft NCSI');
     }
   }
@@ -1514,6 +1548,10 @@ app.get('/connecttest.txt', async (req, res) => {
     if (session) {
       return res.type('text/plain').send('Success');
     }
+    const ok = await tryRoamingAuthorize(mac, clientIp, getSessionToken(req));
+    if (ok) {
+      return res.type('text/plain').send('Success');
+    }
   }
   
   // Not authorized - serve portal directly
@@ -1527,6 +1565,10 @@ app.get('/success.txt', async (req, res) => {
   if (mac) {
     const session = await db.get('SELECT mac FROM sessions WHERE mac = ? AND remaining_seconds > 0 AND (is_paused = 0 OR is_paused IS NULL)', [mac]);
     if (session) {
+      return res.type('text/plain').send('Success');
+    }
+    const ok = await tryRoamingAuthorize(mac, clientIp, getSessionToken(req));
+    if (ok) {
       return res.type('text/plain').send('Success');
     }
   }
@@ -1543,6 +1585,10 @@ app.get('/library/test/success.html', async (req, res) => {
   if (mac) {
     const session = await db.get('SELECT mac FROM sessions WHERE mac = ? AND remaining_seconds > 0 AND (is_paused = 0 OR is_paused IS NULL)', [mac]);
     if (session) {
+      return res.type('text/plain').send('Success');
+    }
+    const ok = await tryRoamingAuthorize(mac, clientIp, getSessionToken(req));
+    if (ok) {
       return res.type('text/plain').send('Success');
     }
   }
@@ -1569,6 +1615,16 @@ app.use(async (req, res, next) => {
       const session = await db.get('SELECT mac FROM sessions WHERE mac = ? AND remaining_seconds > 0 AND (is_paused = 0 OR is_paused IS NULL)', [mac]);
       if (session) {
         // Authorized client - return success
+        if (url.includes('/generate_204') || url.includes('/connecttest.txt')) {
+          return res.status(204).send();
+        }
+        if (url.includes('/redirect')) {
+          return res.redirect('http://www.apple.com');
+        }
+        return res.status(204).send();
+      }
+      const ok = await tryRoamingAuthorize(mac, clientIp, getSessionToken(req));
+      if (ok) {
         if (url.includes('/generate_204') || url.includes('/connecttest.txt')) {
           return res.status(204).send();
         }
@@ -1637,6 +1693,24 @@ app.use(async (req, res, next) => {
         }
       }
       
+      return next();
+    }
+    const ok = await tryRoamingAuthorize(mac, clientIp, getSessionToken(req));
+    if (ok) {
+      if (isProbe) {
+        if (url.includes('/generate_204')) {
+          return res.status(204).send();
+        }
+        if (url.includes('/success.txt') || url.includes('/connecttest.txt')) {
+          return res.type('text/plain').send('Success');
+        }
+        if (url.includes('/ncsi.txt')) {
+          return res.type('text/plain').send('Microsoft NCSI');
+        }
+        if (url.includes('/hotspot-detect.html') || url.includes('/library/test/success.html')) {
+          return res.type('text/plain').send('Success');
+        }
+      }
       return next();
     }
   }
