@@ -1887,7 +1887,15 @@ app.get('/api/whoami', async (req, res) => {
             console.log(`[AUTH] Auto-restore triggered: Session ID=${token} moved from ${sessionByToken.mac} to ${mac}`);
           }
         } else {
-          console.log(`[AUTH] No session found for Session ID=${token}`);
+          if (edgeSync && typeof edgeSync.checkRoamingForMac === 'function' && mac) {
+            try {
+              await edgeSync.checkRoamingForMac(mac);
+            } catch (e) {}
+          }
+          const retrySessionByToken = await db.get('SELECT * FROM sessions WHERE token = ?', [token]);
+          if (!retrySessionByToken) {
+            console.log(`[AUTH] No session found for Session ID=${token}`);
+          }
         }
       }
     }
