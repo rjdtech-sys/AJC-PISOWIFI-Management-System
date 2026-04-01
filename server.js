@@ -4914,7 +4914,7 @@ app.get('/api/devices', requireAdmin, async (req, res) => {
     
     // Merge device data with session data
     const formattedDevices = devices
-      .filter(device => allowedInterfaces.has(device.interface))
+      .filter(device => allowedInterfaces.size === 0 || allowedInterfaces.has(device.interface))
       .map(device => {
       const deviceMac = device.mac.toUpperCase();
       const session = sessionMap.get(deviceMac);
