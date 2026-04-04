@@ -6325,7 +6325,7 @@ function startBackgroundTimers() {
     }
   };
 
-  setInterval(() => { processExpiredPPPoEUsers(); }, 60000);
+  setInterval(() => { processExpiredPPPoEUsers(); }, 15000);
   processExpiredPPPoEUsers();
 
   const syncPPPoEUserPresence = async () => {
