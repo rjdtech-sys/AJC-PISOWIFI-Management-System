@@ -5048,7 +5048,8 @@ app.put('/api/network/pppoe/users/:id', requireAdmin, async (req, res) => {
     const usernameToKick = (updates && updates.username) ? String(updates.username) : (current && current.username) ? String(current.username) : '';
     if (usernameToKick) {
       console.log(`[PPPoE-EDIT] Kicking active connection for "${usernameToKick}"...`);
-      await network.disconnectPPPoEUser(usernameToKick).catch(() => {});
+      const kickResult = await network.disconnectPPPoEUser(usernameToKick).catch(() => null);
+      console.log(`[PPPoE-EDIT] Kick result for "${usernameToKick}":`, kickResult);
     }
     res.json(result);
   } catch (err) { res.status(500).json({ error: err.message }); }
