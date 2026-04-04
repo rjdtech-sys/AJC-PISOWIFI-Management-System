@@ -39,6 +39,7 @@ const PPPoEServer: React.FC = () => {
   const [paymentBillingProfileId, setPaymentBillingProfileId] = useState<string>('');
   const [paymentMethod, setPaymentMethod] = useState<string>('cash');
   const [paymentNotes, setPaymentNotes] = useState<string>('');
+  const [discountDays, setDiscountDays] = useState<string>('0');
 
   useEffect(() => { 
     loadData();
@@ -246,6 +247,7 @@ const PPPoEServer: React.FC = () => {
     setPaymentBillingProfileId(user.billing_profile_id ? String(user.billing_profile_id) : '');
     setPaymentMethod('cash');
     setPaymentNotes('');
+    setDiscountDays('0');
   };
 
   const closePayModal = () => {
@@ -261,11 +263,15 @@ const PPPoEServer: React.FC = () => {
         alert('Select billing profile');
         return;
       }
+      const d = parseInt(discountDays || '0', 10);
+      const safeDiscount = !Number.isNaN(d) && d > 0 ? d : 0;
       await apiClient.createPPPoESale({
         user_id: payingUser.id,
         billing_profile_id: billingId,
         payment_method: paymentMethod,
-        notes: paymentNotes
+        notes: paymentNotes,
+        discount_days: safeDiscount,
+        apply_renewal: true
       });
       closePayModal();
       await loadData();
@@ -1228,6 +1234,50 @@ const PPPoEServer: React.FC = () => {
                     ))}
                   </select>
                 </div>
+                <div className="space-y-1">
+                  <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Next Expiration</span>
+                  <div className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-2 text-[10px] font-black text-slate-900">
+                    {(() => {
+                      if (!payingUser) return '-';
+                      const now = new Date();
+                      const start = payingUser.billing_start_at ? new Date(String(payingUser.billing_start_at).replace(' ', 'T')) : now;
+                      const cycleDay = (payingUser.billing_cycle_day || start.getDate()) as number;
+                      const day = Math.max(1, Math.min(31, cycleDay));
+                      const next = new Date(start.getFullYear(), start.getMonth() + 1, 1, start.getHours(), start.getMinutes(), start.getSeconds());
+                      const lastDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+                      next.setDate(Math.min(day, lastDay));
+                      const pad = (n: number) => String(n).padStart(2, '0');
+                      return `${next.getFullYear()}-${pad(next.getMonth() + 1)}-${pad(next.getDate())} ${pad(next.getHours())}:${pad(next.getMinutes())}:${pad(next.getSeconds())}`;
+                    })()}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Downtime Days</span>
+                    <div className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-2 text-[10px] font-black text-slate-900">
+                      {(() => {
+                        if (!payingUser) return 0;
+                        if (payingUser.is_online) return 0;
+                        if (!payingUser.last_offline_at) return 0;
+                        const t = Date.parse(String(payingUser.last_offline_at));
+                        if (Number.isNaN(t)) return 0;
+                        const days = Math.floor((Date.now() - t) / (24 * 3600 * 1000));
+                        return days > 0 ? days : 0;
+                      })()}
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Discount Days</span>
+                    <input
+                      type="number"
+                      min={0}
+                      value={discountDays}
+                      onChange={e => setDiscountDays(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-md px-2 py-2 text-[10px] font-bold outline-none"
+                      placeholder="0"
+                    />
+                  </div>
+                </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1">
                     <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Amount</span>
@@ -1249,6 +1299,19 @@ const PPPoEServer: React.FC = () => {
                       <option value="gcash">GCash</option>
                       <option value="bank">Bank</option>
                     </select>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Final Total</span>
+                  <div className="w-full bg-emerald-50 border border-emerald-200 rounded-md px-2 py-2 text-[11px] font-black text-emerald-800">
+                    ₱{(() => {
+                      const bp = pppoeBillingProfiles.find(x => String(x.id) === String(paymentBillingProfileId));
+                      const gross = Number(bp?.price || 0);
+                      const d = parseInt(discountDays || '0', 10);
+                      const discDays = !Number.isNaN(d) && d > 0 ? d : 0;
+                      const net = Math.max(0, gross - (gross / 30) * discDays);
+                      return net.toFixed(2);
+                    })()}
                   </div>
                 </div>
                 <div className="space-y-1">

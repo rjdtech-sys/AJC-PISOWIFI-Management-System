@@ -133,6 +133,8 @@ export interface PPPoEUser {
   is_online?: number;
   last_online_at?: string | null;
   last_offline_at?: string | null;
+  billing_start_at?: string | null;
+  billing_cycle_day?: number | null;
   created_at?: string;
 }
 
@@ -163,8 +165,13 @@ export interface PPPoESale {
   billing_profile_name?: string | null;
   profile_name?: string | null;
   amount: number;
+  gross_amount?: number;
+  discount_days?: number;
+  net_amount?: number;
   currency?: string;
   paid_at?: string;
+  prev_expires_at?: string | null;
+  new_expires_at?: string | null;
   payment_method?: string;
   notes?: string | null;
 }

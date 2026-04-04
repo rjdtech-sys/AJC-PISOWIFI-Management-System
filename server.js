@@ -4848,11 +4848,11 @@ app.get('/api/network/pppoe/sales', requireAdmin, async (req, res) => {
 
 app.post('/api/network/pppoe/sales', requireAdmin, async (req, res) => {
   try {
-    const { user_id, billing_profile_id, payment_method, notes } = req.body || {};
+    const { user_id, billing_profile_id, payment_method, notes, discount_days, apply_renewal } = req.body || {};
     const userId = user_id ? parseInt(String(user_id), 10) : null;
     if (!userId || Number.isNaN(userId)) return res.status(400).json({ error: 'Invalid user_id' });
 
-    const user = await db.get('SELECT id, username, account_number, billing_profile_id FROM pppoe_users WHERE id = ?', [userId]);
+    const user = await db.get('SELECT id, username, account_number, billing_profile_id, expires_at, expired_at, billing_start_at, billing_cycle_day, last_offline_at, is_online FROM pppoe_users WHERE id = ?', [userId]);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     const bpId = billing_profile_id ? parseInt(String(billing_profile_id), 10) : (user.billing_profile_id ? parseInt(String(user.billing_profile_id), 10) : null);
@@ -4867,14 +4867,61 @@ app.post('/api/network/pppoe/sales', requireAdmin, async (req, res) => {
     );
     if (!billing) return res.status(404).json({ error: 'Billing profile not found' });
 
-    const amount = Number(billing.price || 0);
+    const grossAmount = Number(billing.price || 0);
     const method = payment_method ? String(payment_method).trim() : 'cash';
     const noteText = notes ? String(notes).trim() : null;
+    const discountDays = discount_days ? parseInt(String(discount_days), 10) : 0;
+    const normalizedDiscountDays = (!Number.isNaN(discountDays) && discountDays > 0) ? discountDays : 0;
+
+    const daysInCycle = 30;
+    const discountValue = Math.min(grossAmount, (grossAmount / daysInCycle) * normalizedDiscountDays);
+    const netAmount = Math.max(0, grossAmount - discountValue);
+
+    const now = new Date();
+    const toLocalIso = (d) => {
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    };
+
+    const parseDbDate = (s) => {
+      const raw = String(s || '').trim();
+      if (!raw) return null;
+      const normalized = raw.includes('T') ? raw.replace('T', ' ') : raw;
+      const d = new Date(normalized.replace(' ', 'T'));
+      return Number.isNaN(d.getTime()) ? null : d;
+    };
+
+    const addOneMonthSameDay = (anchorDate, cycleDay) => {
+      const day = Math.max(1, Math.min(31, cycleDay || anchorDate.getDate()));
+      const y = anchorDate.getFullYear();
+      const m = anchorDate.getMonth();
+      const next = new Date(y, m + 1, 1, anchorDate.getHours(), anchorDate.getMinutes(), anchorDate.getSeconds());
+      const lastDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+      next.setDate(Math.min(day, lastDay));
+      return next;
+    };
+
+    const shouldApplyRenewal = apply_renewal !== false;
+    const prevExpiresAt = String(user.expires_at || '').trim() || null;
+    let newExpiresAt = null;
+    let billingStartAt = user.billing_start_at ? String(user.billing_start_at) : null;
+    let billingCycleDay = user.billing_cycle_day ? parseInt(String(user.billing_cycle_day), 10) : null;
+
+    if (shouldApplyRenewal) {
+      const start = parseDbDate(user.billing_start_at) || now;
+      if (!billingCycleDay || Number.isNaN(billingCycleDay)) billingCycleDay = start.getDate();
+      const nextExp = addOneMonthSameDay(start, billingCycleDay);
+      newExpiresAt = toLocalIso(nextExp);
+
+      if (!user.billing_start_at) {
+        billingStartAt = toLocalIso(start);
+      }
+    }
 
     const result = await db.run(
       `INSERT INTO pppoe_sales
-        (user_id, account_number, username, billing_profile_id, billing_profile_name, profile_name, amount, currency, payment_method, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'PHP', ?, ?)`,
+        (user_id, account_number, username, billing_profile_id, billing_profile_name, profile_name, amount, gross_amount, discount_days, net_amount, currency, prev_expires_at, new_expires_at, payment_method, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PHP', ?, ?, ?, ?)`,
       [
         user.id,
         user.account_number || null,
@@ -4882,11 +4929,29 @@ app.post('/api/network/pppoe/sales', requireAdmin, async (req, res) => {
         billing.billing_profile_id,
         billing.billing_profile_name,
         billing.profile_name,
-        amount,
+        netAmount,
+        grossAmount,
+        normalizedDiscountDays,
+        netAmount,
+        prevExpiresAt,
+        newExpiresAt,
         method,
         noteText
       ]
     );
+
+    if (shouldApplyRenewal) {
+      const fields = [];
+      const values = [];
+      if (newExpiresAt) { fields.push('expires_at = ?'); values.push(newExpiresAt); }
+      fields.push('expired_at = NULL');
+      if (billingStartAt) { fields.push('billing_start_at = COALESCE(billing_start_at, ?)'); values.push(billingStartAt); }
+      if (billingCycleDay) { fields.push('billing_cycle_day = COALESCE(billing_cycle_day, ?)'); values.push(billingCycleDay); }
+      values.push(user.id);
+      await db.run(`UPDATE pppoe_users SET ${fields.join(', ')} WHERE id = ?`, values);
+      await network.syncPPPoESecrets().catch(() => {});
+      await network.disconnectPPPoEUser(user.username).catch(() => {});
+    }
 
     res.json({ success: true, id: result.lastID });
   } catch (err) { res.status(500).json({ error: err.message }); }

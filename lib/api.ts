@@ -745,7 +745,7 @@ export const apiClient = {
     return handleResponse(res);
   },
 
-  async createPPPoESale(payload: { user_id: number; billing_profile_id?: number; payment_method?: string; notes?: string }): Promise<{ success: boolean; id?: number }> {
+  async createPPPoESale(payload: { user_id: number; billing_profile_id?: number; payment_method?: string; notes?: string; discount_days?: number; apply_renewal?: boolean }): Promise<{ success: boolean; id?: number }> {
     const res = await fetch(`${API_BASE}/network/pppoe/sales`, {
       method: 'POST',
       headers: getHeaders(),
