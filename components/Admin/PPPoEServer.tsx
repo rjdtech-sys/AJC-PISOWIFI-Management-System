@@ -858,6 +858,18 @@ const PPPoEServer: React.FC = () => {
                         <span className="text-[8px] text-slate-500 font-bold uppercase tracking-tight">
                           ID: {user.id} • {user.created_at ? new Date(user.created_at).toLocaleDateString() : 'NO DATE'}
                         </span>
+                        <span
+                          className={`text-[8px] px-1.5 py-0.5 rounded font-black uppercase tracking-widest ${
+                            user.is_online ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'
+                          }`}
+                        >
+                          {user.is_online ? 'Online' : 'Offline'}
+                        </span>
+                        {!user.is_online && user.last_offline_at && (
+                          <span className="text-[8px] text-slate-400 font-bold uppercase tracking-tight">
+                            OFF {String(user.last_offline_at).replace('T', ' ').slice(0, 16)}
+                          </span>
+                        )}
                         {user.expires_at && (
                           <span
                             className={`text-[8px] px-1.5 py-0.5 rounded font-black ${

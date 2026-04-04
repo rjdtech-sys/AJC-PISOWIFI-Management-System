@@ -6151,6 +6151,36 @@ function startBackgroundTimers() {
 
   setInterval(() => { processExpiredPPPoEUsers(); }, 60000);
   processExpiredPPPoEUsers();
+
+  const syncPPPoEUserPresence = async () => {
+    try {
+      const activeUsernames = new Set(
+        (await network.getActivePPPoEUsernames().catch(() => []))
+          .map(u => String(u || '').trim())
+          .filter(Boolean)
+      );
+
+      const users = await db.all('SELECT id, username, is_online FROM pppoe_users');
+      const now = new Date().toISOString();
+
+      for (const u of users) {
+        const uname = String(u.username || '').trim();
+        if (!uname) continue;
+        const shouldBeOnline = activeUsernames.has(uname) ? 1 : 0;
+        const wasOnline = u.is_online ? 1 : 0;
+        if (shouldBeOnline === wasOnline) continue;
+
+        if (shouldBeOnline) {
+          await db.run('UPDATE pppoe_users SET is_online = 1, last_online_at = ? WHERE id = ?', [now, u.id]);
+        } else {
+          await db.run('UPDATE pppoe_users SET is_online = 0, last_offline_at = ? WHERE id = ?', [now, u.id]);
+        }
+      }
+    } catch (e) {}
+  };
+
+  setInterval(() => { syncPPPoEUserPresence(); }, 15000);
+  syncPPPoEUserPresence();
 }
 
 (async () => {

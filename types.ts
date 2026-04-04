@@ -130,6 +130,9 @@ export interface PPPoEUser {
   expires_at?: string | null;
   expired_at?: string | null;
   last_billed_at?: string | null;
+  is_online?: number;
+  last_online_at?: string | null;
+  last_offline_at?: string | null;
   created_at?: string;
 }
 
