@@ -5021,7 +5021,12 @@ app.put('/api/network/pppoe/users/:id', requireAdmin, async (req, res) => {
   try {
     const userId = parseInt(req.params.id);
     const updates = req.body;
+    const current = await db.get('SELECT username FROM pppoe_users WHERE id = ?', [userId]).catch(() => null);
     const result = await network.updatePPPoEUser(userId, updates);
+    const usernameToKick = (updates && updates.username) ? String(updates.username) : (current && current.username) ? String(current.username) : '';
+    if (usernameToKick) {
+      await network.disconnectPPPoEUser(usernameToKick).catch(() => {});
+    }
     res.json(result);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
