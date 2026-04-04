@@ -925,6 +925,11 @@ const PPPoEServer: React.FC = () => {
                         <span className="text-[8px] text-slate-500 font-bold uppercase tracking-tight">
                           ID: {user.id} • {user.created_at ? new Date(user.created_at).toLocaleDateString() : 'NO DATE'}
                         </span>
+                        {user.ip_address && (
+                          <span className="text-[8px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded font-mono font-black">
+                            IP {user.ip_address}
+                          </span>
+                        )}
                         <span
                           className={`text-[8px] px-1.5 py-0.5 rounded font-black uppercase tracking-widest ${
                             user.is_online ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'
