@@ -6272,26 +6272,44 @@ function startBackgroundTimers() {
 
   const syncPPPoEUserPresence = async () => {
     try {
-      const activeUsernames = new Set(
-        (await network.getActivePPPoEUsernames().catch(() => []))
-          .map(u => String(u || '').trim())
-          .filter(Boolean)
-      );
+      const sessions = await network.getPPPoESessions().catch(() => []);
+      const active = new Map();
+      for (const s of sessions) {
+        const uname = String(s?.username || '').trim();
+        if (!uname || uname.toLowerCase() === 'unknown') continue;
+        const ip = String(s?.ip || '').trim();
+        active.set(uname, ip);
+      }
 
-      const users = await db.all('SELECT id, username, is_online FROM pppoe_users');
+      const users = await db.all('SELECT id, username, is_online, ip_address FROM pppoe_users');
       const now = new Date().toISOString();
 
       for (const u of users) {
         const uname = String(u.username || '').trim();
         if (!uname) continue;
-        const shouldBeOnline = activeUsernames.has(uname) ? 1 : 0;
+        const activeIp = active.get(uname) || '';
+        const shouldBeOnline = active.has(uname) ? 1 : 0;
         const wasOnline = u.is_online ? 1 : 0;
-        if (shouldBeOnline === wasOnline) continue;
 
         if (shouldBeOnline) {
-          await db.run('UPDATE pppoe_users SET is_online = 1, last_online_at = ? WHERE id = ?', [now, u.id]);
+          const updates = [];
+          const values = [];
+          if (!wasOnline) {
+            updates.push('is_online = 1', 'last_online_at = ?');
+            values.push(now);
+          }
+          if (activeIp && activeIp !== 'N/A' && activeIp !== u.ip_address) {
+            updates.push('ip_address = ?');
+            values.push(activeIp);
+          }
+          if (updates.length) {
+            values.push(u.id);
+            await db.run(`UPDATE pppoe_users SET ${updates.join(', ')} WHERE id = ?`, values);
+          }
         } else {
-          await db.run('UPDATE pppoe_users SET is_online = 0, last_offline_at = ? WHERE id = ?', [now, u.id]);
+          if (wasOnline) {
+            await db.run('UPDATE pppoe_users SET is_online = 0, last_offline_at = ? WHERE id = ?', [now, u.id]);
+          }
         }
       }
     } catch (e) {}
