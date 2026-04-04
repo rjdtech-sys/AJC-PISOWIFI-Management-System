@@ -4691,8 +4691,8 @@ app.post('/api/network/pppoe/start', requireAdmin, async (req, res) => {
 
 app.post('/api/network/pppoe/stop', requireAdmin, async (req, res) => {
   try {
-    const { interface: iface } = req.body;
-    const result = await network.stopPPPoEServer(iface);
+    const { interface: iface } = req.body || {};
+    const result = await network.stopPPPoEServer(iface || '');
     res.json(result);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
