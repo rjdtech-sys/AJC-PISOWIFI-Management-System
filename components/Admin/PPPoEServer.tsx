@@ -771,7 +771,7 @@ const PPPoEServer: React.FC = () => {
                   {pppoeBillingProfiles.map(bp => <option key={bp.id} value={bp.id}>{bp.name} (₱{bp.price})</option>)}
                 </select>
                 <input
-                  type="date"
+                  type="datetime-local"
                   value={newPppoeUser.expires_at}
                   onChange={e => setNewPppoeUser({ ...newPppoeUser, expires_at: e.target.value })}
                   className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1.5 text-[10px] font-bold outline-none focus:bg-white"
@@ -820,10 +820,17 @@ const PPPoEServer: React.FC = () => {
                         {user.expires_at && (
                           <span
                             className={`text-[8px] px-1.5 py-0.5 rounded font-black ${
-                              (Date.parse(String(user.expires_at).split('T')[0].split(' ')[0] + 'T23:59:59') <= Date.now()) ? 'bg-red-100 text-red-600' : 'bg-emerald-100 text-emerald-700'
+                              (() => {
+                                const raw = String(user.expires_at);
+                                const normalized = raw.includes('T') ? raw : raw.replace(' ', 'T');
+                                const withSeconds = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(normalized) ? `${normalized}:00` : normalized;
+                                return Date.parse(withSeconds) <= Date.now();
+                              })()
+                                ? 'bg-red-100 text-red-600'
+                                : 'bg-emerald-100 text-emerald-700'
                             }`}
                           >
-                            EXP {String(user.expires_at).split('T')[0].split(' ')[0]}
+                            EXP {String(user.expires_at).replace('T', ' ')}
                           </span>
                         )}
                         {user.billing_profile_id && (
@@ -893,8 +900,16 @@ const PPPoEServer: React.FC = () => {
                   <div className="space-y-1">
                     <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Expiration</span>
                     <input
-                      type="date"
-                      value={(editingUser.expires_at || '').split('T')[0].split(' ')[0]}
+                      type="datetime-local"
+                      value={(() => {
+                        const raw = String(editingUser.expires_at || '').trim();
+                        if (!raw) return '';
+                        if (raw.includes('T')) return raw.slice(0, 16);
+                        if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return `${raw}T23:59`;
+                        if (/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}$/.test(raw)) return raw.replace(' ', 'T').slice(0, 16);
+                        if (/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}$/.test(raw)) return raw.replace(' ', 'T').slice(0, 16);
+                        return raw.replace(' ', 'T').slice(0, 16);
+                      })()}
                       onChange={e => updateEditingUserField('expires_at', e.target.value)}
                       className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-[10px] font-bold outline-none"
                     />
