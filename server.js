@@ -5613,6 +5613,15 @@ async function bootupRestore(isRestricted = false) {
     }
   } catch (e) { console.error('[AJC] Multi-WAN Restore Failed:', e.message); }
 
+  // 3.2 Restore PPPoE Server
+  try {
+    const pppoeServers = await db.all('SELECT * FROM pppoe_server WHERE enabled = 1');
+    for (const s of pppoeServers) {
+      console.log(`[AJC] Restoring PPPoE Server on ${s.interface}...`);
+      await network.startPPPoEServer(s).catch(e => console.error(`[AJC] PPPoE Restore Failed: ${e.message}`));
+    }
+  } catch (e) { console.error('[AJC] Failed to load PPPoE server config from DB', e); }
+
   // 4. Restore GPIO & Hardware
   const board = await db.get('SELECT value FROM config WHERE key = ?', ['boardType']);
   const pin = await db.get('SELECT value FROM config WHERE key = ?', ['coinPin']);
