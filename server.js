@@ -6450,11 +6450,38 @@ function startBackgroundTimers() {
     try {
       const sessions = await network.getPPPoESessions().catch(() => []);
       const active = new Map();
+      const activeIfaceByUsername = new Map();
       for (const s of sessions) {
         const uname = String(s?.username || '').trim();
         if (!uname || uname.toLowerCase() === 'unknown') continue;
         const ip = String(s?.ip || '').trim();
         active.set(uname, ip);
+        const ifn = String(s?.interface || '').trim();
+        if (ifn) activeIfaceByUsername.set(uname, ifn);
+      }
+
+      const rateRows = await db.all(
+        `SELECT u.username as username, p.rate_limit_dl as rate_limit_dl, p.rate_limit_ul as rate_limit_ul
+         FROM pppoe_users u
+         LEFT JOIN pppoe_billing_profiles bp ON bp.id = u.billing_profile_id
+         LEFT JOIN pppoe_profiles p ON p.id = bp.profile_id`
+      ).catch(() => []);
+      const rateByUsername = new Map();
+      for (const r of rateRows || []) {
+        const uname = String(r.username || '').trim();
+        if (!uname) continue;
+        rateByUsername.set(uname, {
+          dl: Number(r.rate_limit_dl || 0),
+          ul: Number(r.rate_limit_ul || 0)
+        });
+      }
+
+      const ifacesApplied = new Set();
+      for (const [uname, ifn] of activeIfaceByUsername.entries()) {
+        if (!ifn || ifacesApplied.has(ifn)) continue;
+        ifacesApplied.add(ifn);
+        const rate = rateByUsername.get(uname) || { dl: 0, ul: 0 };
+        await network.applyPPPoERateLimit(ifn, rate.dl, rate.ul).catch(() => {});
       }
 
       const users = await db.all('SELECT id, username, is_online, ip_address FROM pppoe_users');
