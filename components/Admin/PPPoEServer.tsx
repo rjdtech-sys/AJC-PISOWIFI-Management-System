@@ -416,7 +416,7 @@ const PPPoEServer: React.FC = () => {
         <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <h3 className="text-[10px] font-black text-slate-900 uppercase tracking-widest">PPPoE Server</h3>
-            <span className="text-[8px] bg-slate-900 text-white px-1.5 py-0.5 rounded font-black tracking-tighter">ISP MODE</span>
+            <span className="text-[8px] bg-amber-500 text-white px-1.5 py-0.5 rounded font-black tracking-tighter">ISP MODE</span>
           </div>
           <p className="text-[9px] text-slate-400 font-bold uppercase tracking-tighter hidden sm:block">Accept PPPoE client connections</p>
         </div>
@@ -425,12 +425,12 @@ const PPPoEServer: React.FC = () => {
           {/* Status and Config (Left) */}
           <div className="lg:col-span-8 space-y-4">
             {/* Status Card */}
-            <div className="bg-slate-900 rounded-lg p-3 text-white flex items-center justify-between">
+            <div className="bg-white border border-slate-200 rounded-lg p-3 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className={`w-2.5 h-2.5 rounded-full ${pppoeStatus?.running ? 'bg-green-400 animate-pulse shadow-[0_0_8px_rgba(74,222,128,0.5)]' : 'bg-red-400'}`}></div>
                 <div>
-                  <div className="text-[8px] font-black text-slate-400 uppercase tracking-wider">Server Status</div>
-                  <div className="text-[10px] font-black uppercase tracking-tight">
+                  <div className="text-[8px] font-black text-slate-500 uppercase tracking-wider">Server Status</div>
+                  <div className="text-[10px] font-black uppercase tracking-tight text-slate-900">
                     {pppoeStatus?.running ? `Running on ${pppoeStatus.config?.interface}` : 'Inactive'}
                   </div>
                 </div>
@@ -999,7 +999,7 @@ const PPPoEServer: React.FC = () => {
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-[11px] font-black text-slate-900">{user.username}</span>
                         {user.account_number && (
-                          <span className="text-[8px] bg-slate-900 text-white px-1.5 py-0.5 rounded font-mono">
+                          <span className="text-[8px] bg-slate-100 text-slate-900 px-1.5 py-0.5 rounded font-mono border border-slate-200">
                             {user.account_number}
                           </span>
                         )}
@@ -1087,7 +1087,7 @@ const PPPoEServer: React.FC = () => {
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-[11px] font-black text-slate-900">{sale.username}</span>
                         {sale.account_number && (
-                          <span className="text-[8px] bg-slate-900 text-white px-1.5 py-0.5 rounded font-mono">
+                          <span className="text-[8px] bg-slate-100 text-slate-900 px-1.5 py-0.5 rounded font-mono border border-slate-200">
                             {sale.account_number}
                           </span>
                         )}
