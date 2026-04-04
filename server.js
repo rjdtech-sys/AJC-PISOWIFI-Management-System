@@ -5022,9 +5022,11 @@ app.put('/api/network/pppoe/users/:id', requireAdmin, async (req, res) => {
     const userId = parseInt(req.params.id);
     const updates = req.body;
     const current = await db.get('SELECT username FROM pppoe_users WHERE id = ?', [userId]).catch(() => null);
+    console.log(`[PPPoE-EDIT] Save requested | id=${userId} | current="${current?.username || ''}" | updates=${JSON.stringify(Object.keys(updates || {}))}`);
     const result = await network.updatePPPoEUser(userId, updates);
     const usernameToKick = (updates && updates.username) ? String(updates.username) : (current && current.username) ? String(current.username) : '';
     if (usernameToKick) {
+      console.log(`[PPPoE-EDIT] Kicking active connection for "${usernameToKick}"...`);
       await network.disconnectPPPoEUser(usernameToKick).catch(() => {});
     }
     res.json(result);
@@ -6223,6 +6225,7 @@ function startBackgroundTimers() {
             [u.id]
           );
 
+          console.log(`[PPPoE-Expire] Kicking active connection for expired user "${u.username}"...`);
           await network.disconnectPPPoEUser(u.username).catch(() => {});
 
           const existingInvoice = await db.get(
