@@ -6185,17 +6185,10 @@ function startBackgroundTimers() {
 
       for (const u of expiredUsers) {
         try {
-          if (pppoeExpiredPool) {
-            await db.run(
-              "UPDATE pppoe_users SET expired_at = COALESCE(expired_at, CURRENT_TIMESTAMP) WHERE id = ?",
-              [u.id]
-            );
-          } else {
-            await db.run(
-              "UPDATE pppoe_users SET enabled = 0, expired_at = COALESCE(expired_at, CURRENT_TIMESTAMP) WHERE id = ?",
-              [u.id]
-            );
-          }
+          await db.run(
+            "UPDATE pppoe_users SET expired_at = COALESCE(expired_at, CURRENT_TIMESTAMP) WHERE id = ?",
+            [u.id]
+          );
 
           await network.disconnectPPPoEUser(u.username).catch(() => {});
 

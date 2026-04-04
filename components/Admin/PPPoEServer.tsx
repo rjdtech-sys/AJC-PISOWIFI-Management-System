@@ -354,6 +354,10 @@ const PPPoEServer: React.FC = () => {
     }
   };
 
+  const pppoeSessionIpByUsername = new Map(
+    (pppoeSessions || []).map(s => [String(s.username || '').trim(), String(s.ip || '').trim()])
+  );
+
   return (
     <div className="max-w-7xl mx-auto space-y-4 pb-32 animate-in fade-in slide-in-from-bottom-2 duration-500">
       
@@ -925,9 +929,12 @@ const PPPoEServer: React.FC = () => {
                         <span className="text-[8px] text-slate-500 font-bold uppercase tracking-tight">
                           ID: {user.id} • {user.created_at ? new Date(user.created_at).toLocaleDateString() : 'NO DATE'}
                         </span>
-                        {user.ip_address && (
-                          <span className="text-[8px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded font-mono font-black">
-                            IP {user.ip_address}
+                        <span className="text-[8px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded font-mono font-black">
+                          IP {(pppoeSessionIpByUsername.get(String(user.username || '').trim()) || user.ip_address || '-')}
+                        </span>
+                        {pppoeSessionIpByUsername.get(String(user.username || '').trim()) && user.ip_address && user.ip_address !== pppoeSessionIpByUsername.get(String(user.username || '').trim()) && (
+                          <span className="text-[8px] bg-white text-slate-500 px-1.5 py-0.5 rounded font-mono font-black border border-slate-200">
+                            DB {user.ip_address}
                           </span>
                         )}
                         <span
