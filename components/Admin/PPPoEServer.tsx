@@ -726,7 +726,7 @@ const PPPoEServer: React.FC = () => {
                   <button
                     onClick={savePoolHandler}
                     disabled={loading}
-                    className="flex-1 bg-slate-900 text-white py-1.5 rounded text-[9px] font-black uppercase tracking-widest hover:bg-black transition-all disabled:opacity-50"
+                    className="flex-1 bg-blue-600 text-white py-1.5 rounded text-[9px] font-black uppercase tracking-widest hover:bg-blue-700 transition-all disabled:opacity-50"
                   >
                     {editingPoolId == null ? 'Add Pool' : 'Update Pool'}
                   </button>
@@ -1188,7 +1188,7 @@ const PPPoEServer: React.FC = () => {
                       <button
                         onClick={savePPPoEUserEditHandler}
                         disabled={loading}
-                        className="flex-1 bg-slate-900 text-white py-1.5 rounded text-[8px] font-black uppercase tracking-widest hover:bg-black disabled:opacity-50"
+                        className="flex-1 bg-blue-600 text-white py-1.5 rounded text-[8px] font-black uppercase tracking-widest hover:bg-blue-700 disabled:opacity-50"
                       >
                         Save
                       </button>
