@@ -6122,7 +6122,7 @@ function startBackgroundTimers() {
           );
 
           const pdfPath = path.join(PPPoE_BILLING_DIR, `${invoiceNo}.pdf`);
-          await generatePPPoEInvoicePdf({
+          const generatedPdf = await generatePPPoEInvoicePdf({
             outputPath: pdfPath,
             invoice: {
               invoice_no: invoiceNo,
@@ -6137,7 +6137,9 @@ function startBackgroundTimers() {
               expires_at: u.expires_at || ''
             }
           });
-          await db.run('UPDATE pppoe_invoices SET pdf_path = ? WHERE id = ?', [pdfPath, insert.lastID]);
+          if (generatedPdf) {
+            await db.run('UPDATE pppoe_invoices SET pdf_path = ? WHERE id = ?', [pdfPath, insert.lastID]);
+          }
 
           await db.run('UPDATE pppoe_users SET last_billed_at = ? WHERE id = ?', [periodEnd, u.id]);
         } catch (e) {}
