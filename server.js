@@ -46,6 +46,22 @@ function isIpInRange(ip, start, end) {
   return n >= lo && n <= hi;
 }
 
+function isValidIpv4(ip) {
+  const s = String(ip || '').trim();
+  if (!s) return false;
+  const m = s.match(/^(\d{1,3})(?:\.(\d{1,3})){3}$/);
+  if (!m) return false;
+  return s.split('.').every(p => {
+    const n = parseInt(p, 10);
+    return n >= 0 && n <= 255;
+  });
+}
+
+function getPppoeExpiredPortalUrl() {
+  if (isValidIpv4(pppoeExpiredRedirectIp)) return `http://${pppoeExpiredRedirectIp}/error.html`;
+  return '/error.html';
+}
+
 async function refreshPPPoEExpiredSettings() {
   try {
     const poolIdRow = await db.get('SELECT value FROM config WHERE key = ?', ['pppoe_expired_pool_id']).catch(() => null);
@@ -1452,6 +1468,18 @@ app.use('/dist', express.static(path.join(__dirname, 'dist')));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use(express.static(__dirname));
 
+app.get(['/generate_204', '/gen_204', '/hotspot-detect.html', '/connecttest.txt', '/ncsi.txt'], (req, res, next) => {
+  try {
+    if (!pppoeExpiredPool || !pppoeExpiredPool.ip_pool_start || !pppoeExpiredPool.ip_pool_end) return next();
+    const ip = getClientIpV4(req);
+    if (!ip) return next();
+    if (!isIpInRange(ip, pppoeExpiredPool.ip_pool_start, pppoeExpiredPool.ip_pool_end)) return next();
+    return res.redirect(302, getPppoeExpiredPortalUrl());
+  } catch (e) {
+    return next();
+  }
+});
+
 app.use(async (req, res, next) => {
   try {
     if (!pppoeExpiredPool || !pppoeExpiredPool.ip_pool_start || !pppoeExpiredPool.ip_pool_end) return next();
@@ -1461,7 +1489,7 @@ app.use(async (req, res, next) => {
     const p = req.path || '/';
     if (p.startsWith('/api/') || p.startsWith('/socket.io') || p.startsWith('/dist/') || p.startsWith('/uploads/')) return next();
     if (p === '/error.html') return next();
-    return res.status(200).sendFile(path.join(__dirname, 'error.html'));
+    return res.redirect(302, getPppoeExpiredPortalUrl());
   } catch (e) {
     return next();
   }
