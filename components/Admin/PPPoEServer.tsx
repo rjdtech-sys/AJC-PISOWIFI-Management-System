@@ -369,6 +369,47 @@ const PPPoEServer: React.FC = () => {
               )}
             </div>
 
+            {pppoeStatus?.running && (
+              <div className="bg-white border border-slate-200 rounded-lg px-4 py-3">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <span className="text-[9px] font-black text-slate-900 uppercase tracking-widest">Running PPPoE</span>
+                    <span className="text-[8px] font-black text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded uppercase tracking-widest">Active</span>
+                  </div>
+                  <div className="text-[9px] font-bold text-slate-500">
+                    {Array.isArray(pppoeStatus?.sessions) ? `${pppoeStatus.sessions.length} Online` : ''}
+                  </div>
+                </div>
+
+                <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                  <div className="border border-slate-200 rounded-md px-3 py-2 flex items-center justify-between">
+                    <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Interface</span>
+                    <span className="text-[10px] font-mono font-black text-slate-900">{pppoeStatus?.config?.interface || '-'}</span>
+                  </div>
+                  <div className="border border-slate-200 rounded-md px-3 py-2 flex items-center justify-between">
+                    <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Local IP</span>
+                    <span className="text-[10px] font-mono font-black text-slate-900">{pppoeStatus?.config?.local_ip || '-'}</span>
+                  </div>
+                  <div className="border border-slate-200 rounded-md px-3 py-2 flex items-center justify-between">
+                    <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Pool</span>
+                    <span className="text-[10px] font-mono font-black text-slate-900">
+                      {pppoeStatus?.config?.ip_pool_start && pppoeStatus?.config?.ip_pool_end
+                        ? `${pppoeStatus.config.ip_pool_start}-${pppoeStatus.config.ip_pool_end}`
+                        : '-'}
+                    </span>
+                  </div>
+                  <div className="border border-slate-200 rounded-md px-3 py-2 flex items-center justify-between">
+                    <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">DNS</span>
+                    <span className="text-[10px] font-mono font-black text-slate-900">
+                      {pppoeStatus?.config?.dns1
+                        ? `${pppoeStatus.config.dns1}${pppoeStatus?.config?.dns2 ? `, ${pppoeStatus.config.dns2}` : ''}`
+                        : '-'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Config Form */}
             <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
