@@ -1468,13 +1468,34 @@ app.use('/dist', express.static(path.join(__dirname, 'dist')));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use(express.static(__dirname));
 
+function sendExpiredPortalProbe(res) {
+  const target = getPppoeExpiredPortalUrl();
+  res.status(200);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  return res.send(`<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Login Required</title>
+  <meta http-equiv="refresh" content="0;url=${target}">
+  <style>body{font-family:Arial,sans-serif;padding:18px}</style>
+</head>
+<body>
+  <p>Login required. Redirecting...</p>
+  <p><a href="${target}">Open Portal</a></p>
+  <script>location.replace(${JSON.stringify(target)});</script>
+</body>
+</html>`);
+}
+
 app.get(['/generate_204', '/gen_204', '/hotspot-detect.html', '/connecttest.txt', '/ncsi.txt'], (req, res, next) => {
   try {
     if (!pppoeExpiredPool || !pppoeExpiredPool.ip_pool_start || !pppoeExpiredPool.ip_pool_end) return next();
     const ip = getClientIpV4(req);
     if (!ip) return next();
     if (!isIpInRange(ip, pppoeExpiredPool.ip_pool_start, pppoeExpiredPool.ip_pool_end)) return next();
-    return res.redirect(302, getPppoeExpiredPortalUrl());
+    return sendExpiredPortalProbe(res);
   } catch (e) {
     return next();
   }
@@ -1488,8 +1509,8 @@ app.use(async (req, res, next) => {
     if (!isIpInRange(ip, pppoeExpiredPool.ip_pool_start, pppoeExpiredPool.ip_pool_end)) return next();
     const p = req.path || '/';
     if (p.startsWith('/api/') || p.startsWith('/socket.io') || p.startsWith('/dist/') || p.startsWith('/uploads/')) return next();
-    if (p === '/error.html') return next();
-    return res.redirect(302, getPppoeExpiredPortalUrl());
+    if (p === '/error.html') return res.status(200).sendFile(path.join(__dirname, 'error.html'));
+    return res.status(200).sendFile(path.join(__dirname, 'error.html'));
   } catch (e) {
     return next();
   }
