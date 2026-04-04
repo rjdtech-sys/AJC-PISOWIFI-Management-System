@@ -963,21 +963,23 @@ const PPPoEServer: React.FC = () => {
                 <div className="flex items-center gap-1">
                   <button
                     onClick={() => setPppoeSubPage('accounts')}
-                    className={`px-2 py-1 text-[8px] font-black uppercase tracking-widest rounded border ${
+                    style={
                       pppoeSubPage === 'accounts'
-                        ? 'bg-slate-900 text-white border-slate-900'
-                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                    }`}
+                        ? { backgroundColor: '#f59e0b', borderColor: '#f59e0b', color: '#ffffff' }
+                        : { backgroundColor: '#ffffff', borderColor: '#e2e8f0', color: '#334155' }
+                    }
+                    className="px-2 py-1 text-[8px] font-black uppercase tracking-widest rounded border hover:bg-slate-50"
                   >
                     Accounts
                   </button>
                   <button
                     onClick={() => setPppoeSubPage('sales')}
-                    className={`px-2 py-1 text-[8px] font-black uppercase tracking-widest rounded border ${
+                    style={
                       pppoeSubPage === 'sales'
-                        ? 'bg-slate-900 text-white border-slate-900'
-                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                    }`}
+                        ? { backgroundColor: '#f59e0b', borderColor: '#f59e0b', color: '#ffffff' }
+                        : { backgroundColor: '#ffffff', borderColor: '#e2e8f0', color: '#334155' }
+                    }
+                    className="px-2 py-1 text-[8px] font-black uppercase tracking-widest rounded border hover:bg-slate-50"
                   >
                     Sales
                   </button>
