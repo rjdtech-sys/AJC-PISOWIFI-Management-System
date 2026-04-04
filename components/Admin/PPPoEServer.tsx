@@ -22,6 +22,7 @@ const PPPoEServer: React.FC = () => {
   const [pppoeProfiles, setPppoeProfiles] = useState<PPPoEProfile[]>([]);
   const [pppoeBillingProfiles, setPppoeBillingProfiles] = useState<PPPoEBillingProfile[]>([]);
   const [pppoeLogs, setPppoeLogs] = useState<string[]>([]);
+  const [expiredSettings, setExpiredSettings] = useState<{ pool_id: string; redirect_ip: string }>({ pool_id: '', redirect_ip: '' });
   
   const [newPppoeUser, setNewPppoeUser] = useState({ username: '', password: '', billing_profile_id: '', expires_at: '' });
   const [newProfile, setNewProfile] = useState<PPPoEProfile>({ name: '', rate_limit_dl: 5, rate_limit_ul: 5 });
@@ -42,14 +43,15 @@ const PPPoEServer: React.FC = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [ifaces, pppoeS, pppoeU, pppoeSess, profiles, billingProfiles, pools] = await Promise.all([
+      const [ifaces, pppoeS, pppoeU, pppoeSess, profiles, billingProfiles, pools, expCfg] = await Promise.all([
         apiClient.getInterfaces(),
         apiClient.getPPPoEServerStatus().catch(() => null),
         apiClient.getPPPoEUsers().catch(() => []),
         apiClient.getPPPoESessions().catch(() => []),
         apiClient.getPPPoEProfiles().catch(() => []),
         apiClient.getPPPoEBillingProfiles().catch(() => []),
-        apiClient.getPPPoEPools().catch(() => [])
+        apiClient.getPPPoEPools().catch(() => []),
+        apiClient.getPPPoEExpiredSettings().catch(() => null)
       ]);
       const detectedIfaces = ifaces.filter(i => !i.isLoopback);
       setInterfaces(detectedIfaces);
@@ -68,6 +70,12 @@ const PPPoEServer: React.FC = () => {
       setPppoeProfiles(profiles);
       setPppoeBillingProfiles(billingProfiles);
       setPppoePools(Array.isArray(pools) ? pools : []);
+      if (expCfg && typeof expCfg === 'object') {
+        setExpiredSettings({
+          pool_id: expCfg.pool?.id ? String(expCfg.pool.id) : '',
+          redirect_ip: expCfg.redirect_ip ? String(expCfg.redirect_ip) : ''
+        });
+      }
       loadLogs();
     } catch (err) { 
       console.error('[UI] Data Load Error:', err); 
@@ -80,6 +88,22 @@ const PPPoEServer: React.FC = () => {
       const logs = await apiClient.getPPPoELogs();
       setPppoeLogs(logs);
     } catch (e) {}
+  };
+
+  const saveExpiredSettingsHandler = async () => {
+    try {
+      setLoading(true);
+      await apiClient.savePPPoEExpiredSettings(
+        expiredSettings.pool_id ? parseInt(expiredSettings.pool_id, 10) : null,
+        expiredSettings.redirect_ip
+      );
+      await loadData();
+      alert('Expired redirect settings saved.');
+    } catch (e: any) {
+      alert(`Failed to save: ${e.message}`);
+    } finally {
+      setLoading(false);
+    }
   };
 
   // PPPoE Server Functions
@@ -409,6 +433,49 @@ const PPPoEServer: React.FC = () => {
                 </div>
               </div>
             )}
+
+            <div className="bg-white border border-slate-200 rounded-lg px-4 py-3">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[9px] font-black text-slate-900 uppercase tracking-widest">Expired Redirect</span>
+                  <span className="text-[8px] font-black text-slate-500 bg-slate-100 px-2 py-0.5 rounded uppercase tracking-widest">PPPoE</span>
+                </div>
+                <button
+                  onClick={saveExpiredSettingsHandler}
+                  disabled={loading}
+                  className="px-3 py-1.5 rounded-md text-[9px] font-black uppercase tracking-widest border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Save
+                </button>
+              </div>
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Expired IP Pool</span>
+                  <select
+                    value={expiredSettings.pool_id}
+                    onChange={e => setExpiredSettings({ ...expiredSettings, pool_id: e.target.value })}
+                    className="w-full bg-white border border-slate-200 rounded-md px-2 py-1.5 text-[10px] font-bold outline-none"
+                  >
+                    <option value="">Disabled (Block Expired)</option>
+                    {pppoePools.map(pool => (
+                      <option key={pool.id} value={pool.id}>
+                        {pool.name} ({pool.ip_pool_start}-{pool.ip_pool_end})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Error Page IP</span>
+                  <input
+                    type="text"
+                    value={expiredSettings.redirect_ip}
+                    onChange={e => setExpiredSettings({ ...expiredSettings, redirect_ip: e.target.value })}
+                    className="w-full bg-white border border-slate-200 rounded-md px-2 py-1.5 text-[10px] font-mono outline-none"
+                    placeholder="Optional"
+                  />
+                </div>
+              </div>
+            </div>
 
             {/* Config Form */}
             <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">

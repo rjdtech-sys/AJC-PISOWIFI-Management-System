@@ -726,6 +726,20 @@ export const apiClient = {
     return handleResponse(res);
   },
 
+  async getPPPoEExpiredSettings(): Promise<any> {
+    const res = await fetch(`${API_BASE}/network/pppoe/expired-settings`, { headers: getHeaders() });
+    return handleResponse(res);
+  },
+
+  async savePPPoEExpiredSettings(pool_id?: number | null, redirect_ip?: string): Promise<{ success: boolean }> {
+    const res = await fetch(`${API_BASE}/network/pppoe/expired-settings`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ pool_id: pool_id ?? null, redirect_ip: redirect_ip ?? '' })
+    });
+    return handleResponse(res);
+  },
+
   async updatePPPoEUser(id: number, updates: Partial<PPPoEUser>): Promise<{ success: boolean }> {
     const res = await fetch(`${API_BASE}/network/pppoe/users/${id}`, {
       method: 'PUT',

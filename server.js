@@ -20,6 +20,54 @@ const { generatePPPoEInvoicePdf } = require('./lib/pppoe-billing');
 
 const PPPoE_BILLING_DIR = path.resolve(__dirname, 'data', 'billing', 'pppoe');
 
+let pppoeExpiredPool = null;
+let pppoeExpiredRedirectIp = '';
+
+function ipToInt(ip) {
+  const parts = String(ip || '').split('.').map(n => parseInt(n, 10));
+  if (parts.length !== 4 || parts.some(n => Number.isNaN(n) || n < 0 || n > 255)) return null;
+  return ((parts[0] << 24) >>> 0) + (parts[1] << 16) + (parts[2] << 8) + parts[3];
+}
+
+function getClientIpV4(req) {
+  const raw = (req.headers['x-forwarded-for'] ? String(req.headers['x-forwarded-for']).split(',')[0] : req.socket?.remoteAddress) || '';
+  const ip = String(raw).trim();
+  const m = ip.match(/(\d{1,3}(?:\.\d{1,3}){3})/);
+  return m ? m[1] : null;
+}
+
+function isIpInRange(ip, start, end) {
+  const n = ipToInt(ip);
+  const a = ipToInt(start);
+  const b = ipToInt(end);
+  if (n === null || a === null || b === null) return false;
+  const lo = Math.min(a, b);
+  const hi = Math.max(a, b);
+  return n >= lo && n <= hi;
+}
+
+async function refreshPPPoEExpiredSettings() {
+  try {
+    const poolIdRow = await db.get('SELECT value FROM config WHERE key = ?', ['pppoe_expired_pool_id']).catch(() => null);
+    const redirectIpRow = await db.get('SELECT value FROM config WHERE key = ?', ['pppoe_expired_redirect_ip']).catch(() => null);
+    pppoeExpiredRedirectIp = redirectIpRow?.value ? String(redirectIpRow.value).trim() : '';
+    const poolId = poolIdRow?.value ? parseInt(String(poolIdRow.value), 10) : null;
+    if (!poolId || Number.isNaN(poolId)) {
+      pppoeExpiredPool = null;
+      return;
+    }
+    const pool = await db.get('SELECT * FROM pppoe_pools WHERE id = ?', [poolId]).catch(() => null);
+    if (!pool) {
+      pppoeExpiredPool = null;
+      return;
+    }
+    pppoeExpiredPool = { id: pool.id, ip_pool_start: pool.ip_pool_start, ip_pool_end: pool.ip_pool_end, name: pool.name };
+  } catch (e) {
+    pppoeExpiredPool = null;
+    pppoeExpiredRedirectIp = '';
+  }
+}
+
 // PREVENT PROCESS TERMINATION ON TERMINAL DISCONNECT
 process.on('SIGHUP', () => {
   console.log('[SYSTEM] Received SIGHUP. Ignoring to prevent process termination on disconnect.');
@@ -1403,6 +1451,21 @@ app.get('/dist/tailwind.js', (req, res) => {
 app.use('/dist', express.static(path.join(__dirname, 'dist')));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use(express.static(__dirname));
+
+app.use(async (req, res, next) => {
+  try {
+    if (!pppoeExpiredPool || !pppoeExpiredPool.ip_pool_start || !pppoeExpiredPool.ip_pool_end) return next();
+    const ip = getClientIpV4(req);
+    if (!ip) return next();
+    if (!isIpInRange(ip, pppoeExpiredPool.ip_pool_start, pppoeExpiredPool.ip_pool_end)) return next();
+    const p = req.path || '/';
+    if (p.startsWith('/api/') || p.startsWith('/socket.io') || p.startsWith('/dist/') || p.startsWith('/uploads/')) return next();
+    if (p === '/error.html') return next();
+    return res.status(200).sendFile(path.join(__dirname, 'error.html'));
+  } catch (e) {
+    return next();
+  }
+});
 
 // AUDIO UPLOAD ENDPOINT
 app.post('/api/admin/upload-audio', requireAdmin, upload.single('audio'), (req, res) => {
@@ -4880,6 +4943,52 @@ app.get('/api/network/pppoe/logs', requireAdmin, async (req, res) => {
   }
 });
 
+app.get('/api/network/pppoe/expired-settings', requireAdmin, async (req, res) => {
+  try {
+    await refreshPPPoEExpiredSettings();
+    res.json({
+      pool: pppoeExpiredPool,
+      redirect_ip: pppoeExpiredRedirectIp
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/network/pppoe/expired-settings', requireAdmin, async (req, res) => {
+  try {
+    const { pool_id, redirect_ip } = req.body || {};
+    const poolId = pool_id ? parseInt(String(pool_id), 10) : null;
+    const redirectIp = redirect_ip ? String(redirect_ip).trim() : '';
+
+    if (poolId && Number.isNaN(poolId)) {
+      return res.status(400).json({ error: 'Invalid pool_id' });
+    }
+
+    if (redirectIp && !/^\d{1,3}(\.\d{1,3}){3}$/.test(redirectIp)) {
+      return res.status(400).json({ error: 'Invalid redirect_ip' });
+    }
+
+    if (poolId) {
+      const pool = await db.get('SELECT * FROM pppoe_pools WHERE id = ?', [poolId]);
+      if (!pool) return res.status(404).json({ error: 'Pool not found' });
+      await db.run("INSERT OR REPLACE INTO config (key, value) VALUES ('pppoe_expired_pool_id', ?)", [String(poolId)]);
+    } else {
+      await db.run("DELETE FROM config WHERE key = 'pppoe_expired_pool_id'").catch(() => {});
+    }
+
+    if (redirectIp) {
+      await db.run("INSERT OR REPLACE INTO config (key, value) VALUES ('pppoe_expired_redirect_ip', ?)", [redirectIp]);
+    } else {
+      await db.run("DELETE FROM config WHERE key = 'pppoe_expired_redirect_ip'").catch(() => {});
+    }
+
+    await refreshPPPoEExpiredSettings();
+    await network.initFirewall().catch(() => {});
+    await network.syncPPPoESecrets().catch(() => {});
+
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.put('/api/network/pppoe/users/:id', requireAdmin, async (req, res) => {
   try {
     const userId = parseInt(req.params.id);
@@ -6011,6 +6120,9 @@ app.post('/api/vouchers/activate', async (req, res) => {
 });
 
 function startBackgroundTimers() {
+  setInterval(() => { refreshPPPoEExpiredSettings(); }, 30000);
+  refreshPPPoEExpiredSettings();
+
   setInterval(async () => {
     try {
       await db.run(
@@ -6061,7 +6173,7 @@ function startBackgroundTimers() {
   const processExpiredPPPoEUsers = async () => {
     try {
       const expiredUsers = await db.all(
-        "SELECT * FROM pppoe_users WHERE enabled = 1 AND expires_at IS NOT NULL AND expires_at != '' AND datetime(expires_at) <= datetime('now','localtime')"
+        "SELECT * FROM pppoe_users WHERE enabled = 1 AND (expired_at IS NULL OR expired_at = '') AND expires_at IS NOT NULL AND expires_at != '' AND datetime(expires_at) <= datetime('now','localtime')"
       );
       if (!expiredUsers.length) return;
 
@@ -6071,10 +6183,17 @@ function startBackgroundTimers() {
 
       for (const u of expiredUsers) {
         try {
-          await db.run(
-            "UPDATE pppoe_users SET enabled = 0, expired_at = COALESCE(expired_at, CURRENT_TIMESTAMP) WHERE id = ?",
-            [u.id]
-          );
+          if (pppoeExpiredPool) {
+            await db.run(
+              "UPDATE pppoe_users SET expired_at = COALESCE(expired_at, CURRENT_TIMESTAMP) WHERE id = ?",
+              [u.id]
+            );
+          } else {
+            await db.run(
+              "UPDATE pppoe_users SET enabled = 0, expired_at = COALESCE(expired_at, CURRENT_TIMESTAMP) WHERE id = ?",
+              [u.id]
+            );
+          }
 
           await network.disconnectPPPoEUser(u.username).catch(() => {});
 
