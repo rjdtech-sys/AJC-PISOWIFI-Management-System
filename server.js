@@ -1501,6 +1501,73 @@ app.get(['/generate_204', '/gen_204', '/hotspot-detect.html', '/connecttest.txt'
   }
 });
 
+app.get('/api/pppoe/expired-info', async (req, res) => {
+  try {
+    if (!pppoeExpiredPool || !pppoeExpiredPool.ip_pool_start || !pppoeExpiredPool.ip_pool_end) {
+      return res.status(404).json({ error: 'Expired pool not configured' });
+    }
+    const ip = getClientIpV4(req);
+    if (!ip) return res.status(400).json({ error: 'Client IP not detected' });
+    if (!isIpInRange(ip, pppoeExpiredPool.ip_pool_start, pppoeExpiredPool.ip_pool_end)) {
+      return res.status(403).json({ error: 'Not in expired pool' });
+    }
+
+    const user = await db.get(
+      `SELECT id, username, account_number, billing_profile_id, expires_at, expired_at, last_offline_at
+       FROM pppoe_users
+       WHERE ip_address = ?
+       ORDER BY id DESC
+       LIMIT 1`,
+      [ip]
+    ).catch(() => null);
+
+    let billing = null;
+    if (user?.billing_profile_id) {
+      billing = await db.get(
+        `SELECT bp.id as billing_profile_id, bp.name as billing_profile_name, bp.price as price, p.name as profile_name
+         FROM pppoe_billing_profiles bp
+         LEFT JOIN pppoe_profiles p ON p.id = bp.profile_id
+         WHERE bp.id = ?`,
+        [user.billing_profile_id]
+      ).catch(() => null);
+    }
+
+    const nowRow = await db.get("SELECT datetime('now','localtime') as now").catch(() => null);
+    const serverNow = nowRow?.now || new Date().toISOString();
+
+    const expiredRow = user?.expires_at
+      ? await db.get("SELECT 1 as ok WHERE datetime(replace(?,'T',' ')) <= datetime('now','localtime')", [user.expires_at]).catch(() => null)
+      : null;
+    const isExpired = !!(user?.expired_at || expiredRow);
+
+    res.json({
+      ip,
+      server_time: serverNow,
+      expired: isExpired,
+      account: user
+        ? {
+            id: user.id,
+            username: user.username,
+            account_number: user.account_number || null,
+            expires_at: user.expires_at || null,
+            expired_at: user.expired_at || null,
+            last_offline_at: user.last_offline_at || null
+          }
+        : null,
+      billing: billing
+        ? {
+            billing_profile_id: billing.billing_profile_id,
+            billing_profile_name: billing.billing_profile_name || null,
+            profile_name: billing.profile_name || null,
+            price: Number(billing.price || 0)
+          }
+        : null
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.use(async (req, res, next) => {
   try {
     if (!pppoeExpiredPool || !pppoeExpiredPool.ip_pool_start || !pppoeExpiredPool.ip_pool_end) return next();
