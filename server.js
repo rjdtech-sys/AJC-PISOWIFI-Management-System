@@ -18,9 +18,11 @@ const settings = require('./lib/settings');
 const AdmZip = require('adm-zip');
 const { generatePPPoEInvoicePdf } = require('./lib/pppoe-billing');
 const { generatePPPoEUserFormPdf } = require('./lib/pppoe-user-form');
+const { generatePPPoESaleReceiptPdf } = require('./lib/pppoe-sale-receipt');
 
 const PPPoE_BILLING_DIR = path.resolve(__dirname, 'data', 'billing', 'pppoe');
 const PPPoE_FORMS_DIR = path.resolve(__dirname, 'data', 'forms', 'pppoe');
+const PPPoE_RECEIPTS_DIR = path.resolve(__dirname, 'data', 'receipts', 'pppoe');
 
 let pppoeExpiredPool = null;
 let pppoeExpiredRedirectIp = '';
@@ -4956,6 +4958,66 @@ app.get('/api/network/pppoe/sales', requireAdmin, async (req, res) => {
   try {
     const rows = await db.all('SELECT * FROM pppoe_sales ORDER BY paid_at DESC');
     res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/network/pppoe/sales/:id/receipt.pdf', requireAdmin, async (req, res) => {
+  try {
+    const id = parseInt(String(req.params.id), 10);
+    if (!id || Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+
+    const sale = await db.get('SELECT * FROM pppoe_sales WHERE id = ?', [id]);
+    if (!sale) return res.status(404).json({ error: 'Sale not found' });
+
+    const user = await db.get(
+      'SELECT full_name, address, contact_number, email FROM pppoe_users WHERE id = ?',
+      [sale.user_id]
+    ).catch(() => null);
+
+    const company = await settings.getCompanySettings().catch(() => ({ companyName: 'AJC PISOWIFI' }));
+    const companyName = company?.companyName ? String(company.companyName) : 'AJC PISOWIFI';
+
+    const safeBase = `AR-PPPOE-${sale.id}-${String(sale.username || '').trim() || 'user'}`
+      .replace(/[^a-zA-Z0-9._-]+/g, '_')
+      .slice(0, 90);
+    const outputPath = path.join(PPPoE_RECEIPTS_DIR, `${safeBase}.pdf`);
+
+    const receiptNo = `AR-PPPOE-${sale.id}`;
+    const pdfPath = await generatePPPoESaleReceiptPdf({
+      outputPath,
+      receipt: {
+        company_name: companyName,
+        receipt_no: receiptNo,
+        paid_at: sale.paid_at || null,
+        payment_method: sale.payment_method || 'cash',
+        notes: sale.notes || null,
+        username: sale.username,
+        account_number: sale.account_number || null,
+        billing_profile_name: sale.billing_profile_name || null,
+        profile_name: sale.profile_name || null,
+        gross_amount: sale.gross_amount || sale.amount || 0,
+        discount_days: sale.discount_days || 0,
+        net_amount: sale.net_amount || sale.amount || 0,
+        prev_expires_at: sale.prev_expires_at || null,
+        new_expires_at: sale.new_expires_at || null,
+        full_name: user?.full_name || null,
+        address: user?.address || null,
+        contact_number: user?.contact_number || null,
+        email: user?.email || null
+      }
+    });
+    if (!pdfPath) return res.status(500).json({ error: 'PDF generation unavailable' });
+
+    const resolved = path.resolve(pdfPath);
+    const allowed = path.resolve(PPPoE_RECEIPTS_DIR);
+    if (!resolved.startsWith(allowed)) return res.status(400).json({ error: 'Invalid path' });
+    if (!fs.existsSync(resolved)) return res.status(404).json({ error: 'PDF not found' });
+
+    const download = String(req.query.download || '') === '1';
+    const filename = `${safeBase}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    if (download) res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.sendFile(resolved);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

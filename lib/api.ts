@@ -769,6 +769,21 @@ export const apiClient = {
     return handleResponse(res);
   },
 
+  async getPPPoESaleReceiptPdf(saleId: number, download = false): Promise<Blob> {
+    const res = await fetch(`${API_BASE}/network/pppoe/sales/${saleId}/receipt.pdf${download ? '?download=1' : ''}`, {
+      headers: getHeaders()
+    });
+    if (!res.ok) {
+      let msg = `HTTP ${res.status}`;
+      try {
+        const j = await res.json();
+        if (j?.error) msg = j.error;
+      } catch (e) {}
+      throw new Error(msg);
+    }
+    return await res.blob();
+  },
+
   async createPPPoESale(payload: { user_id: number; billing_profile_id?: number; payment_method?: string; notes?: string; discount_days?: number; apply_renewal?: boolean }): Promise<{ success: boolean; id?: number }> {
     const res = await fetch(`${API_BASE}/network/pppoe/sales`, {
       method: 'POST',

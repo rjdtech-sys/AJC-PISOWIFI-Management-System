@@ -325,6 +325,24 @@ const PPPoEServer: React.FC = () => {
     }
   };
 
+  const printPPPoESaleReceipt = async (sale: PPPoESale) => {
+    if (!sale?.id) return;
+    try {
+      setLoading(true);
+      const blob = await apiClient.getPPPoESaleReceiptPdf(sale.id, false);
+      const url = URL.createObjectURL(blob);
+      const w = window.open(url, '_blank');
+      if (!w) {
+        alert('Popup blocked. Please allow popups and try again.');
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e: any) {
+      alert(`Failed to open receipt PDF: ${e.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const cancelPPPoEUserEdit = () => {
     setEditingUser(null);
   };
@@ -1194,6 +1212,13 @@ const PPPoEServer: React.FC = () => {
                       <div className="text-[8px] font-black text-slate-500 uppercase tracking-widest">
                         {sale.payment_method || 'cash'}
                       </div>
+                      <button
+                        onClick={() => printPPPoESaleReceipt(sale)}
+                        disabled={loading}
+                        className="px-2 py-1 text-[8px] font-black uppercase tracking-widest border border-blue-200 text-blue-700 rounded hover:bg-blue-50 disabled:opacity-50"
+                      >
+                        Print
+                      </button>
                       <button
                         onClick={() => deleteSaleHandler(sale)}
                         disabled={loading}
