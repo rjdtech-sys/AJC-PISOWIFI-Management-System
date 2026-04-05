@@ -122,6 +122,10 @@ export interface PPPoEServerConfig {
 export interface PPPoEUser {
   id?: number;
   account_number?: string;
+  full_name?: string | null;
+  address?: string | null;
+  contact_number?: string | null;
+  email?: string | null;
   username: string;
   password: string;
   enabled: number;
@@ -135,6 +139,7 @@ export interface PPPoEUser {
   last_offline_at?: string | null;
   billing_start_at?: string | null;
   billing_cycle_day?: number | null;
+  form_pdf_path?: string | null;
   created_at?: string;
 }
 

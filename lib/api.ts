@@ -632,14 +632,30 @@ export const apiClient = {
     username: string,
     password: string,
     billing_profile_id?: number,
-    expires_at?: string
+    expires_at?: string,
+    info?: { full_name?: string; address?: string; contact_number?: string; email?: string }
   ): Promise<{ success: boolean; id?: number; account_number?: string }> {
     const res = await fetch(`${API_BASE}/network/pppoe/users`, {
       method: 'POST',
       headers: getHeaders(),
-      body: JSON.stringify({ username, password, billing_profile_id, expires_at })
+      body: JSON.stringify({ username, password, billing_profile_id, expires_at, ...(info || {}) })
     });
     return handleResponse(res);
+  },
+
+  async getPPPoEUserFormPdf(userId: number, download = false): Promise<Blob> {
+    const res = await fetch(`${API_BASE}/network/pppoe/users/${userId}/form.pdf${download ? '?download=1' : ''}`, {
+      headers: getHeaders()
+    });
+    if (!res.ok) {
+      let msg = `HTTP ${res.status}`;
+      try {
+        const j = await res.json();
+        if (j?.error) msg = j.error;
+      } catch (e) {}
+      throw new Error(msg);
+    }
+    return await res.blob();
   },
 
   // PPPoE Profile APIs

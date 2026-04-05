@@ -26,7 +26,7 @@ const PPPoEServer: React.FC = () => {
   const [expiredSettings, setExpiredSettings] = useState<{ pool_id: string; redirect_ip: string }>({ pool_id: '', redirect_ip: '' });
   const [pppoeSubPage, setPppoeSubPage] = useState<'accounts' | 'sales'>('accounts');
   
-  const [newPppoeUser, setNewPppoeUser] = useState({ username: '', password: '', billing_profile_id: '', expires_at: '' });
+  const [newPppoeUser, setNewPppoeUser] = useState({ username: '', password: '', billing_profile_id: '', expires_at: '', full_name: '', address: '', contact_number: '', email: '' });
   const [newProfile, setNewProfile] = useState<PPPoEProfile>({ name: '', rate_limit_dl: 5, rate_limit_ul: 5 });
   const [newBillingProfile, setNewBillingProfile] = useState<Partial<PPPoEBillingProfile>>({ profile_id: 0, name: '', price: 0 });
   const [pppoePools, setPppoePools] = useState<PPPoEPool[]>([]);
@@ -172,14 +172,20 @@ const PPPoEServer: React.FC = () => {
         newPppoeUser.username, 
         newPppoeUser.password, 
         newPppoeUser.billing_profile_id ? parseInt(newPppoeUser.billing_profile_id) : undefined,
-        newPppoeUser.expires_at || undefined
+        newPppoeUser.expires_at || undefined,
+        {
+          full_name: newPppoeUser.full_name,
+          address: newPppoeUser.address,
+          contact_number: newPppoeUser.contact_number,
+          email: newPppoeUser.email
+        }
       );
       if (result?.account_number) {
         setLastCreatedAccountNumber(result.account_number);
       } else {
         setLastCreatedAccountNumber(null);
       }
-      setNewPppoeUser({ username: '', password: '', billing_profile_id: '', expires_at: '' });
+      setNewPppoeUser({ username: '', password: '', billing_profile_id: '', expires_at: '', full_name: '', address: '', contact_number: '', email: '' });
       await loadData();
       alert(`User ${newPppoeUser.username} added!${result?.account_number ? ` Account No: ${result.account_number}` : ''}`);
     } catch (e: any) {
@@ -221,7 +227,11 @@ const PPPoEServer: React.FC = () => {
       setLoading(true);
       const updates: Partial<PPPoEUser> = {
         username: editingUser.username,
-        enabled: editingUser.enabled
+        enabled: editingUser.enabled,
+        full_name: editingUser.full_name ?? null,
+        address: editingUser.address ?? null,
+        contact_number: editingUser.contact_number ?? null,
+        email: editingUser.email ?? null
       };
       if (editingUser.password && editingUser.password.trim()) {
         updates.password = editingUser.password;
@@ -237,6 +247,24 @@ const PPPoEServer: React.FC = () => {
       await loadData();
     } catch (e: any) {
       alert(`Failed to update user: ${e.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const printPPPoEUserForm = async (user: PPPoEUser) => {
+    if (!user?.id) return;
+    try {
+      setLoading(true);
+      const blob = await apiClient.getPPPoEUserFormPdf(user.id, false);
+      const url = URL.createObjectURL(blob);
+      const w = window.open(url, '_blank');
+      if (!w) {
+        alert('Popup blocked. Please allow popups and try again.');
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e: any) {
+      alert(`Failed to open PDF: ${e.message}`);
     } finally {
       setLoading(false);
     }
@@ -938,6 +966,36 @@ const PPPoEServer: React.FC = () => {
                   className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1.5 text-[10px] font-mono outline-none focus:bg-white" 
                   placeholder="Password"
                 />
+                <input 
+                  type="text" 
+                  value={newPppoeUser.full_name} 
+                  onChange={e => setNewPppoeUser({...newPppoeUser, full_name: e.target.value})}
+                  className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1.5 text-[10px] font-bold outline-none focus:bg-white" 
+                  placeholder="Full Name"
+                />
+                <input 
+                  type="text" 
+                  value={newPppoeUser.address} 
+                  onChange={e => setNewPppoeUser({...newPppoeUser, address: e.target.value})}
+                  className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1.5 text-[10px] font-bold outline-none focus:bg-white" 
+                  placeholder="Address"
+                />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <input 
+                    type="text" 
+                    value={newPppoeUser.contact_number} 
+                    onChange={e => setNewPppoeUser({...newPppoeUser, contact_number: e.target.value})}
+                    className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1.5 text-[10px] font-bold outline-none focus:bg-white" 
+                    placeholder="Contact Number"
+                  />
+                  <input 
+                    type="email" 
+                    value={newPppoeUser.email} 
+                    onChange={e => setNewPppoeUser({...newPppoeUser, email: e.target.value})}
+                    className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1.5 text-[10px] font-bold outline-none focus:bg-white" 
+                    placeholder="Email"
+                  />
+                </div>
                 <select 
                   value={newPppoeUser.billing_profile_id}
                   onChange={e => setNewPppoeUser({...newPppoeUser, billing_profile_id: e.target.value})}
@@ -1072,6 +1130,13 @@ const PPPoEServer: React.FC = () => {
                       className="px-2 py-1 text-[8px] font-black uppercase tracking-widest border border-emerald-200 text-emerald-700 rounded hover:bg-emerald-50"
                     >
                       Pay
+                    </button>
+                    <button
+                      onClick={() => printPPPoEUserForm(user)}
+                      disabled={loading}
+                      className="px-2 py-1 text-[8px] font-black uppercase tracking-widest border border-blue-200 text-blue-700 rounded hover:bg-blue-50 disabled:opacity-50"
+                    >
+                      Print
                     </button>
                     <button
                       onClick={() => startEditPPPoEUser(user)}
@@ -1224,6 +1289,44 @@ const PPPoEServer: React.FC = () => {
                         Cancel
                       </button>
                     </div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-2 mt-3">
+                  <div className="space-y-1">
+                    <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Full Name</span>
+                    <input
+                      type="text"
+                      value={String(editingUser.full_name || '')}
+                      onChange={e => updateEditingUserField('full_name', e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-[10px] font-bold outline-none"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Contact</span>
+                    <input
+                      type="text"
+                      value={String(editingUser.contact_number || '')}
+                      onChange={e => updateEditingUserField('contact_number', e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-[10px] font-bold outline-none"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Email</span>
+                    <input
+                      type="email"
+                      value={String(editingUser.email || '')}
+                      onChange={e => updateEditingUserField('email', e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-[10px] font-bold outline-none"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">Address</span>
+                    <input
+                      type="text"
+                      value={String(editingUser.address || '')}
+                      onChange={e => updateEditingUserField('address', e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-[10px] font-bold outline-none"
+                    />
                   </div>
                 </div>
               </div>

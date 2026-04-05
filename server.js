@@ -17,8 +17,10 @@ const edgeSync = require('./lib/edge-sync');
 const settings = require('./lib/settings');
 const AdmZip = require('adm-zip');
 const { generatePPPoEInvoicePdf } = require('./lib/pppoe-billing');
+const { generatePPPoEUserFormPdf } = require('./lib/pppoe-user-form');
 
 const PPPoE_BILLING_DIR = path.resolve(__dirname, 'data', 'billing', 'pppoe');
+const PPPoE_FORMS_DIR = path.resolve(__dirname, 'data', 'forms', 'pppoe');
 
 let pppoeExpiredPool = null;
 let pppoeExpiredRedirectIp = '';
@@ -4893,15 +4895,57 @@ app.get('/api/network/pppoe/users', requireAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+app.get('/api/network/pppoe/users/:id/form.pdf', requireAdmin, async (req, res) => {
+  try {
+    const userId = parseInt(String(req.params.id), 10);
+    if (!userId || Number.isNaN(userId)) return res.status(400).json({ error: 'Invalid id' });
+
+    const user = await db.get(
+      `SELECT u.*, bp.name as billing_profile_name, bp.price as amount, p.name as profile_name
+       FROM pppoe_users u
+       LEFT JOIN pppoe_billing_profiles bp ON bp.id = u.billing_profile_id
+       LEFT JOIN pppoe_profiles p ON p.id = bp.profile_id
+       WHERE u.id = ?`,
+      [userId]
+    );
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const safeBase = String(user.account_number || user.username || `user_${userId}`)
+      .replace(/[^a-zA-Z0-9._-]+/g, '_')
+      .slice(0, 80);
+    const outputPath = path.join(PPPoE_FORMS_DIR, `${safeBase}.pdf`);
+
+    const generated_at = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const generatedText = `${generated_at.getFullYear()}-${pad(generated_at.getMonth() + 1)}-${pad(generated_at.getDate())} ${pad(generated_at.getHours())}:${pad(generated_at.getMinutes())}:${pad(generated_at.getSeconds())}`;
+
+    const pdfPath = await generatePPPoEUserFormPdf({ outputPath, user: { ...user, generated_at: generatedText } });
+    if (!pdfPath) return res.status(500).json({ error: 'PDF generation unavailable' });
+
+    await db.run('UPDATE pppoe_users SET form_pdf_path = ? WHERE id = ?', [pdfPath, userId]).catch(() => {});
+
+    const resolved = path.resolve(pdfPath);
+    const allowed = path.resolve(PPPoE_FORMS_DIR);
+    if (!resolved.startsWith(allowed)) return res.status(400).json({ error: 'Invalid path' });
+    if (!fs.existsSync(resolved)) return res.status(404).json({ error: 'PDF not found' });
+
+    const download = String(req.query.download || '') === '1';
+    const filename = `${safeBase}.pdf`;
+    res.setHeader('Content-Type', 'application/pdf');
+    if (download) res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.sendFile(resolved);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.post('/api/network/pppoe/users', requireAdmin, async (req, res) => {
   try {
-    const { username, password, billing_profile_id, expires_at } = req.body;
+    const { username, password, billing_profile_id, expires_at, full_name, address, contact_number, email } = req.body;
     
     if (!username || !password) {
       return res.status(400).json({ error: 'Username and password required' });
     }
     
-    const result = await network.addPPPoEUser(username, password, billing_profile_id, expires_at);
+    const result = await network.addPPPoEUser(username, password, billing_profile_id, expires_at, { full_name, address, contact_number, email });
     res.json(result);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
