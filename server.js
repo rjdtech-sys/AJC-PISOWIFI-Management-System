@@ -4919,7 +4919,9 @@ app.get('/api/network/pppoe/users/:id/form.pdf', requireAdmin, async (req, res) 
     const pad = (n) => String(n).padStart(2, '0');
     const generatedText = `${generated_at.getFullYear()}-${pad(generated_at.getMonth() + 1)}-${pad(generated_at.getDate())} ${pad(generated_at.getHours())}:${pad(generated_at.getMinutes())}:${pad(generated_at.getSeconds())}`;
 
-    const pdfPath = await generatePPPoEUserFormPdf({ outputPath, user: { ...user, generated_at: generatedText } });
+    const company = await settings.getCompanySettings().catch(() => ({ companyName: 'AJC PISOWIFI' }));
+    const companyName = company?.companyName ? String(company.companyName) : 'AJC PISOWIFI';
+    const pdfPath = await generatePPPoEUserFormPdf({ outputPath, user: { ...user, company_name: companyName, generated_at: generatedText } });
     if (!pdfPath) return res.status(500).json({ error: 'PDF generation unavailable' });
 
     await db.run('UPDATE pppoe_users SET form_pdf_path = ? WHERE id = ?', [pdfPath, userId]).catch(() => {});
@@ -6476,6 +6478,9 @@ function startBackgroundTimers() {
 
       console.log(`[PPPoE-Expire] Found ${expiredUsers.length} expired users. Expired pool mode: ${pppoeExpiredPool ? 'ON' : 'OFF'}`);
 
+      const company = await settings.getCompanySettings().catch(() => ({ companyName: 'AJC PISOWIFI' }));
+      const companyName = company?.companyName ? String(company.companyName) : 'AJC PISOWIFI';
+
       if (!fs.existsSync(PPPoE_BILLING_DIR)) {
         fs.mkdirSync(PPPoE_BILLING_DIR, { recursive: true });
       }
@@ -6537,6 +6542,7 @@ function startBackgroundTimers() {
           const generatedPdf = await generatePPPoEInvoicePdf({
             outputPath: pdfPath,
             invoice: {
+              company_name: companyName,
               invoice_no: invoiceNo,
               generated_at: generatedAt,
               account_number: u.account_number || '',
