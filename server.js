@@ -4545,7 +4545,11 @@ app.post('/api/network/wireless', requireAdmin, async (req, res) => {
 
 app.post('/api/hotspots', requireAdmin, async (req, res) => {
   try {
-    await db.run('INSERT OR REPLACE INTO hotspots (interface, ip_address, dhcp_range, enabled) VALUES (?, ?, ?, 1)', [req.body.interface, req.body.ip_address, req.body.dhcp_range]);
+    const bw = Number.isFinite(Number(req.body.bandwidth_limit)) ? Number(req.body.bandwidth_limit) : null;
+    await db.run(
+      'INSERT OR REPLACE INTO hotspots (interface, ip_address, dhcp_range, bandwidth_limit, enabled) VALUES (?, ?, ?, ?, 1)',
+      [req.body.interface, req.body.ip_address, req.body.dhcp_range, bw]
+    );
     await network.setupHotspot(req.body);
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -4579,6 +4583,139 @@ app.post('/api/network/vlan', requireAdmin, async (req, res) => {
   } catch (err) { 
     console.error('[VLAN] Create Error:', err);
     res.status(500).json({ error: err.message }); 
+  }
+});
+
+app.post('/api/network/vlans/bulk', requireAdmin, async (req, res) => {
+  const makeSafeVlanName = (parent, id) => {
+    const base = String(parent || '').split('.')[0];
+    const suffix = `.${id}`;
+    const maxLen = 15;
+    const candidate = `${base}${suffix}`;
+    if (candidate.length <= maxLen) return candidate;
+    const allowed = maxLen - suffix.length;
+    if (allowed <= 0) return `v${id}`;
+    return `${base.slice(0, allowed)}${suffix}`;
+  };
+
+  const computeHotspotConfigForVlanId = (vlanId, netmask, bandwidthLimit) => {
+    const x = Math.max(0, Number(vlanId) - 1);
+    const oct2 = Math.floor(x / 254);
+    const oct3 = (x % 254) + 1;
+    const ipBase = `10.${oct2}.${oct3}`;
+    return {
+      ip_address: `${ipBase}.1`,
+      dhcp_range: `${ipBase}.50,${ipBase}.250`,
+      netmask: String(netmask || '255.255.255.0'),
+      bandwidth_limit: Number.isFinite(Number(bandwidthLimit)) ? Number(bandwidthLimit) : 10
+    };
+  };
+
+  try {
+    const parent = String(req.body?.parent || '');
+    const createHotspots = Boolean(req.body?.createHotspots);
+    const netmask = req.body?.netmask || '255.255.255.0';
+    const bandwidthLimit = req.body?.bandwidth_limit;
+
+    if (!parent) return res.status(400).json({ error: 'Parent interface is required' });
+
+    let ids = [];
+    if (Array.isArray(req.body?.ids)) {
+      ids = req.body.ids;
+    } else if (req.body?.range && (req.body.range.start || req.body.range.start === 0) && (req.body.range.end || req.body.range.end === 0)) {
+      const start = Number(req.body.range.start);
+      const end = Number(req.body.range.end);
+      if (!Number.isInteger(start) || !Number.isInteger(end)) {
+        return res.status(400).json({ error: 'Range start/end must be integers' });
+      }
+      if (end < start) return res.status(400).json({ error: 'Range end must be >= start' });
+      ids = Array.from({ length: (end - start) + 1 }, (_, i) => start + i);
+    } else {
+      return res.status(400).json({ error: 'Provide ids[] or range{start,end}' });
+    }
+
+    const normalized = Array.from(
+      new Set(
+        ids
+          .map(n => Number(n))
+          .filter(n => Number.isInteger(n) && n >= 1 && n <= 4094)
+      )
+    ).sort((a, b) => a - b);
+
+    if (normalized.length === 0) return res.status(400).json({ error: 'No valid VLAN IDs provided (1-4094)' });
+    if (normalized.length > 512) return res.status(400).json({ error: 'Too many VLAN IDs (max 512 per request)' });
+
+    const results = [];
+    let hotspotsConfigured = 0;
+    let hotspotsSkipped = 0;
+
+    for (const id of normalized) {
+      const vlanName = makeSafeVlanName(parent, id);
+      const existingVlan = await db.get('SELECT name FROM vlans WHERE name = ?', [vlanName]).catch(() => null);
+      try {
+        const createdName = await network.createVlan({ parent, id, name: vlanName });
+        await db.run('INSERT OR REPLACE INTO vlans (name, parent, id) VALUES (?, ?, ?)', [createdName, parent, id]);
+
+        let hotspot = { status: 'skipped' };
+        if (createHotspots) {
+          const existingHotspot = await db.get('SELECT interface FROM hotspots WHERE interface = ?', [createdName]).catch(() => null);
+          if (existingHotspot) {
+            hotspot = { status: 'exists' };
+            hotspotsSkipped += 1;
+          } else {
+            const hs = computeHotspotConfigForVlanId(id, netmask, bandwidthLimit);
+            await db.run(
+              'INSERT OR REPLACE INTO hotspots (interface, ip_address, dhcp_range, bandwidth_limit, enabled) VALUES (?, ?, ?, ?, 1)',
+              [createdName, hs.ip_address, hs.dhcp_range, hs.bandwidth_limit]
+            );
+            await network.setupHotspot({ interface: createdName, ip_address: hs.ip_address, dhcp_range: hs.dhcp_range, netmask: hs.netmask, bandwidth_limit: hs.bandwidth_limit }, true);
+            hotspot = { status: 'created', ip_address: hs.ip_address, dhcp_range: hs.dhcp_range };
+            hotspotsConfigured += 1;
+          }
+        }
+
+        results.push({
+          id,
+          name: createdName,
+          status: existingVlan ? 'exists' : 'created',
+          hotspot
+        });
+      } catch (e) {
+        results.push({
+          id,
+          name: vlanName,
+          status: 'failed',
+          error: e.message || String(e)
+        });
+      }
+    }
+
+    let dnsmasqRestarted = false;
+    let dnsmasqRestartError = null;
+    if (createHotspots && hotspotsConfigured > 0) {
+      try {
+        await network.restartDnsmasq();
+        dnsmasqRestarted = true;
+      } catch (e) {
+        dnsmasqRestartError = e.message || String(e);
+      }
+    }
+
+    const summary = results.reduce(
+      (acc, r) => {
+        acc.total += 1;
+        if (r.status === 'created') acc.created += 1;
+        else if (r.status === 'exists') acc.exists += 1;
+        else acc.failed += 1;
+        return acc;
+      },
+      { total: 0, created: 0, exists: 0, failed: 0, hotspots_created: hotspotsConfigured, hotspots_exists: hotspotsSkipped }
+    );
+
+    res.json({ success: true, parent, ids: normalized, createHotspots, summary, dnsmasqRestarted, dnsmasqRestartError, results });
+  } catch (err) {
+    console.error('[VLAN] Bulk Create Error:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 

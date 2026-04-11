@@ -33,6 +33,10 @@ const NetworkSettings: React.FC = () => {
   // VLAN State
   const [vlan, setVlan] = useState<VlanConfig>({ id: 10, parentInterface: 'eth0', name: 'eth0.10' });
   const [vlans, setVlans] = useState<any[]>([]);
+  const [vlanMode, setVlanMode] = useState<'single' | 'range' | 'bulk'>('single');
+  const [vlanRange, setVlanRange] = useState<{ start: number; end: number }>({ start: 10, end: 20 });
+  const [bulkVlanText, setBulkVlanText] = useState('10,11,12');
+  const [bulkCreatePortals, setBulkCreatePortals] = useState(true);
 
   // Bridge State
   const [bridge, setBridge] = useState({ name: 'br0', members: [] as string[], stp: false });
@@ -49,13 +53,19 @@ const NetworkSettings: React.FC = () => {
     return `${base.slice(0, allowed)}${suffix}`;
   };
 
+  const isPotentialWifi = (iface: NetworkInterface) => {
+    const name = (iface.name || '').toLowerCase();
+    const type = (iface.type || '').toLowerCase();
+    return type === 'wifi' || name.startsWith('wl') || name.startsWith('ap') || name.startsWith('ra');
+  };
+
 
 
   useEffect(() => { loadData(); }, []);
 
   useEffect(() => {
     if (interfaces.length > 0) {
-      const validParents = interfaces.filter(i => i.type === 'ethernet' || i.name.startsWith('wlan'));
+      const validParents = interfaces.filter(i => i.type === 'ethernet' || isPotentialWifi(i));
       if (validParents.length > 0) {
         // Check if current parent is valid
         const currentValid = validParents.find(i => i.name === vlan.parentInterface);
@@ -259,11 +269,51 @@ const NetworkSettings: React.FC = () => {
   // PPPoE Server Functions
 
 
-  // Helper to identify potential wireless interfaces
-  const isPotentialWifi = (iface: NetworkInterface) => {
-    const name = (iface.name || '').toLowerCase();
-    const type = (iface.type || '').toLowerCase();
-    return type === 'wifi' || name.startsWith('wlan') || name.startsWith('ap') || name.startsWith('ra');
+  const parseBulkVlanIds = (text: string) => {
+    const tokens = String(text || '')
+      .split(/[\s,]+/g)
+      .map(t => t.trim())
+      .filter(Boolean);
+
+    const out = new Set<number>();
+    for (const tok of tokens) {
+      const m = tok.match(/^(\d{1,4})\s*-\s*(\d{1,4})$/);
+      if (m) {
+        const a = Number(m[1]);
+        const b = Number(m[2]);
+        if (!Number.isInteger(a) || !Number.isInteger(b)) continue;
+        if (b < a) continue;
+        for (let i = a; i <= b; i++) out.add(i);
+        continue;
+      }
+      const n = Number(tok);
+      if (Number.isInteger(n)) out.add(n);
+    }
+    return Array.from(out).sort((a, b) => a - b);
+  };
+
+  const createVlansRangeOrBulk = async () => {
+    try {
+      setLoading(true);
+      const payload =
+        vlanMode === 'range'
+          ? { parentInterface: vlan.parentInterface, range: { start: vlanRange.start, end: vlanRange.end }, createHotspots: bulkCreatePortals }
+          : { parentInterface: vlan.parentInterface, ids: parseBulkVlanIds(bulkVlanText), createHotspots: bulkCreatePortals };
+
+      const data = await apiClient.createVlansBulk(payload as any);
+      await loadData();
+      const s = (data as any)?.summary;
+      const baseMsg = s
+        ? `VLANs: ${s.created} created, ${s.exists} existing, ${s.failed} failed`
+        : 'Bulk VLAN request completed';
+      const portalMsg = bulkCreatePortals && s ? ` • Portals: ${s.hotspots_created} created, ${s.hotspots_exists} existing` : '';
+      const dnsErr = (data as any)?.dnsmasqRestartError ? ` • dnsmasq: ${(data as any).dnsmasqRestartError}` : '';
+      alert(`${baseMsg}${portalMsg}${dnsErr}`);
+    } catch (e) {
+      alert('Failed to create VLANs.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -486,6 +536,41 @@ const NetworkSettings: React.FC = () => {
         <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
           <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">VLAN Engine</h3>
           <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setVlanMode('single')}
+                  className={`px-3 py-1.5 rounded-lg border text-[8px] font-black uppercase tracking-widest ${vlanMode === 'single' ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-200 text-slate-500'}`}
+                >
+                  Single
+                </button>
+                <button
+                  onClick={() => setVlanMode('range')}
+                  className={`px-3 py-1.5 rounded-lg border text-[8px] font-black uppercase tracking-widest ${vlanMode === 'range' ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-200 text-slate-500'}`}
+                >
+                  Range
+                </button>
+                <button
+                  onClick={() => setVlanMode('bulk')}
+                  className={`px-3 py-1.5 rounded-lg border text-[8px] font-black uppercase tracking-widest ${vlanMode === 'bulk' ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-200 text-slate-500'}`}
+                >
+                  Bulk
+                </button>
+              </div>
+
+              {(vlanMode === 'range' || vlanMode === 'bulk') && (
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={bulkCreatePortals}
+                    onChange={e => setBulkCreatePortals(e.target.checked)}
+                    className="w-3 h-3 rounded border-slate-300 text-blue-600"
+                  />
+                  <span className="text-[8px] font-black text-slate-600 uppercase">Auto Portal</span>
+                </label>
+              )}
+            </div>
+
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Parent</label>
@@ -494,21 +579,66 @@ const NetworkSettings: React.FC = () => {
                   onChange={e => setVlan({...vlan, parentInterface: e.target.value, name: makeSafeVlanName(e.target.value, vlan.id)})}
                   className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-bold"
                 >
-                  {interfaces.filter(i => i.type === 'ethernet' || i.name.startsWith('wlan')).map(i => <option key={i.name} value={i.name}>{i.name}</option>)}
+                  {interfaces.filter(i => i.type === 'ethernet' || isPotentialWifi(i)).map(i => <option key={i.name} value={i.name}>{i.name}</option>)}
                 </select>
               </div>
-              <div>
-                <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 block">VLAN ID</label>
-                <input type="number" value={vlan.id} onChange={e => setVlan({...vlan, id: parseInt(e.target.value), name: makeSafeVlanName(vlan.parentInterface, parseInt(e.target.value))})} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono" />
-              </div>
+              {vlanMode === 'single' ? (
+                <div>
+                  <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 block">VLAN ID</label>
+                  <input type="number" value={vlan.id} onChange={e => setVlan({...vlan, id: parseInt(e.target.value), name: makeSafeVlanName(vlan.parentInterface, parseInt(e.target.value))})} className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono" />
+                </div>
+              ) : vlanMode === 'range' ? (
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Start</label>
+                    <input
+                      type="number"
+                      value={vlanRange.start}
+                      onChange={e => setVlanRange({ ...vlanRange, start: parseInt(e.target.value) })}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 block">End</label>
+                    <input
+                      type="number"
+                      value={vlanRange.end}
+                      onChange={e => setVlanRange({ ...vlanRange, end: parseInt(e.target.value) })}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 block">IDs / Ranges</label>
+                  <input
+                    type="text"
+                    value={bulkVlanText}
+                    onChange={e => setBulkVlanText(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono"
+                    placeholder="10,11,12 or 10-20"
+                  />
+                </div>
+              )}
             </div>
-            <button
-              onClick={generateVlan}
-              disabled={loading}
-              className="admin-btn-primary w-full py-2 rounded-lg font-black text-[9px] uppercase tracking-widest"
-            >
-              Create: {vlan.name}
-            </button>
+
+            {vlanMode === 'single' ? (
+              <button
+                onClick={generateVlan}
+                disabled={loading}
+                className="admin-btn-primary w-full py-2 rounded-lg font-black text-[9px] uppercase tracking-widest"
+              >
+                Create: {vlan.name}
+              </button>
+            ) : (
+              <button
+                onClick={createVlansRangeOrBulk}
+                disabled={loading}
+                className="admin-btn-primary w-full py-2 rounded-lg font-black text-[9px] uppercase tracking-widest"
+              >
+                Create {vlanMode === 'range' ? `${vlanRange.start}-${vlanRange.end}` : 'Bulk VLANs'}
+              </button>
+            )}
             
             <div className="space-y-1.5">
               {vlans.map(v => (

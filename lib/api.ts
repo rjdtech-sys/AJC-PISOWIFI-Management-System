@@ -308,6 +308,35 @@ export const apiClient = {
     await handleResponse(res);
   },
 
+  async createVlansBulk(payload: {
+    parentInterface: string;
+    ids?: number[];
+    range?: { start: number; end: number };
+    createHotspots?: boolean;
+    netmask?: string;
+    bandwidth_limit?: number;
+  }): Promise<{
+    success: boolean;
+    summary?: any;
+    results?: any[];
+    dnsmasqRestarted?: boolean;
+    dnsmasqRestartError?: string | null;
+  }> {
+    const res = await fetch(`${API_BASE}/network/vlans/bulk`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({
+        parent: payload.parentInterface,
+        ids: payload.ids,
+        range: payload.range,
+        createHotspots: payload.createHotspots,
+        netmask: payload.netmask,
+        bandwidth_limit: payload.bandwidth_limit
+      })
+    });
+    return handleResponse(res);
+  },
+
   async getVlans(): Promise<any[]> {
     const res = await fetch(`${API_BASE}/network/vlans`, { headers: getHeaders() });
     return handleResponse(res);
