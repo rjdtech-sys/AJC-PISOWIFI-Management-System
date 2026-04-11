@@ -2,10 +2,13 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { apiClient } from '../../lib/api';
 import { MikrotikBillingData, MikrotikRouter } from '../../types';
 import AddRouterCard from './MikroTik/AddRouterCard';
-import BillingCard from './MikroTik/BillingCard';
 import ReadonlyCard from './MikroTik/ReadonlyCard';
 import RouterConnectionsCard from './MikroTik/RouterConnectionsCard';
 import SnapshotCard from './MikroTik/SnapshotCard';
+import PppoeActivePage from './MikroTik/PppoeActivePage';
+import PppoeProfilesPage from './MikroTik/PppoeProfilesPage';
+import PppoeSecretsPage from './MikroTik/PppoeSecretsPage';
+import SubPageSelector, { MikrotikSubPage } from './MikroTik/SubPageSelector';
 
 const MikroTikManagement: React.FC = () => {
   const [routers, setRouters] = useState<MikrotikRouter[]>([]);
@@ -13,6 +16,8 @@ const MikroTikManagement: React.FC = () => {
   const [billing, setBilling] = useState<MikrotikBillingData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
+
+  const [subPage, setSubPage] = useState<MikrotikSubPage>('add_router');
 
   const [newRouter, setNewRouter] = useState({
     name: '',
@@ -64,12 +69,13 @@ const MikroTikManagement: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    if (subPage === 'add_router') return;
     if (!selectedRouterId) {
       setBilling(null);
       return;
     }
     refreshBilling(selectedRouterId);
-  }, [selectedRouterId]);
+  }, [selectedRouterId, subPage]);
 
   const onCreateRouter = async () => {
     if (!newRouter.name || !newRouter.host || !newRouter.username || !newRouter.password) {
@@ -178,14 +184,19 @@ const MikroTikManagement: React.FC = () => {
           </button>
           <button
             type="button"
-            onClick={() => selectedRouterId && refreshBilling(selectedRouterId)}
+            onClick={() => selectedRouterId && subPage !== 'add_router' && refreshBilling(selectedRouterId)}
             className="admin-btn-primary px-4 py-2 rounded-xl text-[11px] font-bold uppercase tracking-widest"
-            disabled={loading || !selectedRouterId}
+            disabled={loading || !selectedRouterId || subPage === 'add_router'}
           >
             Refresh Data
           </button>
         </div>
       </div>
+
+      <SubPageSelector value={subPage} onChange={(next) => {
+        setSubPage(next);
+        setError('');
+      }} disabled={loading} />
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-800 rounded-2xl p-4 text-sm">
@@ -204,23 +215,31 @@ const MikroTikManagement: React.FC = () => {
             onTestSelected={() => selectedRouter && onTestRouter(selectedRouter.id)}
           />
 
-          <AddRouterCard
-            loading={loading}
-            draftTest={draftTest}
-            value={newRouter}
-            onChange={(next) => {
-              setNewRouter(next);
-              if (draftTest.status !== 'idle') setDraftTest({ status: 'idle', message: '' });
-            }}
-            onTest={onTestDraft}
-            onSave={onCreateRouter}
-          />
+          {subPage === 'add_router' && (
+            <AddRouterCard
+              loading={loading}
+              draftTest={draftTest}
+              value={newRouter}
+              onChange={(next) => {
+                setNewRouter(next);
+                if (draftTest.status !== 'idle') setDraftTest({ status: 'idle', message: '' });
+              }}
+              onTest={onTestDraft}
+              onSave={onCreateRouter}
+            />
+          )}
         </div>
 
         <div className="lg:col-span-8 space-y-6">
-          <SnapshotCard selectedRouter={selectedRouter} selectedRouterId={selectedRouterId} loading={loading} billing={billing} />
-          <BillingCard billing={billing} loading={loading} />
-          <ReadonlyCard />
+          {subPage !== 'add_router' && (
+            <SnapshotCard selectedRouter={selectedRouter} selectedRouterId={selectedRouterId} loading={loading} billing={billing} />
+          )}
+
+          {subPage === 'pppoe_secrets' && <PppoeSecretsPage billing={billing} loading={loading} />}
+          {subPage === 'pppoe_profiles' && <PppoeProfilesPage billing={billing} loading={loading} />}
+          {subPage === 'pppoe_active' && <PppoeActivePage billing={billing} loading={loading} />}
+
+          {subPage !== 'add_router' && <ReadonlyCard />}
         </div>
       </div>
     </div>
