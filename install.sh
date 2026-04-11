@@ -130,6 +130,24 @@ else
     npm install -g node-gyp@10 pm2
 fi
 
+echo -e "${GREEN}Ensuring Python tooling for native Node builds...${NC}"
+apt-get install -y python3-setuptools || true
+
+if ! python3 -c "import distutils.version" >/dev/null 2>&1; then
+    apt-get install -y python3-distutils || true
+fi
+
+if ! python3 -c "import distutils.version" >/dev/null 2>&1; then
+    PY_VENV="/opt/ajc-python-venv"
+    python3 -m venv "$PY_VENV"
+    "$PY_VENV/bin/python" -m pip install --no-input --upgrade pip setuptools
+    export PYTHON="$PY_VENV/bin/python"
+    npm config set python "$PYTHON" >/dev/null 2>&1 || true
+    echo -e "${YELLOW}Using venv Python for node-gyp: ${PYTHON}${NC}"
+else
+    npm config set python "$(command -v python3)" >/dev/null 2>&1 || true
+fi
+
 echo -e "${GREEN}[5/8] Preparing Project Directory...${NC}"
 INSTALL_DIR="/opt/ajc-pisowifi"
 if [ ! -d "$INSTALL_DIR" ]; then
