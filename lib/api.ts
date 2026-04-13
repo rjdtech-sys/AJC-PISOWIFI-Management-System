@@ -1124,5 +1124,58 @@ export const apiClient = {
   async getMikrotikBillingData(id: string): Promise<MikrotikBillingData> {
     const res = await fetch(`${API_BASE}/mikrotik/routers/${encodeURIComponent(id)}/billing`, { headers: getHeaders() });
     return handleResponse(res);
+  },
+  async createMikrotikSecret(routerId: string, data: any): Promise<any> {
+    const res = await fetch(`${API_BASE}/mikrotik/routers/${encodeURIComponent(routerId)}/secrets`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(data)
+    });
+    return handleResponse(res);
+  },
+  async updateMikrotikSecret(routerId: string, secretId: string, data: any): Promise<any> {
+    const res = await fetch(`${API_BASE}/mikrotik/routers/${encodeURIComponent(routerId)}/secrets/${encodeURIComponent(secretId)}`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify(data)
+    });
+    return handleResponse(res);
+  },
+  async deleteMikrotikSecret(routerId: string, secretId: string): Promise<any> {
+    const res = await fetch(`${API_BASE}/mikrotik/routers/${encodeURIComponent(routerId)}/secrets/${encodeURIComponent(secretId)}`, {
+      method: 'DELETE',
+      headers: getHeaders()
+    });
+    return handleResponse(res);
+  },
+  async createMikrotikProfile(routerId: string, data: any): Promise<any> {
+    const res = await fetch(`${API_BASE}/mikrotik/routers/${encodeURIComponent(routerId)}/profiles`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(data)
+    });
+    return handleResponse(res);
+  },
+  async updateMikrotikProfile(routerId: string, profileId: string, data: any): Promise<any> {
+    const res = await fetch(`${API_BASE}/mikrotik/routers/${encodeURIComponent(routerId)}/profiles/${encodeURIComponent(profileId)}`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify(data)
+    });
+    return handleResponse(res);
+  },
+  async deleteMikrotikProfile(routerId: string, profileId: string): Promise<any> {
+    const res = await fetch(`${API_BASE}/mikrotik/routers/${encodeURIComponent(routerId)}/profiles/${encodeURIComponent(profileId)}`, {
+      method: 'DELETE',
+      headers: getHeaders()
+    });
+    return handleResponse(res);
+  },
+  async disconnectMikrotikActive(routerId: string, activeId: string): Promise<any> {
+    const res = await fetch(`${API_BASE}/mikrotik/routers/${encodeURIComponent(routerId)}/active/${encodeURIComponent(activeId)}`, {
+      method: 'DELETE',
+      headers: getHeaders()
+    });
+    return handleResponse(res);
   }
 };

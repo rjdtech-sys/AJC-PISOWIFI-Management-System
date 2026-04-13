@@ -729,6 +729,91 @@ app.get('/api/mikrotik/routers/:id/billing', requireAdmin, async (req, res) => {
   }
 });
 
+// PPPoE Secrets CRUD
+app.post('/api/mikrotik/routers/:id/secrets', requireAdmin, async (req, res) => {
+  try {
+    const routerId = String(req.params.id || '');
+    if (!routerId) return res.status(400).json({ error: 'Invalid router id' });
+    const result = await mikrotikReadonly.createSecret(routerId, req.body || {});
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/mikrotik/routers/:id/secrets/:secretId', requireAdmin, async (req, res) => {
+  try {
+    const routerId = String(req.params.id || '');
+    const secretId = String(req.params.secretId || '');
+    if (!routerId || !secretId) return res.status(400).json({ error: 'Invalid ids' });
+    const result = await mikrotikReadonly.updateSecret(routerId, secretId, req.body || {});
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/mikrotik/routers/:id/secrets/:secretId', requireAdmin, async (req, res) => {
+  try {
+    const routerId = String(req.params.id || '');
+    const secretId = String(req.params.secretId || '');
+    if (!routerId || !secretId) return res.status(400).json({ error: 'Invalid ids' });
+    const result = await mikrotikReadonly.deleteSecret(routerId, secretId);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PPPoE Profiles CRUD
+app.post('/api/mikrotik/routers/:id/profiles', requireAdmin, async (req, res) => {
+  try {
+    const routerId = String(req.params.id || '');
+    if (!routerId) return res.status(400).json({ error: 'Invalid router id' });
+    const result = await mikrotikReadonly.createProfile(routerId, req.body || {});
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/mikrotik/routers/:id/profiles/:profileId', requireAdmin, async (req, res) => {
+  try {
+    const routerId = String(req.params.id || '');
+    const profileId = String(req.params.profileId || '');
+    if (!routerId || !profileId) return res.status(400).json({ error: 'Invalid ids' });
+    const result = await mikrotikReadonly.updateProfile(routerId, profileId, req.body || {});
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/mikrotik/routers/:id/profiles/:profileId', requireAdmin, async (req, res) => {
+  try {
+    const routerId = String(req.params.id || '');
+    const profileId = String(req.params.profileId || '');
+    if (!routerId || !profileId) return res.status(400).json({ error: 'Invalid ids' });
+    const result = await mikrotikReadonly.deleteProfile(routerId, profileId);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PPPoE Active Sessions
+app.delete('/api/mikrotik/routers/:id/active/:activeId', requireAdmin, async (req, res) => {
+  try {
+    const routerId = String(req.params.id || '');
+    const activeId = String(req.params.activeId || '');
+    if (!routerId || !activeId) return res.status(400).json({ error: 'Invalid ids' });
+    const result = await mikrotikReadonly.disconnectActive(routerId, activeId);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // LICENSE MANAGEMENT API
 app.get('/api/license/status', async (req, res) => {
   try {

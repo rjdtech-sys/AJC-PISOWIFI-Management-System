@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { apiClient } from '../../lib/api';
 import { MikrotikBillingData, MikrotikRouter } from '../../types';
 import AddRouterCard from './MikroTik/AddRouterCard';
-import ReadonlyCard from './MikroTik/ReadonlyCard';
+import CrudModeCard from './MikroTik/ReadonlyCard';
 import RouterConnectionsCard from './MikroTik/RouterConnectionsCard';
 import SnapshotCard from './MikroTik/SnapshotCard';
 import PppoeActivePage from './MikroTik/PppoeActivePage';
@@ -171,7 +171,7 @@ const MikroTikManagement: React.FC = () => {
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
           <h1 className="text-xl font-black text-slate-900 uppercase tracking-tight">MikroTik Management</h1>
-          <p className="text-xs text-slate-500">Read-only billing-related data via RouterOS API or REST API.</p>
+          <p className="text-xs text-slate-500">Full CRUD management for RouterOS via API or REST API.</p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -235,11 +235,11 @@ const MikroTikManagement: React.FC = () => {
             <SnapshotCard selectedRouter={selectedRouter} selectedRouterId={selectedRouterId} loading={loading} billing={billing} />
           )}
 
-          {subPage === 'pppoe_secrets' && <PppoeSecretsPage billing={billing} loading={loading} />}
-          {subPage === 'pppoe_profiles' && <PppoeProfilesPage billing={billing} loading={loading} />}
-          {subPage === 'pppoe_active' && <PppoeActivePage billing={billing} loading={loading} />}
+          {subPage === 'pppoe_secrets' && <PppoeSecretsPage billing={billing} loading={loading} routerId={selectedRouterId} onRefresh={() => selectedRouterId && refreshBilling(selectedRouterId)} />}
+          {subPage === 'pppoe_profiles' && <PppoeProfilesPage billing={billing} loading={loading} routerId={selectedRouterId} onRefresh={() => selectedRouterId && refreshBilling(selectedRouterId)} />}
+          {subPage === 'pppoe_active' && <PppoeActivePage billing={billing} loading={loading} routerId={selectedRouterId} onRefresh={() => selectedRouterId && refreshBilling(selectedRouterId)} />}
 
-          {subPage !== 'add_router' && <ReadonlyCard />}
+          {subPage !== 'add_router' && <CrudModeCard />}
         </div>
       </div>
     </div>
