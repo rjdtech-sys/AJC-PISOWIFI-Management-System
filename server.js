@@ -814,6 +814,85 @@ app.delete('/api/mikrotik/routers/:id/active/:activeId', requireAdmin, async (re
   }
 });
 
+// Billing Plans CRUD
+app.get('/api/mikrotik/routers/:id/billing-plans', requireAdmin, async (req, res) => {
+  try {
+    const routerId = String(req.params.id || '');
+    if (!routerId) return res.status(400).json({ error: 'Invalid router id' });
+    const plans = await db.all(
+      'SELECT * FROM mikrotik_billing_plans WHERE router_id = ? ORDER BY created_at DESC',
+      [routerId]
+    );
+    res.json(plans || []);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/mikrotik/routers/:id/billing-plans', requireAdmin, async (req, res) => {
+  try {
+    const routerId = String(req.params.id || '');
+    if (!routerId) return res.status(400).json({ error: 'Invalid router id' });
+    
+    const { plan_name, pppoe_profile, price, currency, is_active } = req.body || {};
+    if (!plan_name || !pppoe_profile || price === undefined) {
+      return res.status(400).json({ error: 'Plan name, PPPoE profile, and price are required' });
+    }
+    
+    const id = require('crypto').randomUUID();
+    await db.run(
+      'INSERT INTO mikrotik_billing_plans (id, router_id, plan_name, pppoe_profile, price, currency, is_active) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [id, routerId, plan_name, pppoe_profile, price, currency || 'PHP', is_active !== undefined ? is_active : 1]
+    );
+    
+    const plan = await db.get('SELECT * FROM mikrotik_billing_plans WHERE id = ?', [id]);
+    res.json({ success: true, data: plan });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/mikrotik/routers/:id/billing-plans/:planId', requireAdmin, async (req, res) => {
+  try {
+    const routerId = String(req.params.id || '');
+    const planId = String(req.params.planId || '');
+    if (!routerId || !planId) return res.status(400).json({ error: 'Invalid ids' });
+    
+    const { plan_name, pppoe_profile, price, currency, is_active } = req.body || {};
+    const fields = [];
+    const values = [];
+    
+    if (plan_name !== undefined) { fields.push('plan_name = ?'); values.push(plan_name); }
+    if (pppoe_profile !== undefined) { fields.push('pppoe_profile = ?'); values.push(pppoe_profile); }
+    if (price !== undefined) { fields.push('price = ?'); values.push(price); }
+    if (currency !== undefined) { fields.push('currency = ?'); values.push(currency); }
+    if (is_active !== undefined) { fields.push('is_active = ?'); values.push(is_active); }
+    fields.push('updated_at = CURRENT_TIMESTAMP');
+    values.push(planId);
+    
+    if (fields.length === 0) return res.status(400).json({ error: 'No fields to update' });
+    
+    await db.run(`UPDATE mikrotik_billing_plans SET ${fields.join(', ')} WHERE id = ? AND router_id = ?`, [...values, routerId]);
+    const plan = await db.get('SELECT * FROM mikrotik_billing_plans WHERE id = ?', [planId]);
+    res.json({ success: true, data: plan });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/mikrotik/routers/:id/billing-plans/:planId', requireAdmin, async (req, res) => {
+  try {
+    const routerId = String(req.params.id || '');
+    const planId = String(req.params.planId || '');
+    if (!routerId || !planId) return res.status(400).json({ error: 'Invalid ids' });
+    
+    await db.run('DELETE FROM mikrotik_billing_plans WHERE id = ? AND router_id = ?', [planId, routerId]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // LICENSE MANAGEMENT API
 app.get('/api/license/status', async (req, res) => {
   try {

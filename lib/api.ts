@@ -1177,5 +1177,32 @@ export const apiClient = {
       headers: getHeaders()
     });
     return handleResponse(res);
+  },
+  async getMikrotikBillingPlans(routerId: string): Promise<any[]> {
+    const res = await fetch(`${API_BASE}/mikrotik/routers/${encodeURIComponent(routerId)}/billing-plans`, { headers: getHeaders() });
+    return handleResponse(res);
+  },
+  async createMikrotikBillingPlan(routerId: string, data: any): Promise<any> {
+    const res = await fetch(`${API_BASE}/mikrotik/routers/${encodeURIComponent(routerId)}/billing-plans`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(data)
+    });
+    return handleResponse(res);
+  },
+  async updateMikrotikBillingPlan(routerId: string, planId: string, data: any): Promise<any> {
+    const res = await fetch(`${API_BASE}/mikrotik/routers/${encodeURIComponent(routerId)}/billing-plans/${encodeURIComponent(planId)}`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify(data)
+    });
+    return handleResponse(res);
+  },
+  async deleteMikrotikBillingPlan(routerId: string, planId: string): Promise<any> {
+    const res = await fetch(`${API_BASE}/mikrotik/routers/${encodeURIComponent(routerId)}/billing-plans/${encodeURIComponent(planId)}`, {
+      method: 'DELETE',
+      headers: getHeaders()
+    });
+    return handleResponse(res);
   }
 };

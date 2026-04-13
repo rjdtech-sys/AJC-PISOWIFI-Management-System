@@ -1,6 +1,6 @@
 import React from 'react';
 
-export type MikrotikSubPage = 'add_router' | 'pppoe_secrets' | 'pppoe_profiles' | 'pppoe_active';
+export type MikrotikSubPage = 'add_router' | 'pppoe_secrets' | 'pppoe_profiles' | 'pppoe_active' | 'billing_plans';
 
 type Item = { id: MikrotikSubPage; label: string };
 
@@ -8,7 +8,8 @@ const items: Item[] = [
   { id: 'add_router', label: 'Add Router' },
   { id: 'pppoe_secrets', label: 'PPPoE Secrets/Users' },
   { id: 'pppoe_profiles', label: 'PPPoE Profiles' },
-  { id: 'pppoe_active', label: 'PPPoE Active' }
+  { id: 'pppoe_active', label: 'PPPoE Active' },
+  { id: 'billing_plans', label: 'Billing Plans' }
 ];
 
 type Props = {
