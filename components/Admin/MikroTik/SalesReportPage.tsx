@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { apiClient } from '../../../lib/api';
 
 interface SalesReportPageProps {
   routerId: string;
@@ -20,22 +21,8 @@ const SalesReportPage: React.FC<SalesReportPageProps> = ({ routerId }) => {
       setLoading(true);
       console.log('[SalesReport] Fetching sales for router:', routerId);
       
-      let url = `/api/mikrotik/routers/${routerId}/sales`;
-      const params = new URLSearchParams();
-      
-      if (startDate) params.append('start_date', startDate);
-      if (endDate) params.append('end_date', endDate);
-      
-      if (params.toString()) url += `?${params.toString()}`;
-
-      console.log('[SalesReport] Request URL:', url);
-
-      const response = await fetch(url, { credentials: 'include' });
-      console.log('[SalesReport] Response status:', response.status);
-      
-      if (!response.ok) throw new Error('Failed to fetch sales');
-      
-      const data = await response.json();
+      // Use apiClient to get proper authentication
+      const data = await apiClient.getMikrotikSales(routerId, startDate, endDate);
       console.log('[SalesReport] Received data:', data);
       console.log('[SalesReport] Number of sales:', data.length);
       
