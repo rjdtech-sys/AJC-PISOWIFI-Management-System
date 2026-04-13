@@ -770,6 +770,23 @@ app.delete('/api/mikrotik/routers/:id/secrets/:secretId', requireAdmin, async (r
 });
 
 // PPPoE Profiles CRUD
+// PPPoE Profiles CRUD
+app.get('/api/mikrotik/routers/:id/profiles', requireAdmin, async (req, res) => {
+  try {
+    const routerId = String(req.params.id || '');
+    if (!routerId) return res.status(400).json({ error: 'Invalid router id' });
+    
+    const router = await db.get('SELECT * FROM mikrotik_routers WHERE id = ?', [routerId]);
+    if (!router) return res.status(404).json({ error: 'Router not found' });
+    
+    const profiles = await mikrotikReadonly.getProfiles(routerId);
+    res.json(profiles || []);
+  } catch (err) {
+    console.error('[MikroTik] Error fetching profiles:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/mikrotik/routers/:id/profiles', requireAdmin, async (req, res) => {
   try {
     const routerId = String(req.params.id || '');
