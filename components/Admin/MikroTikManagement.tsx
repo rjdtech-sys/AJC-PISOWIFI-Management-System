@@ -206,8 +206,9 @@ const MikroTikManagement: React.FC = () => {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <div className="lg:col-span-4 space-y-6">
+      <div className="space-y-6">
+        {/* Router Connections Card - Full Width at Top */}
+        {subPage !== 'add_router' && (
           <RouterConnectionsCard
             routers={routers}
             selectedRouterId={selectedRouterId}
@@ -216,34 +217,38 @@ const MikroTikManagement: React.FC = () => {
             onDelete={onDeleteRouter}
             onTestSelected={() => selectedRouter && onTestRouter(selectedRouter.id)}
           />
+        )}
 
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {subPage === 'add_router' && (
-            <AddRouterCard
-              loading={loading}
-              draftTest={draftTest}
-              value={newRouter}
-              onChange={(next) => {
-                setNewRouter(next);
-                if (draftTest.status !== 'idle') setDraftTest({ status: 'idle', message: '' });
-              }}
-              onTest={onTestDraft}
-              onSave={onCreateRouter}
-            />
-          )}
-        </div>
-
-        <div className="lg:col-span-8 space-y-6">
-          {subPage !== 'add_router' && subPage !== 'pppoe_secrets' && subPage !== 'sales_report' && (
-            <SnapshotCard selectedRouter={selectedRouter} selectedRouterId={selectedRouterId} loading={loading} billing={billing} />
+            <div className="lg:col-span-4 space-y-6">
+              <AddRouterCard
+                loading={loading}
+                draftTest={draftTest}
+                value={newRouter}
+                onChange={(next) => {
+                  setNewRouter(next);
+                  if (draftTest.status !== 'idle') setDraftTest({ status: 'idle', message: '' });
+                }}
+                onTest={onTestDraft}
+                onSave={onCreateRouter}
+              />
+            </div>
           )}
 
-          {subPage === 'pppoe_secrets' && <PppoeSecretsPage billing={billing} loading={loading} routerId={selectedRouterId} onRefresh={() => selectedRouterId && refreshBilling(selectedRouterId)} />}
-          {subPage === 'pppoe_profiles' && <PppoeProfilesPage billing={billing} loading={loading} routerId={selectedRouterId} onRefresh={() => selectedRouterId && refreshBilling(selectedRouterId)} />}
-          {subPage === 'pppoe_active' && <PppoeActivePage billing={billing} loading={loading} routerId={selectedRouterId} onRefresh={() => selectedRouterId && refreshBilling(selectedRouterId)} />}
-          {subPage === 'billing_plans' && <BillingPlansPage billing={billing} loading={loading} routerId={selectedRouterId} onRefresh={() => selectedRouterId && refreshBilling(selectedRouterId)} />}
-          {subPage === 'sales_report' && selectedRouterId && <SalesReportPage routerId={selectedRouterId} />}
+          <div className={subPage === 'add_router' ? 'lg:col-span-8 space-y-6' : 'lg:col-span-12 space-y-6'}>
+            {subPage !== 'add_router' && subPage !== 'pppoe_secrets' && subPage !== 'sales_report' && (
+              <SnapshotCard selectedRouter={selectedRouter} selectedRouterId={selectedRouterId} loading={loading} billing={billing} />
+            )}
 
-          {subPage !== 'add_router' && <CrudModeCard />}
+            {subPage === 'pppoe_secrets' && <PppoeSecretsPage billing={billing} loading={loading} routerId={selectedRouterId} onRefresh={() => selectedRouterId && refreshBilling(selectedRouterId)} />}
+            {subPage === 'pppoe_profiles' && <PppoeProfilesPage billing={billing} loading={loading} routerId={selectedRouterId} onRefresh={() => selectedRouterId && refreshBilling(selectedRouterId)} />}
+            {subPage === 'pppoe_active' && <PppoeActivePage billing={billing} loading={loading} routerId={selectedRouterId} onRefresh={() => selectedRouterId && refreshBilling(selectedRouterId)} />}
+            {subPage === 'billing_plans' && <BillingPlansPage billing={billing} loading={loading} routerId={selectedRouterId} onRefresh={() => selectedRouterId && refreshBilling(selectedRouterId)} />}
+            {subPage === 'sales_report' && selectedRouterId && <SalesReportPage routerId={selectedRouterId} />}
+
+            {subPage !== 'add_router' && <CrudModeCard />}
+          </div>
         </div>
       </div>
     </div>
