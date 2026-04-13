@@ -927,6 +927,7 @@ app.post('/api/mikrotik/routers/:id/process-payment', requireAdmin, async (req, 
       plan_name, 
       amount,
       original_amount,
+      num_months,
       discount_days,
       discount_amount,
       currency,
@@ -948,14 +949,15 @@ app.post('/api/mikrotik/routers/:id/process-payment', requireAdmin, async (req, 
       routerId,
       username,
       amount,
+      num_months,
       payment_date,
       next_duedate
     });
     
     // Save payment record with discount info
     await db.run(
-      'INSERT INTO mikrotik_sales (id, router_id, secret_id, username, billing_plan_id, plan_name, amount, original_amount, discount_days, discount_amount, currency, payment_date, next_duedate, expired_profile, payment_method, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [id, routerId, secret_id, username, billing_plan_id, plan_name, amount, original_amount || amount, discount_days || 0, discount_amount || 0, currency || 'PHP', payment_date, next_duedate, expired_profile, payment_method || 'cash', notes || '']
+      'INSERT INTO mikrotik_sales (id, router_id, secret_id, username, billing_plan_id, plan_name, amount, original_amount, num_months, discount_days, discount_amount, currency, payment_date, next_duedate, expired_profile, payment_method, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [id, routerId, secret_id, username, billing_plan_id, plan_name, amount, original_amount || amount, num_months || 1, discount_days || 0, discount_amount || 0, currency || 'PHP', payment_date, next_duedate, expired_profile, payment_method || 'cash', notes || '']
     );
     
     console.log('[MikroTik Payment] Payment record saved to database');

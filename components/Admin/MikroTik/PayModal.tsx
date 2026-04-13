@@ -16,6 +16,7 @@ const PayModal: React.FC<PayModalProps> = ({ isOpen, onClose, secret, billingPla
   const [localProfiles, setLocalProfiles] = useState<any[]>(profiles);
   const [expiredProfile, setExpiredProfile] = useState('');
   const [paymentDate, setPaymentDate] = useState('');
+  const [numMonths, setNumMonths] = useState(1);
   const [discountDays, setDiscountDays] = useState(0);
   const [notes, setNotes] = useState('');
   const [processing, setProcessing] = useState(false);
@@ -62,11 +63,14 @@ const PayModal: React.FC<PayModalProps> = ({ isOpen, onClose, secret, billingPla
     }
   };
 
-  const calculateNextDueDate = (currentDueDate: string) => {
-    // Add exactly 1 month while preserving time
-    const date = new Date(currentDueDate);
-    date.setMonth(date.getMonth() + 1);
-    return date.toISOString();
+  const calculateNextDueDate = (currentDueDate: string, paymentDate: string) => {
+    // If there's an existing due date, extend from that
+    // Otherwise, start from payment date
+    const baseDate = currentDueDate ? new Date(currentDueDate) : new Date(paymentDate);
+    
+    // Add number of months based on numMonths state
+    baseDate.setMonth(baseDate.getMonth() + numMonths);
+    return baseDate.toISOString();
   };
 
   const calculateDiscount = () => {
@@ -75,10 +79,16 @@ const PayModal: React.FC<PayModalProps> = ({ isOpen, onClose, secret, billingPla
     return dailyRate * discountDays;
   };
 
+  const calculateTotalAmount = () => {
+    if (!selectedPlan) return 0;
+    return selectedPlan.price * numMonths;
+  };
+
   const calculateFinalAmount = () => {
     if (!selectedPlan) return 0;
+    const totalAmount = calculateTotalAmount();
     const discount = calculateDiscount();
-    return Math.max(0, selectedPlan.price - discount);
+    return Math.max(0, totalAmount - discount);
   };
 
   const handleProcessPayment = async () => {
@@ -102,7 +112,7 @@ const PayModal: React.FC<PayModalProps> = ({ isOpen, onClose, secret, billingPla
 
     try {
       const paymentDateObj = new Date(paymentDate);
-      const nextDueDate = calculateNextDueDate(secret.duedate || paymentDate);
+      const nextDueDate = calculateNextDueDate(secret.duedate, paymentDate);
       const finalAmount = calculateFinalAmount();
       const discount = calculateDiscount();
 
@@ -113,7 +123,8 @@ const PayModal: React.FC<PayModalProps> = ({ isOpen, onClose, secret, billingPla
         plan_name: selectedPlan.plan_name,
         pppoe_profile: selectedPlan.pppoe_profile,
         amount: finalAmount,
-        original_amount: selectedPlan.price,
+        original_amount: calculateTotalAmount(),
+        num_months: numMonths,
         discount_days: discountDays,
         discount_amount: discount,
         currency: selectedPlan.currency || 'PHP',
@@ -239,6 +250,25 @@ const PayModal: React.FC<PayModalProps> = ({ isOpen, onClose, secret, billingPla
             />
           </div>
 
+          {/* Number of Months */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Number of Months
+            </label>
+            <input
+              type="number"
+              min="1"
+              max="12"
+              value={numMonths}
+              onChange={(e) => setNumMonths(Math.max(1, parseInt(e.target.value) || 1))}
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              placeholder="Enter number of months"
+            />
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              How many months the client is paying for
+            </p>
+          </div>
+
           {/* Discount Days */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -271,9 +301,21 @@ const PayModal: React.FC<PayModalProps> = ({ isOpen, onClose, secret, billingPla
               <h3 className="text-sm font-semibold text-blue-800 dark:text-blue-300 mb-2">Payment Summary</h3>
               <div className="space-y-1 text-sm">
                 <div className="flex justify-between text-gray-700 dark:text-gray-300">
-                  <span>Plan Price:</span>
+                  <span>Plan Price (per month):</span>
                   <span>{selectedPlan.currency || 'PHP'} {selectedPlan.price.toFixed(2)}</span>
                 </div>
+                {numMonths > 1 && (
+                  <div className="flex justify-between text-gray-700 dark:text-gray-300">
+                    <span>Number of Months:</span>
+                    <span>× {numMonths} months</span>
+                  </div>
+                )}
+                {numMonths > 1 && (
+                  <div className="flex justify-between text-gray-700 dark:text-gray-300 font-medium">
+                    <span>Subtotal:</span>
+                    <span>{selectedPlan.currency || 'PHP'} {calculateTotalAmount().toFixed(2)}</span>
+                  </div>
+                )}
                 {discountDays > 0 && (
                   <div className="flex justify-between text-red-600 dark:text-red-400">
                     <span>Discount ({discountDays} days):</span>
