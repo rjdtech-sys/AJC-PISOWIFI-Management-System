@@ -22,7 +22,6 @@ const PppoeSecretsPage: React.FC<Props> = ({ billing, loading, routerId, onRefre
     pppoe_profile: '',
     expired_profile: '',
     service: 'any',
-    disabled: 'false',
     comment: '',
     duedate: ''
   });
@@ -50,7 +49,7 @@ const PppoeSecretsPage: React.FC<Props> = ({ billing, loading, routerId, onRefre
   };
 
   const resetForm = () => {
-    setFormData({ name: '', password: '', billing_plan_id: '', pppoe_profile: '', expired_profile: '', service: 'any', disabled: 'false', comment: '', duedate: '' });
+    setFormData({ name: '', password: '', billing_plan_id: '', pppoe_profile: '', expired_profile: '', service: 'any', comment: '', duedate: '' });
     setShowForm(false);
     setEditingId(null);
   };
@@ -73,7 +72,6 @@ const PppoeSecretsPage: React.FC<Props> = ({ billing, loading, routerId, onRefre
         pppoe_profile: formData.pppoe_profile,
         expired_profile: formData.expired_profile,
         service: formData.service,
-        disabled: formData.disabled,
         comment: formData.comment,
         duedate: formData.duedate || null
       });
@@ -95,7 +93,6 @@ const PppoeSecretsPage: React.FC<Props> = ({ billing, loading, routerId, onRefre
       pppoe_profile: secret.profile || '',
       expired_profile: secret.expired_profile || '',
       service: secret.service || 'any',
-      disabled: String(secret.disabled || 'false'),
       comment: secret.comment || '',
       duedate: secret.duedate || ''
     });
@@ -244,15 +241,6 @@ const PppoeSecretsPage: React.FC<Props> = ({ billing, loading, routerId, onRefre
             >
               <option value="any">any</option>
               <option value="pppoe">pppoe</option>
-            </select>
-            <select
-              className="admin-input text-xs"
-              value={formData.disabled}
-              onChange={(e) => setFormData({ ...formData, disabled: e.target.value })}
-              disabled={actionLoading}
-            >
-              <option value="false">No</option>
-              <option value="true">Yes</option>
             </select>
             <input
               className="admin-input text-xs"
