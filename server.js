@@ -908,7 +908,10 @@ app.post('/api/mikrotik/routers/:id/process-payment', requireAdmin, async (req, 
       username, 
       billing_plan_id, 
       plan_name, 
-      amount, 
+      amount,
+      original_amount,
+      discount_days,
+      discount_amount,
       currency,
       payment_date,
       next_duedate,
@@ -923,10 +926,10 @@ app.post('/api/mikrotik/routers/:id/process-payment', requireAdmin, async (req, 
     
     const id = require('crypto').randomUUID();
     
-    // Save payment record
+    // Save payment record with discount info
     await db.run(
-      'INSERT INTO mikrotik_sales (id, router_id, secret_id, username, billing_plan_id, plan_name, amount, currency, payment_date, next_duedate, expired_profile, payment_method, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [id, routerId, secret_id, username, billing_plan_id, plan_name, amount, currency || 'PHP', payment_date, next_duedate, expired_profile, payment_method || 'cash', notes || '']
+      'INSERT INTO mikrotik_sales (id, router_id, secret_id, username, billing_plan_id, plan_name, amount, original_amount, discount_days, discount_amount, currency, payment_date, next_duedate, expired_profile, payment_method, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [id, routerId, secret_id, username, billing_plan_id, plan_name, amount, original_amount || amount, discount_days || 0, discount_amount || 0, currency || 'PHP', payment_date, next_duedate, expired_profile, payment_method || 'cash', notes || '']
     );
     
     // Update PPPoE secret profile back to billing plan profile

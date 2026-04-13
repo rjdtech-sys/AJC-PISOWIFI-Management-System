@@ -160,7 +160,13 @@ const SalesReportPage: React.FC<SalesReportPageProps> = ({ routerId }) => {
                     Plan
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Amount
+                    Original
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    Discount
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    Final Amount
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                     Payment Date
@@ -181,6 +187,19 @@ const SalesReportPage: React.FC<SalesReportPageProps> = ({ routerId }) => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
                       {sale.plan_name || 'N/A'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
+                      {formatCurrency(sale.original_amount || sale.amount, sale.currency)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600 dark:text-red-400">
+                      {sale.discount_days > 0 ? (
+                        <span>
+                          {sale.discount_days} days<br />
+                          <span className="font-semibold">- {formatCurrency(sale.discount_amount, sale.currency)}</span>
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">None</span>
+                      )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-green-600 dark:text-green-400">
                       {formatCurrency(sale.amount, sale.currency)}
