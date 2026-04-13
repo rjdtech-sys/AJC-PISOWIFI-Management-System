@@ -897,6 +897,97 @@ app.delete('/api/mikrotik/routers/:id/billing-plans/:planId', requireAdmin, asyn
   }
 });
 
+// Payment Processing
+app.post('/api/mikrotik/routers/:id/process-payment', requireAdmin, async (req, res) => {
+  try {
+    const routerId = String(req.params.id || '');
+    if (!routerId) return res.status(400).json({ error: 'Invalid router id' });
+    
+    const { 
+      secret_id, 
+      username, 
+      billing_plan_id, 
+      plan_name, 
+      amount, 
+      currency,
+      payment_date,
+      next_duedate,
+      expired_profile,
+      payment_method,
+      notes 
+    } = req.body || {};
+    
+    if (!secret_id || !username || !amount || !payment_date || !next_duedate) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+    
+    const id = require('crypto').randomUUID();
+    
+    // Save payment record
+    await db.run(
+      'INSERT INTO mikrotik_sales (id, router_id, secret_id, username, billing_plan_id, plan_name, amount, currency, payment_date, next_duedate, expired_profile, payment_method, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [id, routerId, secret_id, username, billing_plan_id, plan_name, amount, currency || 'PHP', payment_date, next_duedate, expired_profile, payment_method || 'cash', notes || '']
+    );
+    
+    // Update PPPoE secret profile back to billing plan profile
+    await mikrotikReadonly.updateSecret(routerId, secret_id, {
+      profile: req.body.pppoe_profile,
+      disabled: 'false'
+    });
+    
+    // Update or create scheduler with new due date
+    const schedulerName = `expire_${username}`;
+    
+    // Try to delete existing scheduler first
+    try {
+      await mikrotikReadonly.deleteScheduler(routerId, schedulerName);
+    } catch (err) {
+      console.log('[MikroTik] Scheduler not found or already deleted:', schedulerName);
+    }
+    
+    // Create new scheduler with new due date
+    if (next_duedate && expired_profile) {
+      await mikrotikReadonly.createScheduler(routerId, schedulerName, username, expired_profile, next_duedate);
+    }
+    
+    const sale = await db.get('SELECT * FROM mikrotik_sales WHERE id = ?', [id]);
+    res.json({ success: true, data: sale });
+  } catch (err) {
+    console.error('[MikroTik] Payment processing error:', err);
+    res.status(500).json({ error: err.message || 'Failed to process payment' });
+  }
+});
+
+// Sales Report
+app.get('/api/mikrotik/routers/:id/sales', requireAdmin, async (req, res) => {
+  try {
+    const routerId = String(req.params.id || '');
+    if (!routerId) return res.status(400).json({ error: 'Invalid router id' });
+    
+    const { start_date, end_date } = req.query;
+    
+    let query = 'SELECT * FROM mikrotik_sales WHERE router_id = ?';
+    const params = [routerId];
+    
+    if (start_date) {
+      query += ' AND payment_date >= ?';
+      params.push(start_date);
+    }
+    
+    if (end_date) {
+      query += ' AND payment_date <= ?';
+      params.push(end_date);
+    }
+    
+    query += ' ORDER BY payment_date DESC';
+    
+    const sales = await db.all(query, params);
+    res.json(sales || []);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // LICENSE MANAGEMENT API
 app.get('/api/license/status', async (req, res) => {
   try {

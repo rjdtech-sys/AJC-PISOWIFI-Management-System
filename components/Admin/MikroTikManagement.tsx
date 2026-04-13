@@ -9,6 +9,7 @@ import PppoeActivePage from './MikroTik/PppoeActivePage';
 import PppoeProfilesPage from './MikroTik/PppoeProfilesPage';
 import PppoeSecretsPage from './MikroTik/PppoeSecretsPage';
 import BillingPlansPage from './MikroTik/BillingPlansPage';
+import SalesReportPage from './MikroTik/SalesReportPage';
 import SubPageSelector, { MikrotikSubPage } from './MikroTik/SubPageSelector';
 
 const MikroTikManagement: React.FC = () => {
@@ -240,6 +241,7 @@ const MikroTikManagement: React.FC = () => {
           {subPage === 'pppoe_profiles' && <PppoeProfilesPage billing={billing} loading={loading} routerId={selectedRouterId} onRefresh={() => selectedRouterId && refreshBilling(selectedRouterId)} />}
           {subPage === 'pppoe_active' && <PppoeActivePage billing={billing} loading={loading} routerId={selectedRouterId} onRefresh={() => selectedRouterId && refreshBilling(selectedRouterId)} />}
           {subPage === 'billing_plans' && <BillingPlansPage billing={billing} loading={loading} routerId={selectedRouterId} onRefresh={() => selectedRouterId && refreshBilling(selectedRouterId)} />}
+          {subPage === 'sales_report' && selectedRouterId && <SalesReportPage routerId={selectedRouterId} />}
 
           {subPage !== 'add_router' && <CrudModeCard />}
         </div>

@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { apiClient } from '../../../lib/api';
 import { MikrotikBillingData } from '../../../types';
+import PayModal from './PayModal';
 
 type Props = {
   billing: MikrotikBillingData | null;
@@ -15,6 +16,9 @@ const PppoeSecretsPage: React.FC<Props> = ({ billing, loading, routerId, onRefre
   const [editingId, setEditingId] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [billingPlans, setBillingPlans] = useState<any[]>([]);
+  const [profiles, setProfiles] = useState<any[]>([]);
+  const [payModalOpen, setPayModalOpen] = useState(false);
+  const [selectedSecret, setSelectedSecret] = useState<any>(null);
   const [formData, setFormData] = useState({
     name: '',
     password: '',
@@ -36,6 +40,7 @@ const PppoeSecretsPage: React.FC<Props> = ({ billing, loading, routerId, onRefre
   useEffect(() => {
     if (routerId) {
       loadBillingPlans();
+      loadProfiles();
     }
   }, [routerId]);
 
@@ -46,6 +51,25 @@ const PppoeSecretsPage: React.FC<Props> = ({ billing, loading, routerId, onRefre
     } catch (e: any) {
       console.error('Failed to load billing plans:', e);
     }
+  };
+
+  const loadProfiles = async () => {
+    try {
+      const profs = await apiClient.getMikrotikProfiles(routerId);
+      setProfiles(Array.isArray(profs) ? profs : []);
+    } catch (e: any) {
+      console.error('Failed to load profiles:', e);
+    }
+  };
+
+  const handlePayClick = (secret: any) => {
+    setSelectedSecret(secret);
+    setPayModalOpen(true);
+  };
+
+  const handlePaymentSuccess = () => {
+    onRefresh();
+    alert('Payment processed successfully!');
   };
 
   const resetForm = () => {
@@ -305,6 +329,13 @@ const PppoeSecretsPage: React.FC<Props> = ({ billing, loading, routerId, onRefre
                 <td className="px-4 py-2">
                   <div className="flex gap-2">
                     <button
+                      onClick={() => handlePayClick(r)}
+                      disabled={actionLoading}
+                      className="text-green-600 hover:text-green-800 text-[10px] font-bold uppercase"
+                    >
+                      Pay
+                    </button>
+                    <button
                       onClick={() => handleEdit(r)}
                       disabled={actionLoading}
                       className="text-blue-600 hover:text-blue-800 text-[10px] font-bold uppercase"
@@ -325,6 +356,22 @@ const PppoeSecretsPage: React.FC<Props> = ({ billing, loading, routerId, onRefre
           </tbody>
         </table>
       </div>
+
+      {/* Pay Modal */}
+      {selectedSecret && (
+        <PayModal
+          isOpen={payModalOpen}
+          onClose={() => {
+            setPayModalOpen(false);
+            setSelectedSecret(null);
+          }}
+          secret={selectedSecret}
+          billingPlans={billingPlans}
+          profiles={profiles}
+          routerId={routerId}
+          onSuccess={handlePaymentSuccess}
+        />
+      )}
     </div>
   );
 };

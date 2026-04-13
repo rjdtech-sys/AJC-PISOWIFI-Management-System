@@ -1178,6 +1178,27 @@ export const apiClient = {
     });
     return handleResponse(res);
   },
+  async getMikrotikProfiles(routerId: string): Promise<any[]> {
+    const res = await fetch(`${API_BASE}/mikrotik/routers/${encodeURIComponent(routerId)}/profiles`, { headers: getHeaders() });
+    return handleResponse(res);
+  },
+  async getMikrotikSales(routerId: string, startDate?: string, endDate?: string): Promise<any[]> {
+    let url = `${API_BASE}/mikrotik/routers/${encodeURIComponent(routerId)}/sales`;
+    const params = new URLSearchParams();
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+    if (params.toString()) url += `?${params.toString()}`;
+    const res = await fetch(url, { headers: getHeaders() });
+    return handleResponse(res);
+  },
+  async processMikrotikPayment(routerId: string, data: any): Promise<any> {
+    const res = await fetch(`${API_BASE}/mikrotik/routers/${encodeURIComponent(routerId)}/process-payment`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(data)
+    });
+    return handleResponse(res);
+  },
   async getMikrotikBillingPlans(routerId: string): Promise<any[]> {
     const res = await fetch(`${API_BASE}/mikrotik/routers/${encodeURIComponent(routerId)}/billing-plans`, { headers: getHeaders() });
     return handleResponse(res);
