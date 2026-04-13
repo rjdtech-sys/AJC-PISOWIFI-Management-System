@@ -734,10 +734,14 @@ app.post('/api/mikrotik/routers/:id/secrets', requireAdmin, async (req, res) => 
   try {
     const routerId = String(req.params.id || '');
     if (!routerId) return res.status(400).json({ error: 'Invalid router id' });
+    
+    console.log('[MikroTik] Creating secret for router:', routerId, 'with data:', req.body);
+    
     const result = await mikrotikReadonly.createSecret(routerId, req.body || {});
     res.json({ success: true, data: result });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('[MikroTik] Error creating secret:', err);
+    res.status(500).json({ error: err.message || 'Failed to create secret' });
   }
 });
 
