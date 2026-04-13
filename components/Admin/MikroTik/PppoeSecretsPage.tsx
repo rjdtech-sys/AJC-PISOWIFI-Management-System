@@ -308,24 +308,59 @@ const PppoeSecretsPage: React.FC<Props> = ({ billing, loading, routerId, onRefre
               <th className="px-4 py-2 text-left font-bold">Service</th>
               <th className="px-4 py-2 text-left font-bold">Disabled</th>
               <th className="px-4 py-2 text-left font-bold">Comment</th>
+              <th className="px-4 py-2 text-left font-bold">Next Due Date</th>
               <th className="px-4 py-2 text-left font-bold">Actions</th>
             </tr>
           </thead>
           <tbody>
             {(!billing || filteredSecrets.length === 0) && (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-[11px] text-slate-500">
+                <td colSpan={7} className="px-4 py-10 text-center text-[11px] text-slate-500">
                   No secrets found.
                 </td>
               </tr>
             )}
-            {billing && filteredSecrets.map((r: any, idx: number) => (
-              <tr key={(r['.id'] || r.id || r.name || 'row') + idx} className="border-b border-slate-50 hover:bg-slate-50/60">
-                <td className="px-4 py-2 font-semibold text-slate-900">{r.name || 'N/A'}</td>
-                <td className="px-4 py-2 text-slate-700">{r.profile || 'N/A'}</td>
-                <td className="px-4 py-2 text-slate-700">{r.service || 'N/A'}</td>
-                <td className="px-4 py-2 text-slate-700">{String(r.disabled || '')}</td>
-                <td className="px-4 py-2 text-slate-600">{r.comment || ''}</td>
+            {billing && filteredSecrets.map((r: any, idx: number) => {
+              // Format due date if exists
+              const formatDueDate = (dueDateStr: string) => {
+                if (!dueDateStr) return null;
+                const date = new Date(dueDateStr);
+                const now = new Date();
+                const diffDays = Math.ceil((date.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                
+                let colorClass = 'text-slate-600';
+                if (diffDays < 0) colorClass = 'text-red-600 font-semibold'; // Overdue
+                else if (diffDays <= 3) colorClass = 'text-orange-600 font-semibold'; // Expiring soon
+                else if (diffDays <= 7) colorClass = 'text-yellow-600'; // Warning
+                
+                const formatted = date.toLocaleDateString('en-US', { 
+                  month: 'short', 
+                  day: 'numeric', 
+                  year: 'numeric' 
+                });
+                const time = date.toLocaleTimeString('en-US', { 
+                  hour: '2-digit', 
+                  minute: '2-digit' 
+                });
+                
+                return (
+                  <div className={colorClass}>
+                    <div>{formatted}</div>
+                    <div className="text-[10px] opacity-75">{time}</div>
+                  </div>
+                );
+              };
+
+              return (
+                <tr key={(r['.id'] || r.id || r.name || 'row') + idx} className="border-b border-slate-50 hover:bg-slate-50/60">
+                  <td className="px-4 py-2 font-semibold text-slate-900">{r.name || 'N/A'}</td>
+                  <td className="px-4 py-2 text-slate-700">{r.profile || 'N/A'}</td>
+                  <td className="px-4 py-2 text-slate-700">{r.service || 'N/A'}</td>
+                  <td className="px-4 py-2 text-slate-700">{String(r.disabled || '')}</td>
+                  <td className="px-4 py-2 text-slate-600">{r.comment || ''}</td>
+                  <td className="px-4 py-2">
+                    {formatDueDate(r.duedate) || <span className="text-slate-400">Not set</span>}
+                  </td>
                 <td className="px-4 py-2">
                   <div className="flex gap-2">
                     <button
@@ -352,7 +387,8 @@ const PppoeSecretsPage: React.FC<Props> = ({ billing, loading, routerId, onRefre
                   </div>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>
