@@ -233,7 +233,7 @@ const MikroTikManagement: React.FC = () => {
         </div>
 
         <div className="lg:col-span-8 space-y-6">
-          {subPage !== 'add_router' && (
+          {subPage !== 'add_router' && subPage !== 'pppoe_secrets' && subPage !== 'sales_report' && (
             <SnapshotCard selectedRouter={selectedRouter} selectedRouterId={selectedRouterId} loading={loading} billing={billing} />
           )}
 
