@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { apiClient } from '../../../lib/api';
 import { MikrotikBillingData } from '../../../types';
 
@@ -14,13 +14,17 @@ const PppoeSecretsPage: React.FC<Props> = ({ billing, loading, routerId, onRefre
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [billingPlans, setBillingPlans] = useState<any[]>([]);
   const [formData, setFormData] = useState({
     name: '',
     password: '',
-    profile: '',
+    billing_plan_id: '',
+    pppoe_profile: '',
+    expired_profile: '',
     service: 'any',
     disabled: 'false',
-    comment: ''
+    comment: '',
+    duedate: ''
   });
 
   const filteredSecrets = useMemo(() => {
@@ -30,8 +34,23 @@ const PppoeSecretsPage: React.FC<Props> = ({ billing, loading, routerId, onRefre
     return rows.filter((r: any) => String(r.name || '').toLowerCase().includes(q));
   }, [billing, search]);
 
+  useEffect(() => {
+    if (routerId) {
+      loadBillingPlans();
+    }
+  }, [routerId]);
+
+  const loadBillingPlans = async () => {
+    try {
+      const plans = await apiClient.getMikrotikBillingPlans(routerId);
+      setBillingPlans(Array.isArray(plans) ? plans.filter((p: any) => p.is_active === 1) : []);
+    } catch (e: any) {
+      console.error('Failed to load billing plans:', e);
+    }
+  };
+
   const resetForm = () => {
-    setFormData({ name: '', password: '', profile: '', service: 'any', disabled: 'false', comment: '' });
+    setFormData({ name: '', password: '', billing_plan_id: '', pppoe_profile: '', expired_profile: '', service: 'any', disabled: 'false', comment: '', duedate: '' });
     setShowForm(false);
     setEditingId(null);
   };
@@ -41,12 +60,26 @@ const PppoeSecretsPage: React.FC<Props> = ({ billing, loading, routerId, onRefre
       alert('Username and password are required');
       return;
     }
+    if (!formData.billing_plan_id) {
+      alert('Please select a billing plan');
+      return;
+    }
     setActionLoading(true);
     try {
-      await apiClient.createMikrotikSecret(routerId, formData);
+      await apiClient.createMikrotikSecret(routerId, {
+        name: formData.name,
+        password: formData.password,
+        billing_plan_id: formData.billing_plan_id,
+        pppoe_profile: formData.pppoe_profile,
+        expired_profile: formData.expired_profile,
+        service: formData.service,
+        disabled: formData.disabled,
+        comment: formData.comment,
+        duedate: formData.duedate || null
+      });
       resetForm();
       onRefresh();
-      alert('Secret created successfully');
+      alert('Secret created successfully with scheduler');
     } catch (e: any) {
       alert(e?.message || 'Failed to create secret');
     } finally {
@@ -58,10 +91,13 @@ const PppoeSecretsPage: React.FC<Props> = ({ billing, loading, routerId, onRefre
     setFormData({
       name: secret.name || '',
       password: '',
-      profile: secret.profile || '',
+      billing_plan_id: secret.billing_plan_id || '',
+      pppoe_profile: secret.profile || '',
+      expired_profile: secret.expired_profile || '',
       service: secret.service || 'any',
       disabled: String(secret.disabled || 'false'),
-      comment: secret.comment || ''
+      comment: secret.comment || '',
+      duedate: secret.duedate || ''
     });
     setEditingId(secret['.id'] || secret.id);
     setShowForm(true);
@@ -149,13 +185,57 @@ const PppoeSecretsPage: React.FC<Props> = ({ billing, loading, routerId, onRefre
               onChange={(e) => setFormData({ ...formData, password: e.target.value })}
               disabled={actionLoading}
             />
+            <select
+              className="admin-input text-xs"
+              value={formData.billing_plan_id}
+              onChange={(e) => {
+                const selectedPlan = billingPlans.find(p => p.id === e.target.value);
+                setFormData({ 
+                  ...formData, 
+                  billing_plan_id: e.target.value,
+                  pppoe_profile: selectedPlan ? selectedPlan.pppoe_profile : ''
+                });
+              }}
+              disabled={actionLoading || billingPlans.length === 0}
+            >
+              <option value="">Select Billing Plan *</option>
+              {billingPlans.map((plan: any) => (
+                <option key={plan.id} value={plan.id}>
+                  {plan.plan_name} - {plan.currency} {plan.price.toFixed(2)}
+                </option>
+              ))}
+            </select>
             <input
               className="admin-input text-xs"
-              placeholder="Profile"
-              value={formData.profile}
-              onChange={(e) => setFormData({ ...formData, profile: e.target.value })}
+              placeholder="PPPoE Profile (auto-filled from plan)"
+              value={formData.pppoe_profile}
+              onChange={(e) => setFormData({ ...formData, pppoe_profile: e.target.value })}
               disabled={actionLoading}
+              readOnly
             />
+            <select
+              className="admin-input text-xs"
+              value={formData.expired_profile}
+              onChange={(e) => setFormData({ ...formData, expired_profile: e.target.value })}
+              disabled={actionLoading}
+            >
+              <option value="">Select Expired Profile (optional)</option>
+              {(billing?.ppp_profiles || []).map((p: any, idx: number) => (
+                <option key={idx} value={p.name || p['name']}>
+                  {p.name || 'N/A'} (Expired)
+                </option>
+              ))}
+            </select>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] font-bold uppercase text-slate-600">Due Date</label>
+              <input
+                className="admin-input text-xs"
+                type="datetime-local"
+                value={formData.duedate}
+                onChange={(e) => setFormData({ ...formData, duedate: e.target.value })}
+                disabled={actionLoading}
+              />
+            </div>
             <select
               className="admin-input text-xs"
               value={formData.service}
