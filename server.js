@@ -962,6 +962,14 @@ app.post('/api/mikrotik/routers/:id/process-payment', requireAdmin, async (req, 
     
     console.log('[MikroTik Payment] Payment record saved to database');
     
+    // Update or insert due date in mikrotik_secret_duedates
+    const dueDateId = require('crypto').randomUUID();
+    await db.run(
+      'INSERT OR REPLACE INTO mikrotik_secret_duedates (id, router_id, secret_id, username, duedate, expired_profile) VALUES (?, ?, ?, ?, ?, ?)',
+      [dueDateId, routerId, secret_id, username, next_duedate, expired_profile || '']
+    ).catch(err => console.error('[MikroTik] Failed to update due date:', err));
+    console.log('[MikroTik Payment] Due date updated for:', username);
+    
     // Update PPPoE secret profile back to billing plan profile
     await mikrotikReadonly.updateSecret(routerId, secret_id, {
       profile: req.body.pppoe_profile,
