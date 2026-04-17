@@ -18,6 +18,12 @@ const PortalEditor: React.FC = () => {
     ip: ''
   });
   const [centralPortalDirty, setCentralPortalDirty] = useState(false);
+  const [freeInternet, setFreeInternet] = useState<{ enabled: boolean; minutes: number; message: string }>({
+    enabled: false,
+    minutes: 0,
+    message: ''
+  });
+  const [freeInternetDirty, setFreeInternetDirty] = useState(false);
 
   useEffect(() => {
     fetchPortalConfig().then((cfg) => {
@@ -33,6 +39,14 @@ const PortalEditor: React.FC = () => {
         ip: cfg.ip || ''
       });
       setCentralPortalDirty(false);
+    }).catch(() => {});
+    apiClient.getFreeInternetConfig().then(cfg => {
+      setFreeInternet({
+        enabled: cfg.enabled || false,
+        minutes: cfg.minutes || 0,
+        message: cfg.message || ''
+      });
+      setFreeInternetDirty(false);
     }).catch(() => {});
   }, []);
 
@@ -76,6 +90,12 @@ const PortalEditor: React.FC = () => {
     await apiClient.saveCentralPortalConfig(centralPortal.enabled, centralPortal.ip);
     setCentralPortalDirty(false);
     alert('Centralized portal IP settings saved successfully!');
+  };
+
+  const handleSaveFreeInternet = async () => {
+    await apiClient.setFreeInternetConfig(freeInternet);
+    setFreeInternetDirty(false);
+    alert('Free Internet settings saved successfully!');
   };
 
   const handleReset = async () => {
@@ -479,6 +499,85 @@ const PortalEditor: React.FC = () => {
                 className="px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest bg-slate-900 text-white disabled:opacity-40"
               >
                 Save Central Portal
+              </button>
+            </div>
+          </div>
+
+          {/* Free Internet Settings */}
+          <div className="mt-6 bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-2xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-[9px] font-black text-green-700 uppercase tracking-widest mb-1 flex items-center gap-2">
+                  <span>🎁</span> Free Internet Promo
+                </div>
+                <p className="text-[9px] text-green-600">
+                  Bigyan ang mga client ng libreng internet bawat araw. One claim per device per day.
+                </p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={freeInternet.enabled}
+                  onChange={(e) => {
+                    setFreeInternet(prev => ({ ...prev, enabled: e.target.checked }));
+                    setFreeInternetDirty(true);
+                  }}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+              </label>
+            </div>
+
+            <div className={`space-y-3 ${freeInternet.enabled ? '' : 'opacity-50 pointer-events-none'}`}>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[8px] font-black text-green-700 uppercase tracking-widest mb-1">
+                    Minutes to Give
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="480"
+                    value={freeInternet.minutes}
+                    onChange={(e) => {
+                      setFreeInternet(prev => ({ ...prev, minutes: parseInt(e.target.value, 10) || 0 }));
+                      setFreeInternetDirty(true);
+                    }}
+                    placeholder="Hal. 30 para sa 30 minutes"
+                    className="w-full bg-white border border-green-200 rounded-lg px-3 py-2 text-[10px] font-bold text-slate-800 focus:outline-none focus:ring-1 focus:ring-green-500"
+                    disabled={!freeInternet.enabled}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[8px] font-black text-green-700 uppercase tracking-widest mb-1">
+                    Custom Message (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={freeInternet.message}
+                    onChange={(e) => {
+                      setFreeInternet(prev => ({ ...prev, message: e.target.value }));
+                      setFreeInternetDirty(true);
+                    }}
+                    placeholder="Hal. Enjoy your free internet!"
+                    className="w-full bg-white border border-green-200 rounded-lg px-3 py-2 text-[10px] font-bold text-slate-800 focus:outline-none focus:ring-1 focus:ring-green-500"
+                    disabled={!freeInternet.enabled}
+                  />
+                </div>
+              </div>
+
+              <div className="bg-white/50 rounded-lg p-2 text-[9px] text-green-700">
+                <span className="font-black">Preview:</span> {freeInternet.message || `Get ${freeInternet.minutes} minutes of free internet today!`}
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                onClick={handleSaveFreeInternet}
+                disabled={!freeInternetDirty}
+                className="px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest bg-green-600 text-white disabled:opacity-40 hover:bg-green-700 transition-colors"
+              >
+                Save Free Internet
               </button>
             </div>
           </div>

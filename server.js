@@ -7393,6 +7393,114 @@ function startBackgroundTimers() {
   });
 })();
 
+// ==========================================
+// FREE INTERNET FEATURE API
+// ==========================================
+
+// Get free internet config (public)
+app.get('/api/free-internet/config', async (req, res) => {
+  try {
+    const config = await db.get('SELECT value FROM config WHERE key = ?', ['free_internet_config']);
+    const defaultConfig = { enabled: false, minutes: 0, message: '' };
+    res.json(config?.value ? JSON.parse(config.value) : defaultConfig);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update free internet config (admin only)
+app.post('/api/free-internet/config', requireAdmin, async (req, res) => {
+  try {
+    const { enabled, minutes, message } = req.body;
+    const config = {
+      enabled: enabled === true,
+      minutes: parseInt(minutes, 10) || 0,
+      message: message || ''
+    };
+    await db.run('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)', ['free_internet_config', JSON.stringify(config)]);
+    res.json({ success: true, config });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Claim free internet (public)
+app.post('/api/free-internet/claim', async (req, res) => {
+  try {
+    // Get free internet config
+    const config = await db.get('SELECT value FROM config WHERE key = ?', ['free_internet_config']);
+    const freeConfig = config?.value ? JSON.parse(config.value) : { enabled: false, minutes: 0 };
+
+    if (!freeConfig.enabled || freeConfig.minutes <= 0) {
+      return res.status(400).json({ error: 'Free internet is not available at this time.' });
+    }
+
+    // Get client MAC address
+    let clientIp = req.ip ? req.ip.replace('::ffff:', '') : '';
+    if (clientIp === '::1') clientIp = '127.0.0.1';
+    let mac = await getMacFromIp(clientIp);
+    if (!mac && clientIp === '127.0.0.1') mac = 'DEV-LOCALHOST';
+
+    if (!mac) {
+      return res.status(400).json({ error: 'Could not identify your device. Please reconnect to WiFi.' });
+    }
+
+    // Check if already claimed today
+    const today = new Date().toISOString().split('T')[0];
+    const claimedKey = `free_internet_claimed_${today}`;
+    const claimedConfig = await db.get('SELECT value FROM config WHERE key = ?', [claimedKey]);
+    const claimedMacs = claimedConfig?.value ? JSON.parse(claimedConfig.value) : [];
+
+    if (claimedMacs.includes(mac)) {
+      return res.status(400).json({ error: 'You have already claimed your free internet for today.' });
+    }
+
+    // Create session for free internet
+    const token = crypto.randomBytes(16).toString('hex');
+    const seconds = freeConfig.minutes * 60;
+
+    // Check if device exists
+    const existingDevice = await db.get('SELECT id FROM wifi_devices WHERE mac = ?', [mac]);
+    if (!existingDevice) {
+      await db.run(
+        'INSERT INTO wifi_devices (id, mac, ip, hostname, interface, ssid, signal, connected_at, last_seen, is_active, custom_name, credit_pesos, credit_minutes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [mac, mac, clientIp, 'FreeInternet', 'wlan0', 'FreeInternet', 0, Date.now(), Date.now(), 1, '', 0, 0]
+      );
+    }
+
+    // Check for existing session
+    const existingSession = await db.get('SELECT * FROM sessions WHERE mac = ?', [mac]);
+    
+    if (existingSession) {
+      // Add time to existing session
+      await db.run(
+        'UPDATE sessions SET remaining_seconds = remaining_seconds + ?, total_paid = total_paid + 0 WHERE mac = ?',
+        [seconds, mac]
+      );
+    } else {
+      // Create new session
+      await db.run(
+        'INSERT INTO sessions (mac, ip, token, remaining_seconds, total_paid, connected_at, last_active, is_paused, coin_slot, download_limit, upload_limit, is_pausable) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [mac, clientIp, token, seconds, 0, Date.now(), Date.now(), 0, 'free_internet', 0, 0, 1]
+      );
+    }
+
+    // Mark as claimed
+    claimedMacs.push(mac);
+    await db.run('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)', [claimedKey, JSON.stringify(claimedMacs)]);
+
+    res.json({
+      success: true,
+      minutes: freeConfig.minutes,
+      message: freeConfig.message || 'Enjoy your free internet!',
+      token: existingSession ? existingSession.token : token
+    });
+  } catch (err) {
+    console.error('[FreeInternet] Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Catch-all route for frontend (must be last)
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api') || req.path.startsWith('/dist')) return res.status(404).send('Not found');
