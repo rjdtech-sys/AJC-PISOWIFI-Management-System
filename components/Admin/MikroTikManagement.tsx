@@ -207,8 +207,8 @@ const MikroTikManagement: React.FC = () => {
       )}
 
       <div className="space-y-6">
-        {/* Router Connections Card - Full Width at Top */}
-        {subPage !== 'add_router' && (
+        {/* Router Connections Card - Full Width at Top (shown on all tabs when routers exist) */}
+        {routers.length > 0 && (
           <RouterConnectionsCard
             routers={routers}
             selectedRouterId={selectedRouterId}
@@ -237,7 +237,8 @@ const MikroTikManagement: React.FC = () => {
           )}
 
           <div className={subPage === 'add_router' ? 'lg:col-span-8 space-y-6' : 'lg:col-span-12 space-y-6'}>
-            {subPage !== 'add_router' && subPage !== 'pppoe_secrets' && subPage !== 'sales_report' && (
+            {/* Snapshot Card - Show on Add Router tab when router selected, hide on PPPoE Secrets and Sales Report */}
+            {(subPage === 'add_router' || (subPage !== 'pppoe_secrets' && subPage !== 'sales_report')) && (
               <SnapshotCard selectedRouter={selectedRouter} selectedRouterId={selectedRouterId} loading={loading} billing={billing} />
             )}
 
