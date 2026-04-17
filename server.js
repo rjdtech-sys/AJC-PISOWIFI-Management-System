@@ -3308,6 +3308,10 @@ app.post('/api/sessions/start', async (req, res) => {
 
     await applyRewardsForPurchase(mac, clientIp, pesos);
     
+    // Release relay if main coinslot
+    if (slot === 'main') {
+      try { setRelayState(false); } catch (e) {}
+    }
     coinSlotLocks.delete(slot);
     try {
       res.cookie('ajc_session_token', tokenToUse, { path: '/', maxAge: 30 * 24 * 60 * 60 * 1000, sameSite: 'lax' });
