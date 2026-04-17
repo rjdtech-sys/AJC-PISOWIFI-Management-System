@@ -7480,8 +7480,8 @@ app.post('/api/free-internet/claim', async (req, res) => {
     } else {
       // Create new session
       await db.run(
-        'INSERT INTO sessions (mac, ip, token, remaining_seconds, total_paid, connected_at, last_active, is_paused, coin_slot, download_limit, upload_limit, is_pausable) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [mac, clientIp, token, seconds, 0, Date.now(), Date.now(), 0, 'free_internet', 0, 0, 1]
+        'INSERT INTO sessions (mac, ip, token, remaining_seconds, total_paid, connected_at, download_limit, upload_limit, is_paused, pausable) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [mac, clientIp, token, seconds, 0, Date.now(), 0, 0, 0, 1]
       );
     }
 
