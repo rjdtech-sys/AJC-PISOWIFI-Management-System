@@ -1036,6 +1036,89 @@ app.get('/api/mikrotik/routers/:id/sales', requireAdmin, async (req, res) => {
   }
 });
 
+// Update Sales Record
+app.put('/api/mikrotik/sales/:saleId', requireAdmin, async (req, res) => {
+  try {
+    const saleId = String(req.params.saleId || '');
+    if (!saleId) return res.status(400).json({ error: 'Invalid sale id' });
+    
+    const {
+      username,
+      plan_name,
+      amount,
+      original_amount,
+      num_months,
+      discount_days,
+      discount_amount,
+      payment_date,
+      next_duedate,
+      payment_method,
+      notes
+    } = req.body || {};
+    
+    console.log('[MikroTik Sales] Updating sale:', saleId);
+    
+    await db.run(
+      'UPDATE mikrotik_sales SET username = ?, plan_name = ?, amount = ?, original_amount = ?, num_months = ?, discount_days = ?, discount_amount = ?, payment_date = ?, next_duedate = ?, payment_method = ?, notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [username, plan_name, amount, original_amount, num_months, discount_days, discount_amount, payment_date, next_duedate, payment_method, notes, saleId]
+    );
+    
+    // Also update the duedate in mikrotik_secret_duedates if username exists
+    if (username && next_duedate) {
+      const sale = await db.get('SELECT router_id, secret_id, expired_profile FROM mikrotik_sales WHERE id = ?', [saleId]);
+      if (sale) {
+        const dueDateId = require('crypto').randomUUID();
+        await db.run(
+          'INSERT OR REPLACE INTO mikrotik_secret_duedates (id, router_id, secret_id, username, duedate, expired_profile) VALUES (?, ?, ?, ?, ?, ?)',
+          [dueDateId, sale.router_id, sale.secret_id, username, next_duedate, sale.expired_profile || '']
+        ).catch(err => console.error('[MikroTik] Failed to update due date:', err));
+      }
+    }
+    
+    const updatedSale = await db.get('SELECT * FROM mikrotik_sales WHERE id = ?', [saleId]);
+    res.json({ success: true, data: updatedSale });
+  } catch (err) {
+    console.error('[MikroTik Sales] Update error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete Sales Record
+app.delete('/api/mikrotik/sales/:saleId', requireAdmin, async (req, res) => {
+  try {
+    const saleId = String(req.params.saleId || '');
+    if (!saleId) return res.status(400).json({ error: 'Invalid sale id' });
+    
+    console.log('[MikroTik Sales] Deleting sale:', saleId);
+    
+    await db.run('DELETE FROM mikrotik_sales WHERE id = ?', [saleId]);
+    
+    res.json({ success: true, message: 'Sale record deleted' });
+  } catch (err) {
+    console.error('[MikroTik Sales] Delete error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get Single Sale Record
+app.get('/api/mikrotik/sales/:saleId', requireAdmin, async (req, res) => {
+  try {
+    const saleId = String(req.params.saleId || '');
+    if (!saleId) return res.status(400).json({ error: 'Invalid sale id' });
+    
+    const sale = await db.get('SELECT * FROM mikrotik_sales WHERE id = ?', [saleId]);
+    
+    if (!sale) {
+      return res.status(404).json({ error: 'Sale not found' });
+    }
+    
+    res.json(sale);
+  } catch (err) {
+    console.error('[MikroTik Sales] Fetch error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // LICENSE MANAGEMENT API
 app.get('/api/license/status', async (req, res) => {
   try {

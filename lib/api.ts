@@ -1225,5 +1225,25 @@ export const apiClient = {
       headers: getHeaders()
     });
     return handleResponse(res);
+  },
+  // Sales CRUD operations
+  async getMikrotikSale(saleId: string): Promise<any> {
+    const res = await fetch(`${API_BASE}/mikrotik/sales/${encodeURIComponent(saleId)}`, { headers: getHeaders() });
+    return handleResponse(res);
+  },
+  async updateMikrotikSale(saleId: string, data: any): Promise<any> {
+    const res = await fetch(`${API_BASE}/mikrotik/sales/${encodeURIComponent(saleId)}`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify(data)
+    });
+    return handleResponse(res);
+  },
+  async deleteMikrotikSale(saleId: string): Promise<any> {
+    const res = await fetch(`${API_BASE}/mikrotik/sales/${encodeURIComponent(saleId)}`, {
+      method: 'DELETE',
+      headers: getHeaders()
+    });
+    return handleResponse(res);
   }
 };
