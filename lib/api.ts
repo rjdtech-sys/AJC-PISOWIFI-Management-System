@@ -1268,5 +1268,12 @@ export const apiClient = {
       headers: getHeaders()
     });
     return handleResponse(res);
+  },
+
+  // Audio Files API
+  async getAudioFiles(): Promise<{ name: string; path: string; size: number; modified: string }[]> {
+    const res = await fetch(`${API_BASE}/admin/audio-files`, { headers: getHeaders() });
+    const data = await handleResponse(res);
+    return data.files || [];
   }
 };

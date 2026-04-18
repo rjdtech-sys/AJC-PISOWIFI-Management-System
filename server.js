@@ -2066,9 +2066,36 @@ app.post('/api/admin/upload-audio', requireAdmin, upload.single('audio'), (req, 
   }
   // Return web-accessible path
   const webPath = '/uploads/audio/' + req.file.filename;
-  res.json({ 
-    success: true, 
-    path: webPath 
+  res.json({
+    success: true,
+    path: webPath
+  });
+});
+
+// GET UPLOADED AUDIO FILES LIST
+app.get('/api/admin/audio-files', requireAdmin, (req, res) => {
+  const audioDir = path.join(__dirname, 'uploads', 'audio');
+
+  fs.readdir(audioDir, (err, files) => {
+    if (err) {
+      console.error('Error reading audio directory:', err);
+      return res.json({ files: [] });
+    }
+
+    const audioFiles = files
+      .filter(file => file.endsWith('.mp3') || file.endsWith('.wav') || file.endsWith('.ogg') || file.endsWith('.m4a'))
+      .map(file => {
+        const stats = fs.statSync(path.join(audioDir, file));
+        return {
+          name: file,
+          path: '/uploads/audio/' + file,
+          size: stats.size,
+          modified: stats.mtime
+        };
+      })
+      .sort((a, b) => b.modified.getTime() - a.modified.getTime());
+
+    res.json({ files: audioFiles });
   });
 });
 

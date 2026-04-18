@@ -2,6 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { PortalConfig, fetchPortalConfig, savePortalConfigRemote, DEFAULT_PORTAL_CONFIG } from '../../lib/theme';
 import { apiClient } from '../../lib/api';
 
+interface AudioFile {
+  name: string;
+  path: string;
+  size: number;
+  modified: string;
+}
+
 const PortalEditor: React.FC = () => {
   const [config, setConfig] = useState<PortalConfig>(DEFAULT_PORTAL_CONFIG);
   const [hasChanges, setHasChanges] = useState(false);
@@ -24,6 +31,8 @@ const PortalEditor: React.FC = () => {
     message: ''
   });
   const [freeInternetDirty, setFreeInternetDirty] = useState(false);
+  const [audioFiles, setAudioFiles] = useState<AudioFile[]>([]);
+  const [showAudioSelector, setShowAudioSelector] = useState<string | null>(null);
 
   useEffect(() => {
     fetchPortalConfig().then((cfg) => {
@@ -48,7 +57,23 @@ const PortalEditor: React.FC = () => {
       });
       setFreeInternetDirty(false);
     }).catch(() => {});
+    loadAudioFiles();
   }, []);
+
+  const loadAudioFiles = async () => {
+    try {
+      const files = await apiClient.getAudioFiles();
+      setAudioFiles(files);
+    } catch (err) {
+      console.error('Failed to load audio files:', err);
+    }
+  };
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
 
   const [mode, setMode] = useState<'visual' | 'code'>('visual');
 
@@ -108,13 +133,13 @@ const PortalEditor: React.FC = () => {
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, key: keyof PortalConfig) => {
     if (!e.target.files || e.target.files.length === 0) return;
-    
+
     const file = e.target.files[0];
     const formData = new FormData();
     formData.append('audio', file);
 
     const token = localStorage.getItem('ajc_admin_token');
-    
+
     try {
       const res = await fetch('/api/admin/upload-audio', {
         method: 'POST',
@@ -123,10 +148,11 @@ const PortalEditor: React.FC = () => {
         },
         body: formData
       });
-      
+
       const data = await res.json();
       if (data.success) {
         handleChange(key, data.path);
+        loadAudioFiles(); // Refresh the list after upload
       } else {
         alert('Upload failed: ' + (data.error || 'Unknown error'));
       }
@@ -134,6 +160,11 @@ const PortalEditor: React.FC = () => {
       console.error(err);
       alert('Upload error');
     }
+  };
+
+  const handleSelectAudio = (key: keyof PortalConfig, path: string) => {
+    handleChange(key, path);
+    setShowAudioSelector(null);
   };
 
   const insertCssTemplate = () => {
@@ -291,28 +322,72 @@ const PortalEditor: React.FC = () => {
                   ].map((audio) => (
                     <div key={audio.key} className="bg-slate-50 p-3 rounded-lg border border-slate-100">
                       <label className="block text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1.5">{audio.label}</label>
-                      
+
                       {config[audio.key as keyof PortalConfig] && (
                         <div className="mb-2">
-                          <audio src={config[audio.key as keyof PortalConfig] as string} className="w-full h-6" />
-                          <button 
-                            onClick={() => handleChange(audio.key as keyof PortalConfig, '')}
-                            className="text-[7px] text-red-500 font-bold uppercase mt-1 hover:underline"
-                          >
-                            Remove
-                          </button>
+                          <audio src={config[audio.key as keyof PortalConfig] as string} className="w-full h-6" controls />
+                          <div className="flex gap-2 mt-1">
+                            <button
+                              onClick={() => handleChange(audio.key as keyof PortalConfig, '')}
+                              className="text-[7px] text-red-500 font-bold uppercase hover:underline"
+                            >
+                              Remove
+                            </button>
+                            <button
+                              onClick={() => setShowAudioSelector(showAudioSelector === audio.key ? null : audio.key)}
+                              className="text-[7px] text-blue-500 font-bold uppercase hover:underline"
+                            >
+                              Change
+                            </button>
+                          </div>
                         </div>
                       )}
-                      
-                      <label className={`block w-full text-center py-1.5 rounded bg-${audio.color}-50 text-${audio.color}-700 text-[8px] font-black uppercase tracking-widest hover:bg-${audio.color}-100 transition-all cursor-pointer border border-${audio.color}-100`}>
-                        Upload
-                        <input 
-                          type="file" 
-                          accept="audio/*"
-                          onChange={(e) => handleFileUpload(e, audio.key as keyof PortalConfig)}
-                          className="hidden"
-                        />
-                      </label>
+
+                      {!config[audio.key as keyof PortalConfig] && (
+                        <button
+                          onClick={() => setShowAudioSelector(showAudioSelector === audio.key ? null : audio.key)}
+                          className={`block w-full text-center py-1.5 rounded bg-${audio.color}-50 text-${audio.color}-700 text-[8px] font-black uppercase tracking-widest hover:bg-${audio.color}-100 transition-all cursor-pointer border border-${audio.color}-100`}
+                        >
+                          Select Audio
+                        </button>
+                      )}
+
+                      {/* Audio Selector Dropdown */}
+                      {showAudioSelector === audio.key && (
+                        <div className="mt-2 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                          <div className="p-2 border-b border-slate-100 bg-slate-50">
+                            <span className="text-[8px] font-bold text-slate-600 uppercase">Select from uploaded files</span>
+                          </div>
+                          {audioFiles.length === 0 ? (
+                            <div className="p-3 text-[9px] text-slate-400 text-center">No audio files uploaded yet</div>
+                          ) : (
+                            audioFiles.map((file) => (
+                              <button
+                                key={file.path}
+                                onClick={() => handleSelectAudio(audio.key as keyof PortalConfig, file.path)}
+                                className="w-full text-left p-2 hover:bg-slate-50 border-b border-slate-50 last:border-0 flex items-center justify-between group"
+                              >
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-[9px] font-bold text-slate-700 truncate">{file.name}</div>
+                                  <div className="text-[7px] text-slate-400">{formatFileSize(file.size)}</div>
+                                </div>
+                                <span className="text-[8px] text-blue-600 opacity-0 group-hover:opacity-100 font-bold">Select</span>
+                              </button>
+                            ))
+                          )}
+                          <div className="p-2 border-t border-slate-100 bg-slate-50">
+                            <label className="flex items-center justify-center gap-1 text-[8px] font-bold text-slate-600 uppercase cursor-pointer hover:text-blue-600 transition-colors">
+                              <span>+ Upload New</span>
+                              <input
+                                type="file"
+                                accept="audio/*"
+                                onChange={(e) => handleFileUpload(e, audio.key as keyof PortalConfig)}
+                                className="hidden"
+                              />
+                            </label>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
