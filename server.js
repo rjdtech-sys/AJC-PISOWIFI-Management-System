@@ -7291,15 +7291,8 @@ function startBackgroundTimers() {
             [u.id]
           );
 
-          // Sync secrets BEFORE kicking to ensure user can't reconnect with valid credentials
-          await network.syncPPPoESecrets().catch(() => {});
-
           console.log(`[PPPoE-Expire] Kicking active connection for expired user "${u.username}"...`);
           await network.disconnectPPPoEUser(u.username).catch(() => {});
-          
-          // Note: Do NOT clear ip_address here. syncPPPoESecrets() handles IP assignment
-          // properly (expired pool or main pool). Clearing it causes IP wastage and
-          // reconnection failures due to subnet mismatch.
 
           const existingInvoice = await db.get(
             'SELECT id FROM pppoe_invoices WHERE user_id = ? AND expires_at = ? LIMIT 1',
@@ -7371,7 +7364,6 @@ function startBackgroundTimers() {
         }
       }
 
-      // Final sync to ensure all expired users are properly handled
       await network.syncPPPoESecrets().catch(() => {});
     } catch (e) {
       console.error('[PPPoE-Expire] Job failed:', e.message);
@@ -7380,21 +7372,6 @@ function startBackgroundTimers() {
 
   setInterval(() => { processExpiredPPPoEUsers(); }, 15000);
   processExpiredPPPoEUsers();
-
-  // Periodic refresh of iptables rules for expired users (when no expired pool is configured)
-  const refreshExpiredUserFirewallRules = async () => {
-    try {
-      const { pool } = await network.getPPPoEExpiredSettings().catch(() => ({ pool: null }));
-      // Only apply if no expired pool is configured (we handle this via iptables)
-      if (!pool || !pool.ip_pool_start || !pool.ip_pool_end) {
-        await network.initFirewall().catch(() => {});
-      }
-    } catch (e) {
-      console.error('[PPPoE-Expire] Firewall refresh failed:', e.message);
-    }
-  };
-  setInterval(refreshExpiredUserFirewallRules, 30000);
-  refreshExpiredUserFirewallRules();
 
   const syncPPPoEUserPresence = async () => {
     try {
@@ -7949,86 +7926,6 @@ app.post('/api/speedtest/install', requireAdmin, async (req, res) => {
     } catch {}
 
     res.status(500).json({ error: 'Failed to install Speedtest CLI. Please install manually.' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ==========================================
-// SSH TERMINAL API (Local Machine CLI)
-// ==========================================
-
-// Execute SSH command on the local machine
-app.post('/api/terminal/exec', requireAdmin, async (req, res) => {
-  try {
-    const { command } = req.body;
-    
-    if (!command || typeof command !== 'string') {
-      return res.status(400).json({ error: 'Command is required' });
-    }
-
-    // Security: Block dangerous commands
-    const dangerousPatterns = [
-      /rm\s+-rf\s+\//i,
-      />\s*\/dev\/null/i,
-      /mkfs\./i,
-      /dd\s+if=/i,
-      /:\(\)\s*\{\s*:\|:\s*&\s*\};/i, // Fork bomb
-    ];
-    
-    for (const pattern of dangerousPatterns) {
-      if (pattern.test(command)) {
-        return res.status(403).json({ 
-          error: 'Command blocked for security reasons',
-          stdout: '',
-          stderr: 'This command is not allowed',
-          exitCode: 1
-        });
-      }
-    }
-
-    // Execute command with timeout
-    const { stdout, stderr } = await execPromise(command, { 
-      timeout: 30000,
-      maxBuffer: 1024 * 1024 // 1MB buffer
-    });
-
-    res.json({
-      success: true,
-      stdout: stdout || '',
-      stderr: stderr || '',
-      exitCode: 0,
-      command: command
-    });
-  } catch (err) {
-    // Command failed but we still return the output
-    res.json({
-      success: false,
-      stdout: err.stdout || '',
-      stderr: err.stderr || err.message,
-      exitCode: err.code || 1,
-      command: req.body.command
-    });
-  }
-});
-
-// Get system info for terminal (hostname, user, pwd)
-app.get('/api/terminal/info', requireAdmin, async (req, res) => {
-  try {
-    const hostname = require('os').hostname();
-    const username = process.env.USER || process.env.USERNAME || 'root';
-    
-    let cwd = '/';
-    try {
-      cwd = process.cwd();
-    } catch (e) {}
-
-    res.json({
-      hostname,
-      username,
-      cwd,
-      shell: process.env.SHELL || '/bin/bash'
-    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
