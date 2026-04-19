@@ -7291,6 +7291,9 @@ function startBackgroundTimers() {
             [u.id]
           );
 
+          // Sync secrets BEFORE kicking to ensure user can't reconnect with valid credentials
+          await network.syncPPPoESecrets().catch(() => {});
+
           console.log(`[PPPoE-Expire] Kicking active connection for expired user "${u.username}"...`);
           await network.disconnectPPPoEUser(u.username).catch(() => {});
 
@@ -7364,6 +7367,7 @@ function startBackgroundTimers() {
         }
       }
 
+      // Final sync to ensure all expired users are properly handled
       await network.syncPPPoESecrets().catch(() => {});
     } catch (e) {
       console.error('[PPPoE-Expire] Job failed:', e.message);
