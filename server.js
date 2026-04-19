@@ -67,6 +67,34 @@ function getPppoeExpiredPortalUrl() {
   return '/error.html';
 }
 
+// Check if a client IP belongs to an expired PPPoE user (by IP in pppoe_users table)
+// This works regardless of whether an expired pool is configured
+// Uses a short-lived cache to avoid hitting DB on every request
+const _expiredPPPoEClientCache = { ips: new Set(), ts: 0 };
+const EXPP_CACHE_TTL = 10000; // 10 seconds
+
+async function isExpiredPPPoEClient(clientIp) {
+  if (!clientIp || !isValidIpv4(clientIp)) return false;
+  // First check: is IP in the expired pool range? (fast path)
+  if (pppoeExpiredPool && pppoeExpiredPool.ip_pool_start && pppoeExpiredPool.ip_pool_end) {
+    if (isIpInRange(clientIp, pppoeExpiredPool.ip_pool_start, pppoeExpiredPool.ip_pool_end)) return true;
+  }
+  // Second check: cache + DB lookup
+  const now = Date.now();
+  if (now - _expiredPPPoEClientCache.ts > EXPP_CACHE_TTL) {
+    try {
+      const rows = await db.all(
+        `SELECT ip_address FROM pppoe_users WHERE enabled = 1 AND ip_address IS NOT NULL AND ip_address != '' AND expires_at IS NOT NULL AND expires_at != '' AND datetime(replace(expires_at,'T',' ')) <= datetime('now','localtime')`
+      ).catch(() => []);
+      _expiredPPPoEClientCache.ips = new Set(rows.map(r => String(r.ip_address || '').trim()).filter(Boolean));
+      _expiredPPPoEClientCache.ts = now;
+    } catch (e) {
+      // keep old cache
+    }
+  }
+  return _expiredPPPoEClientCache.ips.has(clientIp);
+}
+
 async function refreshPPPoEExpiredSettings() {
   try {
     const poolIdRow = await db.get('SELECT value FROM config WHERE key = ?', ['pppoe_expired_pool_id']).catch(() => null);
@@ -1965,16 +1993,15 @@ function sendExpiredPortalProbe(res) {
 </html>`);
 }
 
-app.get(['/generate_204', '/gen_204', '/hotspot-detect.html', '/connecttest.txt', '/ncsi.txt'], (req, res, next) => {
+app.get(['/generate_204', '/gen_204', '/hotspot-detect.html', '/connecttest.txt', '/ncsi.txt'], async (req, res, next) => {
   try {
-    if (!pppoeExpiredPool || !pppoeExpiredPool.ip_pool_start || !pppoeExpiredPool.ip_pool_end) return next();
     const ip = getClientIpV4(req);
-    if (!ip) return next();
-    if (!isIpInRange(ip, pppoeExpiredPool.ip_pool_start, pppoeExpiredPool.ip_pool_end)) return next();
-    return sendExpiredPortalProbe(res);
+    if (ip && await isExpiredPPPoEClient(ip)) {
+      return sendExpiredPortalProbe(res);
+    }
   } catch (e) {
-    return next();
   }
+  next();
 });
 
 app.get('/api/pppoe/expired-info', async (req, res) => {
@@ -2046,13 +2073,15 @@ app.get('/api/pppoe/expired-info', async (req, res) => {
 
 app.use(async (req, res, next) => {
   try {
-    if (!pppoeExpiredPool || !pppoeExpiredPool.ip_pool_start || !pppoeExpiredPool.ip_pool_end) return next();
-    const ip = getClientIpV4(req);
-    if (!ip) return next();
-    if (!isIpInRange(ip, pppoeExpiredPool.ip_pool_start, pppoeExpiredPool.ip_pool_end)) return next();
+    const clientIp = getClientIpV4(req);
+    if (!clientIp) return next();
+    // Check if this client is an expired PPPoE user (works with or without expired pool)
+    const isExpired = await isExpiredPPPoEClient(clientIp);
+    if (!isExpired) return next();
     const p = req.path || '/';
+    // Allow API and socket requests to pass through
     if (p.startsWith('/api/') || p.startsWith('/socket.io') || p.startsWith('/dist/') || p.startsWith('/uploads/')) return next();
-    if (p === '/error.html') return res.status(200).sendFile(path.join(__dirname, 'error.html'));
+    // Serve the PPPoE expired error page
     return res.status(200).sendFile(path.join(__dirname, 'error.html'));
   } catch (e) {
     return next();
@@ -2159,6 +2188,12 @@ async function tryRoamingAuthorize(mac, clientIp, sessionToken) {
 // CAPTIVE PORTAL DETECTION ENDPOINTS
 app.get('/generate_204', async (req, res) => {
   const clientIp = req.ip ? req.ip.replace('::ffff:', '') : '';
+
+  // PPPoE expired user check FIRST - serve error.html, not hotspot portal
+  if (await isExpiredPPPoEClient(clientIp)) {
+    return res.sendFile(path.join(__dirname, 'error.html'));
+  }
+
   const mac = await getMacFromIp(clientIp);
   
   if (mac) {
@@ -2188,6 +2223,12 @@ app.get('/generate_204', async (req, res) => {
 
 app.get('/hotspot-detect.html', async (req, res) => {
   const clientIp = req.ip ? req.ip.replace('::ffff:', '') : '';
+
+  // PPPoE expired user check FIRST - serve error.html, not hotspot portal
+  if (await isExpiredPPPoEClient(clientIp)) {
+    return res.sendFile(path.join(__dirname, 'error.html'));
+  }
+
   const mac = await getMacFromIp(clientIp);
   
   if (mac) {
@@ -2207,6 +2248,12 @@ app.get('/hotspot-detect.html', async (req, res) => {
 
 app.get('/ncsi.txt', async (req, res) => {
   const clientIp = req.ip ? req.ip.replace('::ffff:', '') : '';
+
+  // PPPoE expired user check FIRST - serve error.html, not hotspot portal
+  if (await isExpiredPPPoEClient(clientIp)) {
+    return res.sendFile(path.join(__dirname, 'error.html'));
+  }
+
   const mac = await getMacFromIp(clientIp);
   
   if (mac) {
@@ -2226,6 +2273,12 @@ app.get('/ncsi.txt', async (req, res) => {
 
 app.get('/connecttest.txt', async (req, res) => {
   const clientIp = req.ip ? req.ip.replace('::ffff:', '') : '';
+
+  // PPPoE expired user check FIRST - serve error.html, not hotspot portal
+  if (await isExpiredPPPoEClient(clientIp)) {
+    return res.sendFile(path.join(__dirname, 'error.html'));
+  }
+
   const mac = await getMacFromIp(clientIp);
   
   if (mac) {
@@ -2245,6 +2298,12 @@ app.get('/connecttest.txt', async (req, res) => {
 
 app.get('/success.txt', async (req, res) => {
   const clientIp = req.ip ? req.ip.replace('::ffff:', '') : '';
+
+  // PPPoE expired user check FIRST - serve error.html, not hotspot portal
+  if (await isExpiredPPPoEClient(clientIp)) {
+    return res.sendFile(path.join(__dirname, 'error.html'));
+  }
+
   const mac = await getMacFromIp(clientIp);
   
   if (mac) {
@@ -2265,6 +2324,12 @@ app.get('/success.txt', async (req, res) => {
 // Apple-specific captive portal detection
 app.get('/library/test/success.html', async (req, res) => {
   const clientIp = req.ip ? req.ip.replace('::ffff:', '') : '';
+
+  // PPPoE expired user check FIRST - serve error.html, not hotspot portal
+  if (await isExpiredPPPoEClient(clientIp)) {
+    return res.sendFile(path.join(__dirname, 'error.html'));
+  }
+
   const mac = await getMacFromIp(clientIp);
   
   if (mac) {
@@ -2287,6 +2352,14 @@ app.use(async (req, res, next) => {
   const host = req.headers.host || '';
   const url = req.url.toLowerCase();
   const clientIp = req.ip ? req.ip.replace('::ffff:', '') : '';
+
+  // PPPoE expired user check FIRST - serve error.html, not hotspot portal
+  if (await isExpiredPPPoEClient(clientIp)) {
+    if (url.startsWith('/api') || url.startsWith('/dist') || url.startsWith('/assets')) {
+      return next();
+    }
+    return res.sendFile(path.join(__dirname, 'error.html'));
+  }
 
   // Check if this is a DNS-based captive portal probe
   if (host === 'captive.apple.com' || host === 'www.msftconnecttest.com' || host === 'connectivitycheck.gstatic.com') {
@@ -2332,6 +2405,14 @@ app.use(async (req, res, next) => {
   const host = req.headers.host || '';
   const url = req.url.toLowerCase();
   const clientIp = req.ip ? req.ip.replace('::ffff:', '') : '';
+
+  // PPPoE expired user check FIRST - serve error.html, not hotspot portal
+  if (await isExpiredPPPoEClient(clientIp)) {
+    if (url.startsWith('/api') || url.startsWith('/dist') || url.startsWith('/assets')) {
+      return next();
+    }
+    return res.sendFile(path.join(__dirname, 'error.html'));
+  }
 
   if (url.startsWith('/api') || url.startsWith('/dist') || url.startsWith('/assets') || url.startsWith('/admin') || host.includes('localhost') || host.includes('127.0.0.1')) {
     return next();
