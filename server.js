@@ -7297,8 +7297,9 @@ function startBackgroundTimers() {
           console.log(`[PPPoE-Expire] Kicking active connection for expired user "${u.username}"...`);
           await network.disconnectPPPoEUser(u.username).catch(() => {});
           
-          // Clear the user's IP address so they get a new one on reconnect
-          await db.run('UPDATE pppoe_users SET ip_address = NULL WHERE id = ?', [u.id]).catch(() => {});
+          // Note: Do NOT clear ip_address here. syncPPPoESecrets() handles IP assignment
+          // properly (expired pool or main pool). Clearing it causes IP wastage and
+          // reconnection failures due to subnet mismatch.
 
           const existingInvoice = await db.get(
             'SELECT id FROM pppoe_invoices WHERE user_id = ? AND expires_at = ? LIMIT 1',
