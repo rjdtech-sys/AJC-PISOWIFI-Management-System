@@ -7552,6 +7552,177 @@ app.post('/api/free-internet/claim', async (req, res) => {
   }
 });
 
+// ==========================================
+// SPEEDTEST (Ookla CLI) API
+// ==========================================
+
+const { execFile } = require('child_process');
+
+// Check if Ookla Speedtest CLI is installed
+app.get('/api/speedtest/status', requireAdmin, async (req, res) => {
+  try {
+    const speedtestPath = '/usr/bin/speedtest';
+    const speedtestAltPath = '/usr/local/bin/speedtest';
+    const fsSync = require('fs');
+
+    let installed = false;
+    let cliPath = '';
+    for (const p of [speedtestPath, speedtestAltPath]) {
+      try {
+        await fsSync.promises.access(p, fsSync.constants.X_OK);
+        installed = true;
+        cliPath = p;
+        break;
+      } catch {}
+    }
+
+    // Check if terms are accepted
+    let termsAccepted = false;
+    if (installed) {
+      try {
+        const { execSync } = require('child_process');
+        // If speedtest --accept-license works without error, terms are accepted or not needed
+        const result = execSync(`${cliPath} --accept-license --version 2>&1`, { timeout: 5000 }).toString();
+        termsAccepted = true;
+      } catch (e) {
+        // If it fails, terms may not be accepted
+        termsAccepted = false;
+      }
+    }
+
+    res.json({ installed, cliPath, termsAccepted });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Accept Ookla Speedtest terms/license
+app.post('/api/speedtest/accept-terms', requireAdmin, async (req, res) => {
+  try {
+    const speedtestPath = '/usr/bin/speedtest';
+    const speedtestAltPath = '/usr/local/bin/speedtest';
+    const fsSync = require('fs');
+
+    let cliPath = '';
+    for (const p of [speedtestPath, speedtestAltPath]) {
+      try {
+        await fsSync.promises.access(p, fsSync.constants.X_OK);
+        cliPath = p;
+        break;
+      } catch {}
+    }
+
+    if (!cliPath) {
+      return res.status(400).json({ error: 'Speedtest CLI is not installed. Install it first: https://www.speedtest.net/apps/cli' });
+    }
+
+    const { execSync } = require('child_process');
+    // Run with --accept-license and --accept-gdpr to accept terms
+    execSync(`${cliPath} --accept-license --accept-gdpr --version 2>&1`, { timeout: 10000 });
+    res.json({ success: true, message: 'Ookla Speedtest terms accepted successfully.' });
+  } catch (err) {
+    console.error('[Speedtest] Accept terms error:', err.message);
+    res.status(500).json({ error: 'Failed to accept terms: ' + err.message });
+  }
+});
+
+// Run speedtest (server-side, tests WAN of the machine)
+app.post('/api/speedtest/run', requireAdmin, async (req, res) => {
+  try {
+    const speedtestPath = '/usr/bin/speedtest';
+    const speedtestAltPath = '/usr/local/bin/speedtest';
+    const fsSync = require('fs');
+
+    let cliPath = '';
+    for (const p of [speedtestPath, speedtestAltPath]) {
+      try {
+        await fsSync.promises.access(p, fsSync.constants.X_OK);
+        cliPath = p;
+        break;
+      } catch {}
+    }
+
+    if (!cliPath) {
+      return res.status(400).json({ error: 'Speedtest CLI is not installed. Install it from https://www.speedtest.net/apps/cli' });
+    }
+
+    // Run speedtest with JSON output, accept license & GDPR
+    execFile(cliPath, ['--accept-license', '--accept-gdpr', '--format=json'], { timeout: 120000 }, (err, stdout, stderr) => {
+      if (err) {
+        console.error('[Speedtest] Run error:', err.message);
+        return res.status(500).json({ error: 'Speedtest failed: ' + err.message });
+      }
+
+      try {
+        const result = JSON.parse(stdout);
+        res.json({
+          success: true,
+          ping: result.ping?.latency ?? null,
+          jitter: result.ping?.jitter ?? null,
+          download: result.download?.bandwidth ?? null,   // bytes/sec
+          upload: result.upload?.bandwidth ?? null,        // bytes/sec
+          server: result.server?.name ?? null,
+          serverId: result.server?.id ?? null,
+          serverLocation: result.server?.location ?? null,
+          ip: result.interface?.externalIp ?? null,
+          timestamp: result.timestamp ?? new Date().toISOString(),
+          resultUrl: result.result?.url ?? null
+        });
+      } catch (parseErr) {
+        console.error('[Speedtest] Parse error:', parseErr.message);
+        // Return raw output if JSON parse fails
+        res.json({ success: true, raw: stdout });
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Install Ookla Speedtest CLI (Debian/Ubuntu)
+app.post('/api/speedtest/install', requireAdmin, async (req, res) => {
+  try {
+    const { execSync } = require('child_process');
+
+    // Check if already installed
+    try {
+      execSync('which speedtest 2>/dev/null || true', { timeout: 5000 });
+      const checkResult = execSync('which speedtest 2>/dev/null', { timeout: 5000 }).toString().trim();
+      if (checkResult) {
+        return res.json({ success: true, message: 'Speedtest CLI is already installed at: ' + checkResult });
+      }
+    } catch {}
+
+    // Install Ookla Speedtest CLI
+    const commands = [
+      'apt-get update -y',
+      'apt-get install -y curl',
+      'curl -s https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | bash',
+      'apt-get install -y speedtest'
+    ];
+
+    for (const cmd of commands) {
+      try {
+        execSync(cmd, { timeout: 120000 });
+      } catch (cmdErr) {
+        console.warn(`[Speedtest] Install step failed: ${cmd}`, cmdErr.message);
+      }
+    }
+
+    // Verify installation
+    try {
+      const verifyPath = execSync('which speedtest 2>/dev/null', { timeout: 5000 }).toString().trim();
+      if (verifyPath) {
+        return res.json({ success: true, message: 'Speedtest CLI installed successfully at: ' + verifyPath });
+      }
+    } catch {}
+
+    res.status(500).json({ error: 'Failed to install Speedtest CLI. Please install manually.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Catch-all route for frontend (must be last)
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api') || req.path.startsWith('/dist')) return res.status(404).send('Not found');

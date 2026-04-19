@@ -285,7 +285,8 @@ export enum AdminTab {
   SalesInventory = 'sales_inventory',
   Remote = 'remote',
   Rewards = 'rewards',
-  CompanySettings = 'company_settings'
+  CompanySettings = 'company_settings',
+  Tools = 'tools'
 }
 
 export type MikrotikRouterStatus = 'connected' | 'disconnected' | 'error';

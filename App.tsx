@@ -21,6 +21,7 @@ import VoucherManager from './components/Admin/VoucherManager';
 import RemoteManager from './components/Admin/RemoteManager';
 import RewardsSettings from './components/Admin/RewardsSettings';
 import CompanySettings from './components/Admin/CompanySettings';
+import ToolsPage from './components/Admin/ToolsPage';
 import { apiClient } from './lib/api';
 import { initAdminTheme, setAdminTheme, applyAdminTheme } from './lib/theme';
 
@@ -424,6 +425,7 @@ const App: React.FC = () => {
             <SidebarItem active={activeTab === AdminTab.CompanySettings} onClick={() => setActiveTab(AdminTab.CompanySettings)} icon="🏢" label="Company" collapsed={!sidebarOpen} />
             <SidebarItem active={activeTab === AdminTab.System} onClick={() => setActiveTab(AdminTab.System)} icon="⚙️" label="System" collapsed={!sidebarOpen} />
             <SidebarItem disabled={!licenseStatus.canOperate && !licenseStatus.isRevoked} active={activeTab === AdminTab.Updater} onClick={() => setActiveTab(AdminTab.Updater)} icon="🚀" label="Updater" collapsed={!sidebarOpen} />
+            <SidebarItem disabled={!licenseStatus.canOperate && !licenseStatus.isRevoked} active={activeTab === AdminTab.Tools} onClick={() => setActiveTab(AdminTab.Tools)} icon="🔧" label="Tools" collapsed={!sidebarOpen} />
           </nav>
 
               <div className={`admin-sidebar-footer p-4 border-t border-white/5 bg-black/20 ${sidebarOpen ? 'block' : 'hidden md:block'}`}>
@@ -498,6 +500,7 @@ const App: React.FC = () => {
                   {activeTab === AdminTab.CompanySettings && <CompanySettings />}
                   {activeTab === AdminTab.System && <SystemSettings />}
                   {activeTab === AdminTab.Updater && <SystemUpdater />}
+                  {activeTab === AdminTab.Tools && <ToolsPage />}
                 </div>
                 {/* Bottom Spacer for Mobile */}
                 <div className="h-20 md:hidden" />
