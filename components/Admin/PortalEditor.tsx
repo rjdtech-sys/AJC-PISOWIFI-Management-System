@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { PortalConfig, fetchPortalConfig, savePortalConfigRemote, DEFAULT_PORTAL_CONFIG } from '../../lib/theme';
+import { PortalConfig, fetchPortalConfig, savePortalConfigRemote, DEFAULT_PORTAL_CONFIG, PORTAL_THEMES, applyPortalTheme, PortalThemeId } from '../../lib/theme';
 import { apiClient } from '../../lib/api';
 
 interface AudioFile {
@@ -307,6 +307,53 @@ const PortalEditor: React.FC = () => {
                     />
                     <span className="text-[9px] font-mono text-slate-500 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200">{config.textColor}</span>
                   </div>
+                </div>
+              </div>
+
+              <div className="h-px bg-slate-100"></div>
+
+              {/* Theme Selector */}
+              <div>
+                <h4 className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                  <span>🎨</span> Portal Themes
+                </h4>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {PORTAL_THEMES.map((theme) => (
+                    <button
+                      key={theme.id}
+                      onClick={() => {
+                        const newConfig = applyPortalTheme(config, theme.id);
+                        setConfig(newConfig);
+                        setHasChanges(true);
+                      }}
+                      className={`p-3 rounded-xl border text-left transition-all ${
+                        config.theme === theme.id
+                          ? 'border-blue-600 bg-blue-50 shadow-md shadow-blue-500/10 ring-2 ring-blue-500 ring-offset-1'
+                          : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'
+                      }`}
+                    >
+                      <div className="flex gap-1 mb-2">
+                        {theme.previewColors.map((color, idx) => (
+                          <div
+                            key={idx}
+                            className="w-4 h-4 rounded-full border border-slate-200"
+                            style={{ backgroundColor: color }}
+                          />
+                        ))}
+                      </div>
+                      <div className="text-[10px] font-black uppercase tracking-widest text-slate-700 mb-1">
+                        {theme.name}
+                      </div>
+                      <p className="text-[8px] text-slate-400 font-bold leading-snug">
+                        {theme.description}
+                      </p>
+                      {config.theme === theme.id && (
+                        <div className="mt-2 text-[8px] font-black text-blue-600 uppercase tracking-widest">
+                          ✓ Active
+                        </div>
+                      )}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -697,9 +744,21 @@ const PortalEditor: React.FC = () => {
             style={{ backgroundColor: config.backgroundColor, color: config.textColor }}
           >
             {/* Header */}
-            <div 
-              className="pt-10 pb-12 px-4 text-center rounded-b-[20px] shadow-lg relative"
-              style={{ background: `linear-gradient(135deg, ${config.primaryColor} 0%, ${config.secondaryColor} 100%)`, color: '#fff' }}
+            <div
+              className={`pt-10 pb-12 px-4 text-center shadow-lg relative ${
+                config.theme === 'gaming' ? 'rounded-b-[40px]' :
+                config.theme === 'nature' ? 'rounded-b-[30px]' :
+                config.theme === 'school' ? 'rounded-b-[20px]' :
+                config.theme === 'cyberpunk' ? 'rounded-b-[30px] border-b-2' :
+                'rounded-b-[20px]'
+              }`}
+              style={{
+                background: config.theme === 'cyberpunk'
+                  ? 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)'
+                  : `linear-gradient(135deg, ${config.primaryColor} 0%, ${config.secondaryColor} 100%)`,
+                color: '#fff',
+                borderColor: config.theme === 'cyberpunk' ? config.primaryColor : undefined
+              }}
             >
               <h1 className="text-lg font-black tracking-tight mb-1 uppercase leading-tight">{config.title}</h1>
               <p className="text-[8px] font-bold opacity-80 uppercase tracking-widest">{config.subtitle}</p>
@@ -707,9 +766,15 @@ const PortalEditor: React.FC = () => {
 
             {/* Card */}
             <div className="flex-1 px-3 -mt-6 relative z-10">
-              <div 
-                className="bg-white/90 backdrop-blur-sm p-4 rounded-[20px] shadow-xl border border-white/20 text-center"
-                style={{ color: '#0f172a' }}
+              <div
+                className={`p-4 shadow-xl border text-center ${
+                  config.theme === 'gaming' ? 'rounded-[24px] bg-white/90 backdrop-blur-sm border-white/20' :
+                  config.theme === 'nature' ? 'rounded-[20px] bg-gradient-to-br from-white to-emerald-50 border-emerald-100' :
+                  config.theme === 'school' ? 'rounded-lg border-[3px] border-blue-900 shadow-[4px_4px_0_#1e3a8a] bg-white' :
+                  config.theme === 'cyberpunk' ? 'rounded-[16px] bg-gray-900/90 border border-emerald-500/30 shadow-[0_0_30px_rgba(0,255,159,0.2)]' :
+                  'rounded-[20px] bg-white/90 backdrop-blur-sm border-white/20'
+                }`}
+                style={{ color: config.theme === 'cyberpunk' ? '#e0e0e0' : '#0f172a' }}
               >
                 <p className="text-[8px] font-black uppercase tracking-widest mb-1.5" style={{ color: config.primaryColor }}>Connected Session</p>
                 <h2 className="text-3xl font-black mb-3 tracking-tighter">00:00:00</h2>
@@ -720,13 +785,21 @@ const PortalEditor: React.FC = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <button 
-                    className="w-full py-2 rounded-lg font-black text-[9px] uppercase tracking-widest text-white shadow-md"
-                    style={{ background: `linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)` }}
+                  <button
+                    className={`w-full py-2 font-black text-[9px] uppercase tracking-widest text-white shadow-md ${
+                      config.theme === 'gaming' || config.theme === 'cyberpunk' ? 'rounded-full' :
+                      config.theme === 'school' ? 'rounded' : 'rounded-lg'
+                    }`}
+                    style={{ background: `linear-gradient(135deg, ${config.primaryColor} 0%, ${config.secondaryColor} 100%)` }}
                   >
                     Pause Time
                   </button>
-                  <button className="w-full py-2 rounded-lg font-black text-[9px] uppercase tracking-widest bg-slate-100 text-slate-500">
+                  <button
+                    className={`w-full py-2 font-black text-[9px] uppercase tracking-widest bg-slate-100 text-slate-500 ${
+                      config.theme === 'gaming' || config.theme === 'cyberpunk' ? 'rounded-full' :
+                      config.theme === 'school' ? 'rounded' : 'rounded-lg'
+                    }`}
+                  >
                     Insert Coin
                   </button>
                 </div>
@@ -735,7 +808,16 @@ const PortalEditor: React.FC = () => {
               {/* Rates Preview */}
               <div className="mt-4 grid grid-cols-2 gap-2 pb-6">
                 {[1, 5].map((amt) => (
-                   <div key={amt} className="bg-white p-2 rounded-xl text-center shadow-sm border border-slate-100">
+                   <div
+                     key={amt}
+                     className={`bg-white p-2 text-center shadow-sm border border-slate-100 ${
+                       config.theme === 'gaming' ? 'rounded-2xl border-purple-200' :
+                       config.theme === 'nature' ? 'rounded-xl' :
+                       config.theme === 'school' ? 'rounded border-amber-200' :
+                       config.theme === 'cyberpunk' ? 'rounded-xl border-emerald-500/30 bg-emerald-500/10' :
+                       'rounded-xl'
+                     }`}
+                   >
                       <span className="block text-sm font-black text-slate-900">₱{amt}</span>
                       <span className="block text-[7px] font-black uppercase tracking-widest" style={{ color: config.primaryColor }}>
                         {amt === 1 ? '10 Mins' : '1 Hour'}
