@@ -3114,7 +3114,7 @@ app.get('/api/sales/inventory', requireAdmin, async (req, res) => {
     const coinslotsQuery = `SELECT DISTINCT machine_id as machineId FROM sales WHERE machine_id IS NOT NULL ORDER BY machine_id`;
     const coinslots = await db.all(coinslotsQuery);
     
-    // Calculate totals per coinslot
+    // Calculate totals per coinslot (all time)
     const totalsQuery = `SELECT 
       machine_id as machineId,
       SUM(amount) as totalAmount,
@@ -3124,13 +3124,21 @@ app.get('/api/sales/inventory', requireAdmin, async (req, res) => {
     GROUP BY machine_id`;
     const totals = await db.all(totalsQuery);
     
-    // Calculate grand total
+    // Calculate grand total (all time)
     const grandTotalQuery = `SELECT 
       SUM(amount) as grandTotal,
       COUNT(*) as totalTransactions
     FROM sales 
     WHERE type != "coins_out"`;
     const grandTotal = await db.get(grandTotalQuery);
+    
+    // Calculate today's total (regardless of date filter)
+    const todayTotalQuery = `SELECT 
+      SUM(amount) as todayTotal,
+      COUNT(*) as todayCount
+    FROM sales 
+    WHERE type != "coins_out" AND date(timestamp) = date('now')`;
+    const todayTotal = await db.get(todayTotalQuery);
     
     res.json({
       sales,
@@ -3145,6 +3153,10 @@ app.get('/api/sales/inventory', requireAdmin, async (req, res) => {
       grandTotal: {
         amount: grandTotal?.grandTotal || 0,
         count: grandTotal?.totalTransactions || 0
+      },
+      todayTotal: {
+        amount: todayTotal?.todayTotal || 0,
+        count: todayTotal?.todayCount || 0
       }
     });
   } catch (err) { 

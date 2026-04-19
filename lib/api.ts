@@ -602,6 +602,7 @@ export const apiClient = {
     coinslots: string[];
     totals: Record<string, { amount: number; count: number }>;
     grandTotal: { amount: number; count: number };
+    todayTotal: { amount: number; count: number };
   }> {
     const queryParams = new URLSearchParams();
     if (params?.from) queryParams.append('from', params.from);

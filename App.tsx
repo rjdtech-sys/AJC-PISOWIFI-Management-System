@@ -573,11 +573,13 @@ const SalesInventory: React.FC<{ sessions: UserSession[] }> = ({ sessions }) => 
     coinslots: string[];
     totals: Record<string, { amount: number; count: number }>;
     grandTotal: { amount: number; count: number };
+    todayTotal: { amount: number; count: number };
   }>({
     sales: [],
     coinslots: [],
     totals: {},
-    grandTotal: { amount: 0, count: 0 }
+    grandTotal: { amount: 0, count: 0 },
+    todayTotal: { amount: 0, count: 0 }
   });
   const [salesLoading, setSalesLoading] = useState<boolean>(false);
 
@@ -711,19 +713,8 @@ const SalesInventory: React.FC<{ sessions: UserSession[] }> = ({ sessions }) => 
     return salesData.totals[coinSlotFilter]?.amount || 0;
   }, [salesData, coinSlotFilter]);
 
-  // Calculate today's total sales
-  const totalSalesToday = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
-    return salesData.sales
-      .filter((s: any) => {
-        try {
-          return new Date(s.createdAt).toISOString().slice(0, 10) === today;
-        } catch {
-          return false;
-        }
-      })
-      .reduce((sum: number, s: any) => sum + (s.amount || 0), 0);
-  }, [salesData.sales]);
+  // Use today's total from API (calculated on server)
+  const totalSalesToday = salesData.todayTotal?.amount || 0;
 
   // Build unique coinslots list with labels
   const uniqueCoinSlots = useMemo(() => {
