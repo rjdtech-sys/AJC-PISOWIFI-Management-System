@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 
+export type ToolsSubPage = 'speedtest' | 'dhcp_leases';
+
 interface SpeedTestResult {
   success: boolean;
   ping: number | null;
@@ -21,9 +23,68 @@ interface SpeedTestStatus {
   termsAccepted: boolean;
 }
 
+interface DhcpLease {
+  mac: string;
+  ip: string;
+  hostname: string;
+  clientId: string;
+  expiry: string | null;
+  interface?: string;
+  state?: string;
+  source: string;
+}
+
 type TestPhase = 'idle' | 'testing' | 'done' | 'error';
 
+// Sub-page selector tabs
+const subPageItems: { id: ToolsSubPage; label: string; icon: string }[] = [
+  { id: 'speedtest', label: 'Speedtest', icon: '⚡' },
+  { id: 'dhcp_leases', label: 'DHCP Leases', icon: '📋' }
+];
+
 const ToolsPage: React.FC = () => {
+  const [subPage, setSubPage] = useState<ToolsSubPage>('speedtest');
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-black text-slate-900 uppercase tracking-tight">Tools</h1>
+          <p className="text-xs text-slate-500">Network diagnostics and utilities for your machine.</p>
+        </div>
+      </div>
+
+      {/* Sub-page Selector */}
+      <div className="flex flex-wrap items-center gap-2">
+        {subPageItems.map((it) => (
+          <button
+            key={it.id}
+            type="button"
+            onClick={() => setSubPage(it.id)}
+            className={`px-4 py-2.5 rounded-xl text-[11px] font-bold uppercase tracking-widest border transition-colors ${
+              subPage === it.id
+                ? 'bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-600/20'
+                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+            }`}
+          >
+            <span className="mr-1.5">{it.icon}</span>
+            {it.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Sub-page Content */}
+      {subPage === 'speedtest' && <SpeedtestSubPage />}
+      {subPage === 'dhcp_leases' && <DhcpLeasesSubPage />}
+    </div>
+  );
+};
+
+/* =====================================================
+   SPEEDTEST SUB-PAGE
+   ===================================================== */
+const SpeedtestSubPage: React.FC = () => {
   const [status, setStatus] = useState<SpeedTestStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [phase, setPhase] = useState<TestPhase>('idle');
@@ -178,16 +239,7 @@ const ToolsPage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-black text-slate-900 uppercase tracking-tight">Tools</h1>
-          <p className="text-xs text-slate-500">Speedtest - Test your machine's WAN internet speed using Ookla.</p>
-        </div>
-      </div>
-
-      {/* Speedtest Card */}
+      <>{/* Speedtest Card */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         {/* Card Header */}
         <div className="px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
@@ -434,7 +486,276 @@ const ToolsPage: React.FC = () => {
           </div>
         </div>
       </div>
-    </div>
+      </>
+  );
+};
+
+/* =====================================================
+   DHCP LEASES SUB-PAGE
+   ===================================================== */
+const DhcpLeasesSubPage: React.FC = () => {
+  const [leases, setLeases] = useState<DhcpLease[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortBy, setSortBy] = useState<'ip' | 'mac' | 'hostname' | 'expiry'>('ip');
+
+  const fetchLeases = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const token = localStorage.getItem('ajc_admin_token');
+      const res = await fetch('/api/dhcp-leases', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setLeases(data.leases || []);
+      } else {
+        const data = await res.json().catch(() => ({ error: 'Failed to fetch DHCP leases' }));
+        setError(data.error || 'Failed to fetch DHCP leases');
+      }
+    } catch (e: any) {
+      setError(e.message || 'Failed to fetch DHCP leases');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchLeases();
+  }, [fetchLeases]);
+
+  const filtered = leases.filter((lease) => {
+    if (!searchTerm) return true;
+    const term = searchTerm.toLowerCase();
+    return (
+      lease.mac.toLowerCase().includes(term) ||
+      lease.ip.toLowerCase().includes(term) ||
+      lease.hostname.toLowerCase().includes(term)
+    );
+  });
+
+  const sorted = [...filtered].sort((a, b) => {
+    if (sortBy === 'ip') {
+      const aParts = a.ip.split('.').map(Number);
+      const bParts = b.ip.split('.').map(Number);
+      for (let i = 0; i < 4; i++) {
+        if (aParts[i] !== bParts[i]) return aParts[i] - bParts[i];
+      }
+      return 0;
+    }
+    if (sortBy === 'mac') return a.mac.localeCompare(b.mac);
+    if (sortBy === 'hostname') return a.hostname.localeCompare(b.hostname);
+    if (sortBy === 'expiry') {
+      const aTime = a.expiry ? new Date(a.expiry).getTime() : Infinity;
+      const bTime = b.expiry ? new Date(b.expiry).getTime() : Infinity;
+      return aTime - bTime;
+    }
+    return 0;
+  });
+
+  const formatExpiry = (iso: string | null): string => {
+    if (!iso) return '--';
+    try {
+      const d = new Date(iso);
+      const now = new Date();
+      if (d.getTime() < now.getTime()) return 'Expired';
+      return d.toLocaleString();
+    } catch {
+      return '--';
+    }
+  };
+
+  const isExpired = (iso: string | null): boolean => {
+    if (!iso) return false;
+    return new Date(iso).getTime() < Date.now();
+  };
+
+  return (
+      <>{/* DHCP Leases Card */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+        {/* Card Header */}
+        <div className="px-6 py-4 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20">
+                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                </svg>
+              </div>
+              <div>
+                <h2 className="text-sm font-black text-slate-900 uppercase tracking-tight">DHCP Leases</h2>
+                <p className="text-[10px] text-slate-500 uppercase tracking-wider">All connected devices and their DHCP assignments</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider bg-slate-100 px-3 py-1.5 rounded-lg">
+                {leases.length} Device{leases.length !== 1 ? 's' : ''}
+              </span>
+              <button
+                onClick={fetchLeases}
+                disabled={loading}
+                className="p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors disabled:opacity-50"
+                title="Refresh"
+              >
+                <svg className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Search & Sort */}
+        <div className="px-6 py-3 border-b border-slate-100 bg-slate-50/50">
+          <div className="flex flex-col md:flex-row md:items-center gap-3">
+            <div className="flex-1">
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search by MAC, IP, or Hostname..."
+                className="w-full admin-input text-xs"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Sort by:</span>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as any)}
+                className="admin-input text-xs"
+              >
+                <option value="ip">IP Address</option>
+                <option value="mac">MAC Address</option>
+                <option value="hostname">Hostname</option>
+                <option value="expiry">Expiry</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Table */}
+        <div className="overflow-x-auto">
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+              <span className="ml-3 text-xs text-slate-500 font-bold uppercase tracking-wider">Loading DHCP Leases...</span>
+            </div>
+          ) : error ? (
+            <div className="text-center py-12">
+              <div className="w-12 h-12 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-3">
+                <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                </svg>
+              </div>
+              <p className="text-xs text-red-500 font-semibold">{error}</p>
+            </div>
+          ) : sorted.length === 0 ? (
+            <div className="text-center py-12">
+              <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                <svg className="w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <p className="text-xs text-slate-400 font-bold uppercase tracking-wider">
+                {searchTerm ? 'No devices match your search.' : 'No DHCP leases found.'}
+              </p>
+            </div>
+          ) : (
+            <table className="min-w-full text-xs">
+              <thead className="bg-slate-50 border-b border-slate-100">
+                <tr className="text-[10px] uppercase tracking-widest text-slate-500">
+                  <th className="px-4 py-2.5 text-left font-bold">#</th>
+                  <th className="px-4 py-2.5 text-left font-bold">MAC Address</th>
+                  <th className="px-4 py-2.5 text-left font-bold">IP Address</th>
+                  <th className="px-4 py-2.5 text-left font-bold">Hostname</th>
+                  <th className="px-4 py-2.5 text-left font-bold">Interface</th>
+                  <th className="px-4 py-2.5 text-left font-bold">State</th>
+                  <th className="px-4 py-2.5 text-left font-bold">Lease Expiry</th>
+                  <th className="px-4 py-2.5 text-left font-bold">Source</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((lease, idx) => (
+                  <tr
+                    key={`${lease.mac}-${lease.ip}`}
+                    className="border-b border-slate-50 hover:bg-slate-50/60 transition-colors"
+                  >
+                    <td className="px-4 py-2.5 text-slate-400 font-bold">{idx + 1}</td>
+                    <td className="px-4 py-2.5 font-mono font-semibold text-slate-800">{lease.mac}</td>
+                    <td className="px-4 py-2.5 font-semibold text-slate-700">{lease.ip}</td>
+                    <td className="px-4 py-2.5 text-slate-700">
+                      {lease.hostname ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200 font-semibold">
+                          {lease.hostname}
+                        </span>
+                      ) : (
+                        <span className="text-slate-300">--</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5 text-slate-600">
+                      {lease.interface ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200 font-semibold text-[10px]">
+                          {lease.interface}
+                        </span>
+                      ) : (
+                        <span className="text-slate-300">--</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      {lease.state ? (
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                          lease.state === 'REACHABLE' || lease.state === 'STALE'
+                            ? 'bg-green-50 text-green-700 border-green-200'
+                            : lease.state === 'DELAY' || lease.state === 'PROBE'
+                              ? 'bg-amber-50 text-amber-700 border-amber-200'
+                              : 'bg-slate-50 text-slate-600 border-slate-200'
+                        }`}>
+                          {lease.state}
+                        </span>
+                      ) : (
+                        <span className="text-slate-300">--</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      {lease.expiry ? (
+                        <span className={`text-[11px] ${isExpired(lease.expiry) ? 'text-red-500 font-bold' : 'text-slate-600'}`}>
+                          {formatExpiry(lease.expiry)}
+                        </span>
+                      ) : (
+                        <span className="text-slate-300 text-[10px]">Static / ARP</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[9px] font-bold uppercase border ${
+                        lease.source === 'arp'
+                          ? 'bg-purple-50 text-purple-600 border-purple-200'
+                          : 'bg-emerald-50 text-emerald-600 border-emerald-200'
+                      }`}>
+                        {lease.source === 'arp' ? 'ARP' : 'DHCP'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-3 bg-slate-50 border-t border-slate-100">
+          <div className="flex items-center justify-between">
+            <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">
+              DHCP Leases from dnsmasq & ARP Table
+            </span>
+            <span className="text-[9px] text-slate-400">
+              {filtered.length} of {leases.length} shown
+            </span>
+          </div>
+        </div>
+      </div>
+      </>
   );
 };
 

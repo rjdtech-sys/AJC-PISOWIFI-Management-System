@@ -7553,6 +7553,117 @@ app.post('/api/free-internet/claim', async (req, res) => {
 });
 
 // ==========================================
+// DHCP LEASES API
+// ==========================================
+
+// Get all DHCP leases from dnsmasq/dhcpd lease files
+app.get('/api/dhcp-leases', requireAdmin, async (req, res) => {
+  try {
+    const leaseFiles = [
+      '/tmp/dhcp.leases',
+      '/var/lib/dnsmasq/dnsmasq.leases',
+      '/var/lib/misc/dnsmasq.leases',
+      '/var/lib/dhcp/dhcpd.leases'
+    ];
+
+    const leases = [];
+
+    for (const file of leaseFiles) {
+      try {
+        if (!fs.existsSync(file)) continue;
+        const content = fs.readFileSync(file, 'utf8');
+        const lines = content.split('\n').filter(l => l.trim());
+
+        for (const line of lines) {
+          const parts = line.trim().split(/\s+/);
+          if (parts.length < 4) continue;
+
+          // dnsmasq lease format: <timestamp> <mac> <ip> <hostname> <client-id>
+          // dhcpd lease format is different - detect by first field
+          const maybeTimestamp = parseInt(parts[0], 10);
+          const maybeMac = parts[1];
+
+          if (!Number.isNaN(maybeTimestamp) && maybeMac && maybeMac.match(/^[a-fA-F0-9:]{17}$/)) {
+            // dnsmasq format
+            const expiry = maybeTimestamp;
+            const mac = maybeMac.toUpperCase();
+            const ip = parts[2];
+            const hostname = parts[3] && parts[3] !== '*' ? parts[3] : '';
+            const clientId = parts[4] || '';
+
+            // Avoid duplicates (same MAC)
+            if (!leases.find(l => l.mac === mac)) {
+              leases.push({
+                mac,
+                ip,
+                hostname,
+                clientId,
+                expiry: expiry > 0 ? new Date(expiry * 1000).toISOString() : null,
+                source: file
+              });
+            }
+          }
+        }
+      } catch (e) {
+        // Skip files that can't be read
+      }
+    }
+
+    // Also try parsing dnsmasq.leases with IPv6 or extended format
+    // and try ip neigh as a supplement for currently active devices
+    try {
+      const { stdout } = await execPromise('ip neigh show').catch(() => ({ stdout: '' }));
+      const neighLines = String(stdout || '').split('\n').filter(l => l.trim());
+      for (const line of neighLines) {
+        const match = line.match(/^(\d+\.\d+\.\d+\.\d+)\s+dev\s+(\S+)\s+lladdr\s+([a-fA-F0-9:]+)\s+(\S+)/);
+        if (match) {
+          const ip = match[1];
+          const iface = match[2];
+          const mac = match[3].toUpperCase();
+          const state = match[4];
+
+          // Only add if not already in leases (from DHCP file)
+          if (!leases.find(l => l.mac === mac)) {
+            leases.push({
+              mac,
+              ip,
+              hostname: '',
+              clientId: '',
+              expiry: null,
+              interface: iface,
+              state: state,
+              source: 'arp'
+            });
+          } else {
+            // Enrich existing lease with interface/state info
+            const existing = leases.find(l => l.mac === mac);
+            if (existing) {
+              existing.interface = iface;
+              existing.state = state;
+            }
+          }
+        }
+      }
+    } catch (e) {}
+
+    // Sort by IP address numerically
+    leases.sort((a, b) => {
+      const aParts = a.ip.split('.').map(Number);
+      const bParts = b.ip.split('.').map(Number);
+      for (let i = 0; i < 4; i++) {
+        if (aParts[i] !== bParts[i]) return aParts[i] - bParts[i];
+      }
+      return 0;
+    });
+
+    res.json({ leases, total: leases.length });
+  } catch (err) {
+    console.error('[DHCP] Error reading leases:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==========================================
 // SPEEDTEST (Ookla CLI) API
 // ==========================================
 
