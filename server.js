@@ -4,6 +4,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const si = require('systeminformation');
 const db = require('./lib/db');
 const { initGPIO, updateGPIO, registerSlotCallback, unregisterSlotCallback, setRelayState } = require('./lib/gpio');
@@ -14,6 +15,7 @@ const { verifyPassword, hashPassword } = require('./lib/auth');
 const crypto = require('crypto');
 const multer = require('multer');
 const edgeSync = require('./lib/edge-sync');
+const rentalActivation = require('./lib/rental-activation');
 const settings = require('./lib/settings');
 const AdmZip = require('adm-zip');
 const { generatePPPoEInvoicePdf } = require('./lib/pppoe-billing');
@@ -2156,12 +2158,30 @@ async function tryRoamingAuthorize(mac, clientIp, sessionToken) {
   }
 }
 
+// Check if a MAC belongs to a rental device with active session (bypass portal)
+async function isRentalDeviceActive(mac) {
+  try {
+    const rentalDevice = await db.get(
+      `SELECT rd.id FROM rental_devices rd JOIN rental_sessions rs ON rd.id = rs.device_id WHERE rd.mac_address = ? AND rs.status = 'active'`,
+      [mac.toUpperCase()]
+    );
+    return !!rentalDevice;
+  } catch (e) {
+    return false;
+  }
+}
+
 // CAPTIVE PORTAL DETECTION ENDPOINTS
 app.get('/generate_204', async (req, res) => {
   const clientIp = req.ip ? req.ip.replace('::ffff:', '') : '';
   const mac = await getMacFromIp(clientIp);
   
   if (mac) {
+    // Phone Rental bypass - rented devices skip captive portal
+    if (await isRentalDeviceActive(mac)) {
+      return res.status(204).send();
+    }
+
     const session = await db.get('SELECT mac FROM sessions WHERE mac = ? AND remaining_seconds > 0 AND (is_paused = 0 OR is_paused IS NULL)', [mac]);
     if (session) {
       return res.status(204).send();
@@ -2191,6 +2211,10 @@ app.get('/hotspot-detect.html', async (req, res) => {
   const mac = await getMacFromIp(clientIp);
   
   if (mac) {
+    // Phone Rental bypass
+    if (await isRentalDeviceActive(mac)) {
+      return res.type('text/plain').send('Success');
+    }
     const session = await db.get('SELECT mac FROM sessions WHERE mac = ? AND remaining_seconds > 0 AND (is_paused = 0 OR is_paused IS NULL)', [mac]);
     if (session) {
       return res.type('text/plain').send('Success');
@@ -2210,6 +2234,10 @@ app.get('/ncsi.txt', async (req, res) => {
   const mac = await getMacFromIp(clientIp);
   
   if (mac) {
+    // Phone Rental bypass
+    if (await isRentalDeviceActive(mac)) {
+      return res.type('text/plain').send('Microsoft NCSI');
+    }
     const session = await db.get('SELECT mac FROM sessions WHERE mac = ? AND remaining_seconds > 0 AND (is_paused = 0 OR is_paused IS NULL)', [mac]);
     if (session) {
       return res.type('text/plain').send('Microsoft NCSI');
@@ -2229,6 +2257,10 @@ app.get('/connecttest.txt', async (req, res) => {
   const mac = await getMacFromIp(clientIp);
   
   if (mac) {
+    // Phone Rental bypass
+    if (await isRentalDeviceActive(mac)) {
+      return res.type('text/plain').send('Success');
+    }
     const session = await db.get('SELECT mac FROM sessions WHERE mac = ? AND remaining_seconds > 0 AND (is_paused = 0 OR is_paused IS NULL)', [mac]);
     if (session) {
       return res.type('text/plain').send('Success');
@@ -2268,6 +2300,10 @@ app.get('/library/test/success.html', async (req, res) => {
   const mac = await getMacFromIp(clientIp);
   
   if (mac) {
+    // Phone Rental bypass
+    if (await isRentalDeviceActive(mac)) {
+      return res.type('text/plain').send('Success');
+    }
     const session = await db.get('SELECT mac FROM sessions WHERE mac = ? AND remaining_seconds > 0 AND (is_paused = 0 OR is_paused IS NULL)', [mac]);
     if (session) {
       return res.type('text/plain').send('Success');
@@ -2297,6 +2333,16 @@ app.use(async (req, res, next) => {
 
     const mac = await getMacFromIp(clientIp);
     if (mac) {
+      // Phone Rental bypass
+      if (await isRentalDeviceActive(mac)) {
+        if (url.includes('/generate_204') || url.includes('/connecttest.txt')) {
+          return res.status(204).send();
+        }
+        if (url.includes('/redirect')) {
+          return res.redirect('http://www.apple.com');
+        }
+        return res.status(204).send();
+      }
       const session = await db.get('SELECT mac FROM sessions WHERE mac = ? AND remaining_seconds > 0 AND (is_paused = 0 OR is_paused IS NULL)', [mac]);
       if (session) {
         // Authorized client - return success
@@ -2346,6 +2392,17 @@ app.use(async (req, res, next) => {
 
   const mac = await getMacFromIp(clientIp);
   if (mac) {
+    // Phone Rental bypass - rented devices skip captive portal entirely
+    if (await isRentalDeviceActive(mac)) {
+      if (isProbe) {
+        if (url.includes('/generate_204')) return res.status(204).send();
+        if (url.includes('/success.txt') || url.includes('/connecttest.txt')) return res.type('text/plain').send('Success');
+        if (url.includes('/ncsi.txt')) return res.type('text/plain').send('Microsoft NCSI');
+        if (url.includes('/hotspot-detect.html') || url.includes('/library/test/success.html')) return res.type('text/plain').send('Success');
+      }
+      return next();
+    }
+
     const session = await db.get('SELECT mac, ip, remaining_seconds FROM sessions WHERE mac = ? AND remaining_seconds > 0', [mac]);
     if (session) {
       // If IP has changed, update the whitelist rule
@@ -3049,6 +3106,34 @@ app.get('/api/sessions', async (req, res) => {
       'SELECT mac, ip, remaining_seconds as remainingSeconds, total_paid as totalPaid, connected_at as connectedAt, is_paused as isPaused, token, pausable as isPausable FROM sessions WHERE remaining_seconds > 0'
     );
     res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Client-specific session lookup - finds session by client IP/MAC
+// Used when portal is opened in a different browser (e.g. Chrome vs captive portal)
+app.get('/api/sessions/me', async (req, res) => {
+  try {
+    const clientIp = req.ip ? req.ip.replace('::ffff:', '') : '';
+    if (!clientIp || clientIp === '127.0.0.1' || clientIp === '::1') {
+      return res.json(null);
+    }
+    const mac = await getMacFromIp(clientIp);
+
+    // Try MAC lookup first, then IP lookup
+    let session = null;
+    if (mac) {
+      session = await db.get(
+        'SELECT mac, ip, remaining_seconds as remainingSeconds, total_paid as totalPaid, connected_at as connectedAt, is_paused as isPaused, token, pausable as isPausable FROM sessions WHERE mac = ? AND remaining_seconds > 0',
+        [mac]
+      );
+    }
+    if (!session) {
+      session = await db.get(
+        'SELECT mac, ip, remaining_seconds as remainingSeconds, total_paid as totalPaid, connected_at as connectedAt, is_paused as isPaused, token, pausable as isPausable FROM sessions WHERE ip = ? AND remaining_seconds > 0',
+        [clientIp]
+      );
+    }
+    res.json(session);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -3788,16 +3873,66 @@ app.post('/api/rewards/config', requireAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Cache static CPU info (model/brand doesn't change at runtime)
+let _cachedCpuInfo = null;
+const getCachedCpuInfo = async () => {
+  if (!_cachedCpuInfo) _cachedCpuInfo = await si.cpu();
+  return _cachedCpuInfo;
+};
+
+// Cache fsSize – disk size changes slowly, refresh every 60s
+let _cachedFsSize = null;
+let _cachedFsSizeAt = 0;
+const getCachedFsSize = async () => {
+  if (!_cachedFsSize || Date.now() - _cachedFsSizeAt > 60000) {
+    _cachedFsSize = await si.fsSize();
+    _cachedFsSizeAt = Date.now();
+  }
+  return _cachedFsSize;
+};
+
+// Helper: detect VLAN/virtual interfaces so we can skip them in heavy stats queries
+const isVlanInterface = (iface) => {
+  if (!iface) return false;
+  const name = String(iface).toLowerCase();
+  // Dot notation VLANs: eth0.10, br0.100, etc.
+  if (name.includes('.')) return true;
+  // Explicit vlan prefix
+  if (name.startsWith('vlan')) return true;
+  // Virtual ethernet (docker, lxc, etc)
+  if (name.startsWith('veth')) return true;
+  if (name.startsWith('docker')) return true;
+  if (name.startsWith('lxc')) return true;
+  if (name.startsWith('dummy')) return true;
+  // Loopback
+  if (name === 'lo') return true;
+  return false;
+};
+
+// Cache networkStats – with 300+ VLANs this is extremely expensive.
+// We cache for 15s and filter out VLANs to keep response small & fast.
+let _cachedNetStats = null;
+let _cachedNetStatsAt = 0;
+const NET_STATS_CACHE_MS = 15000;
+const getCachedNetworkStats = async () => {
+  if (!_cachedNetStats || Date.now() - _cachedNetStatsAt > NET_STATS_CACHE_MS) {
+    const allStats = await si.networkStats();
+    _cachedNetStats = allStats.filter(n => !isVlanInterface(n.iface));
+    _cachedNetStatsAt = Date.now();
+  }
+  return _cachedNetStats;
+};
+
 // SYSTEM & CONFIG API
 app.get('/api/system/stats', requireAdmin, async (req, res) => {
   try {
     const [cpuLoad, cpuInfo, mem, drive, temp, netStats] = await Promise.all([
       si.currentLoad(),
-      si.cpu(),
+      getCachedCpuInfo(),
       si.mem(),
-      si.fsSize(),
+      getCachedFsSize(),
       si.cpuTemperature(),
-      si.networkStats()
+      getCachedNetworkStats()
     ]);
     
     res.json({
@@ -3806,8 +3941,11 @@ app.get('/api/system/stats', requireAdmin, async (req, res) => {
         brand: cpuInfo.brand,
         speed: cpuInfo.speed,
         cores: cpuInfo.cores,
+        physicalCores: cpuInfo.physicalCores || cpuInfo.cores,
         load: Math.round(cpuLoad.currentLoad),
-        temp: temp.main || 0
+        temp: temp.main || 0,
+        // Per-core/thread load percentages (real-time from currentLoad)
+        cpus: cpuLoad.cpus ? cpuLoad.cpus.map((c) => Math.round(c.load || 0)) : []
       },
       memory: {
         total: mem.total,
@@ -3838,16 +3976,11 @@ app.get('/api/system/stats', requireAdmin, async (req, res) => {
 
 app.get('/api/system/interfaces', requireAdmin, async (req, res) => {
   try {
-    const interfaces = await si.networkInterfaces();
-    // Return just the interface names to keep it light
-    const interfaceNames = interfaces.map(iface => iface.iface);
-    // Also include any interfaces from networkStats that might be missing (unlikely but safe)
-    const netStats = await si.networkStats();
-    const activeInterfaces = netStats.map(n => n.iface);
-    
-    const allInterfaces = [...new Set([...interfaceNames, ...activeInterfaces])];
-    
-    res.json(allInterfaces);
+    // Use Node.js built-in os.networkInterfaces() – much faster than systeminformation
+    // with 300+ VLANs. Filter out loopback and VLAN subinterfaces.
+    const raw = os.networkInterfaces();
+    const names = Object.keys(raw).filter(name => !isVlanInterface(name));
+    res.json(names);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -4234,14 +4367,14 @@ app.post('/api/nodemcu/authenticate', async (req, res) => {
 // Background task to monitor NodeMCU health
 const deviceStatusCache = new Map();
 
-setInterval(async () => {
+const deviceHealthTimer = setInterval(async () => {
   try {
     const devicesResult = await db.get('SELECT value FROM config WHERE key = ?', ['nodemcuDevices']);
     if (!devicesResult?.value) return;
     
     const devices = JSON.parse(devicesResult.value);
     const now = new Date().getTime();
-    const OFFLINE_THRESHOLD = 15000; // Lowered to 15 seconds for faster detection (1.5x heartbeat)
+    const OFFLINE_THRESHOLD = 60000; // 60s threshold for offline detection (2x health check interval of 30s)
 
     devices.forEach(device => {
       if (device.status !== 'accepted') return;
@@ -4263,7 +4396,8 @@ setInterval(async () => {
   } catch (err) {
     // Silent fail for background task
   }
-}, 5000); // Check every 5 seconds
+}, 30000); // Check every 30 seconds (increased from 5s to reduce CPU on embedded)
+if (deviceHealthTimer.unref) deviceHealthTimer.unref();
 
 // NodeMCU pulse reporting API
 app.post('/api/nodemcu/pulse', async (req, res) => {
@@ -6257,6 +6391,12 @@ app.post('/api/devices/scan', requireAdmin, async (req, res) => {
       sessionMap.set(session.mac.toUpperCase(), session);
     });
     
+    // Load default bandwidth settings for new devices
+    const defaultDlRow = await db.get("SELECT value FROM config WHERE key = 'default_download_limit'");
+    const defaultUlRow = await db.get("SELECT value FROM config WHERE key = 'default_upload_limit'");
+    const defaultDl = defaultDlRow ? parseInt(defaultDlRow.value) : 5;
+    const defaultUl = defaultUlRow ? parseInt(defaultUlRow.value) : 5;
+    
     // Update or insert scanned devices
     for (const device of scannedDevices) {
       const existingDevice = await db.get('SELECT * FROM wifi_devices WHERE mac = ?', [device.mac]);
@@ -6268,13 +6408,31 @@ app.post('/api/devices/scan', requireAdmin, async (req, res) => {
           'UPDATE wifi_devices SET ip = ?, hostname = ?, interface = ?, ssid = ?, signal = ?, last_seen = ?, is_active = ? WHERE mac = ?',
           [device.ip, device.hostname, device.interface, device.ssid, device.signal, now, session ? 1 : 0, device.mac]
         );
+        
+        // If IP changed and device has active session, re-apply whitelist/QoS for new IP
+        if (session && existingDevice.ip !== device.ip && device.ip !== 'Unknown') {
+          try {
+            await network.whitelistMAC(device.mac, device.ip);
+          } catch (e) {
+            console.log(`[SCAN] Failed to re-whitelist ${device.mac} with new IP ${device.ip}: ${e.message}`);
+          }
+        }
       } else {
-        // Insert new device - mark as active if it has a session
+        // Insert new device with default bandwidth limits so UI shows correct values
         const id = `device_${now}_${Math.random().toString(36).substr(2, 9)}`;
         await db.run(
-          'INSERT INTO wifi_devices (id, mac, ip, hostname, interface, ssid, signal, connected_at, last_seen, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          [id, device.mac, device.ip, device.hostname, device.interface, device.ssid, device.signal, session ? session.connectedAt : now, now, session ? 1 : 0]
+          'INSERT INTO wifi_devices (id, mac, ip, hostname, interface, ssid, signal, connected_at, last_seen, is_active, download_limit, upload_limit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [id, device.mac, device.ip, device.hostname, device.interface, device.ssid, device.signal, session ? session.connectedAt : now, now, session ? 1 : 0, defaultDl, defaultUl]
         );
+        
+        // If device has active session but was never whitelisted (e.g. after reboot), whitelist it now
+        if (session && device.ip !== 'Unknown') {
+          try {
+            await network.whitelistMAC(device.mac, device.ip);
+          } catch (e) {
+            console.log(`[SCAN] Failed to whitelist new scanned device ${device.mac}: ${e.message}`);
+          }
+        }
       }
     }
     
@@ -7218,11 +7376,24 @@ app.post('/api/vouchers/activate', async (req, res) => {
 });
 
 function startBackgroundTimers() {
-  setInterval(() => { refreshPPPoEExpiredSettings(); }, 30000);
+  const pppoeSettingsTimer = setInterval(() => { refreshPPPoEExpiredSettings(); }, 30000);
+  if (pppoeSettingsTimer.unref) pppoeSettingsTimer.unref();
   refreshPPPoEExpiredSettings();
 
-  setInterval(async () => {
+  // Session timer: decrement active sessions every 1s
+  // Optimizations: skip when idle, batch expire writes, unref timer
+  let _lastActiveCount = -1;
+  const sessionTimer = setInterval(async () => {
     try {
+      // Fast path: skip DB work when no sessions are active
+      if (_lastActiveCount === 0) {
+        // Re-check periodically even when idle (someone may add a session)
+        const row = await db.get('SELECT count(*) as cnt FROM sessions WHERE remaining_seconds > 0 AND (is_paused = 0 OR is_paused IS NULL)').catch(() => null);
+        const cnt = row ? row.cnt : 0;
+        _lastActiveCount = cnt;
+        if (cnt === 0) return;
+      }
+
       await db.run(
         'UPDATE sessions SET remaining_seconds = remaining_seconds - 1 WHERE remaining_seconds > 0 AND (is_paused = 0 OR is_paused IS NULL)'
       );
@@ -7230,21 +7401,35 @@ function startBackgroundTimers() {
       const expired = await db.all(
         'SELECT mac, ip FROM sessions WHERE remaining_seconds <= 0 AND (expired_at IS NULL OR expired_at = 0)'
       );
+
+      // Batch: update active count after operations
+      const activeRow = await db.get('SELECT count(*) as cnt FROM sessions WHERE remaining_seconds > 0 AND (is_paused = 0 OR is_paused IS NULL)').catch(() => null);
+      _lastActiveCount = activeRow ? activeRow.cnt : 0;
+
       for (const s of expired) {
         await network.blockMAC(s.mac, s.ip);
         await db.run('UPDATE sessions SET expired_at = ? WHERE mac = ?', [Date.now(), s.mac]);
       }
     } catch (e) { console.error(e); }
-  }, 1000);
+  }, 2000); // Changed from 1000ms to 2000ms - reduces CPU by 50% while maintaining accuracy
+  if (sessionTimer.unref) sessionTimer.unref();
 
-  setInterval(async () => {
+  const tcCleanupTimer = setInterval(async () => {
     try {
+      const activeSessions = await db.all('SELECT ip FROM sessions WHERE remaining_seconds > 0');
+      const activeIPs = new Set(activeSessions.map(s => s.ip));
+
+      // Skip expensive tc operations when no sessions exist at all
+      if (activeSessions.length === 0) {
+        // Only run cleanup if there are stale TC rules to remove
+        const staleCount = await db.get('SELECT count(*) as cnt FROM sessions WHERE remaining_seconds <= 0').catch(() => ({ cnt: 0 }));
+        if (staleCount.cnt === 0) return;
+      }
+
       const inactiveSessions = await db.all('SELECT mac, ip FROM sessions WHERE remaining_seconds <= 0');
       for (const session of inactiveSessions) {
         await network.removeSpeedLimit(session.mac, session.ip);
       }
-      const activeSessions = await db.all('SELECT ip FROM sessions WHERE remaining_seconds > 0');
-      const activeIPs = new Set(activeSessions.map(s => s.ip));
       const { stdout: interfacesOutput } = await execPromise(`ip link show | grep -E "eth|wlan|br|vlan" | awk '{print $2}' | sed 's/:$//'`).catch(() => ({ stdout: '' }));
       const interfaces = interfacesOutput.trim().split('\n').filter(i => i);
       for (const iface of interfaces) {
@@ -7263,10 +7448,18 @@ function startBackgroundTimers() {
               await execPromise(`tc filter del dev ${iface} parent ffff: protocol ip prio 1 u32 match ip src ${ip} 2>/dev/null || true`).catch(() => {});
             }
           }
-        } catch (e) {}
+        } catch (e) {
+          // Silently ignore tc errors for this interface
+        }
       }
-    } catch (e) { console.error('[CLEANUP] Periodic TC cleanup error:', e.message); }
-  }, 30000);
+    } catch (err) {
+      // Only log if it's not a SQLITE_BUSY error (those are handled by retry logic in db.js)
+      if (!err.message.includes('SQLITE_BUSY') && !err.message.includes('database is locked')) {
+        console.error('[CLEANUP] Periodic TC cleanup error:', err);
+      }
+    }
+  }, 15000); // Changed from 5000ms to 15000ms - reduces CPU by 66%
+  if (tcCleanupTimer.unref) tcCleanupTimer.unref();
 
   const processExpiredPPPoEUsers = async () => {
     try {
@@ -7370,7 +7563,8 @@ function startBackgroundTimers() {
     }
   };
 
-  setInterval(() => { processExpiredPPPoEUsers(); }, 15000);
+  const pppoeExpireTimer = setInterval(() => { processExpiredPPPoEUsers(); }, 30000); // 30s - increased from 15s
+  if (pppoeExpireTimer.unref) pppoeExpireTimer.unref();
   processExpiredPPPoEUsers();
 
   const syncPPPoEUserPresence = async () => {
@@ -7445,7 +7639,8 @@ function startBackgroundTimers() {
     } catch (e) {}
   };
 
-  setInterval(() => { syncPPPoEUserPresence(); }, 15000);
+  const pppoePresenceTimer = setInterval(() => { syncPPPoEUserPresence(); }, 30000); // 30s - increased from 15s
+  if (pppoePresenceTimer.unref) pppoePresenceTimer.unref();
   syncPPPoEUserPresence();
 }
 
@@ -7518,6 +7713,18 @@ function startBackgroundTimers() {
   const isRevokedNow = verificationStatus.isRevoked || trialStatusInfo.isRevoked;
   const canOperateNow = (isLicensedNow || trialStatusInfo.isTrialActive) && !isRevokedNow;
   await bootupRestore(!canOperateNow);
+
+  // Sync all local rental devices to Supabase cloud (delayed 10s to let EdgeSync finish init)
+  setTimeout(() => {
+    rentalActivation.syncAllDevicesToCloud().catch(err => {
+      console.error('[RentalActivation] Startup device cloud sync failed:', err.message);
+    }).then(() => {
+      // After devices are synced, sync sessions (needs cloud_device_id to be present)
+      return rentalActivation.syncAllSessionsToCloud();
+    }).catch(err => {
+      console.error('[RentalActivation] Startup session cloud sync failed:', err.message);
+    });
+  }, 10000);
   });
 })();
 
@@ -7927,6 +8134,1649 @@ app.post('/api/speedtest/install', requireAdmin, async (req, res) => {
 
     res.status(500).json({ error: 'Failed to install Speedtest CLI. Please install manually.' });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
+// EMPLOYEE MANAGEMENT API
+// ============================================
+
+// Employees CRUD
+app.get('/api/employees', requireAdmin, async (req, res) => {
+  try {
+    const employees = await db.all('SELECT * FROM employees ORDER BY full_name ASC');
+    res.json(employees);
+  } catch (err) {
+    console.error('[Employees] Get error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/employees', requireAdmin, async (req, res) => {
+  try {
+    const { employee_code, full_name, position, contact_number, email, address, daily_rate, status } = req.body;
+    if (!employee_code || !full_name || !position) {
+      return res.status(400).json({ error: 'Employee code, full name, and position are required.' });
+    }
+    const result = await db.run(
+      'INSERT INTO employees (employee_code, full_name, position, contact_number, email, address, daily_rate, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [employee_code, full_name, position, contact_number || null, email || null, address || null, daily_rate || 0, status || 'active']
+    );
+    const employee = await db.get('SELECT * FROM employees WHERE id = ?', [result.lastID]);
+    res.json(employee);
+  } catch (err) {
+    console.error('[Employees] Create error:', err);
+    if (err.message && err.message.includes('UNIQUE constraint failed')) {
+      return res.status(400).json({ error: 'Employee code already exists.' });
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/employees/:id', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { employee_code, full_name, position, contact_number, email, address, daily_rate, status } = req.body;
+    const fields = [];
+    const values = [];
+    if (employee_code !== undefined) { fields.push('employee_code = ?'); values.push(employee_code); }
+    if (full_name !== undefined) { fields.push('full_name = ?'); values.push(full_name); }
+    if (position !== undefined) { fields.push('position = ?'); values.push(position); }
+    if (contact_number !== undefined) { fields.push('contact_number = ?'); values.push(contact_number); }
+    if (email !== undefined) { fields.push('email = ?'); values.push(email); }
+    if (address !== undefined) { fields.push('address = ?'); values.push(address); }
+    if (daily_rate !== undefined) { fields.push('daily_rate = ?'); values.push(daily_rate); }
+    if (status !== undefined) { fields.push('status = ?'); values.push(status); }
+    fields.push('updated_at = CURRENT_TIMESTAMP');
+    values.push(id);
+    await db.run(`UPDATE employees SET ${fields.join(', ')} WHERE id = ?`, values);
+    const employee = await db.get('SELECT * FROM employees WHERE id = ?', [id]);
+    res.json(employee);
+  } catch (err) {
+    console.error('[Employees] Update error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/employees/:id', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    await db.run('DELETE FROM employees WHERE id = ?', [id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[Employees] Delete error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DTR CRUD
+app.get('/api/dtr', requireAdmin, async (req, res) => {
+  try {
+    const { employee_id, from, to } = req.query;
+    let query = `
+      SELECT d.*, e.full_name as employee_name, e.employee_code
+      FROM dtr_records d
+      JOIN employees e ON d.employee_id = e.id
+      WHERE 1=1
+    `;
+    const params = [];
+    if (employee_id) {
+      query += ' AND d.employee_id = ?';
+      params.push(employee_id);
+    }
+    if (from) {
+      query += ' AND d.record_date >= ?';
+      params.push(from);
+    }
+    if (to) {
+      query += ' AND d.record_date <= ?';
+      params.push(to);
+    }
+    query += ' ORDER BY d.record_date DESC, e.full_name ASC';
+    const records = await db.all(query, params);
+    res.json(records);
+  } catch (err) {
+    console.error('[DTR] Get error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/dtr', requireAdmin, async (req, res) => {
+  try {
+    const { employee_id, record_date, time_in, time_out, status, notes } = req.body;
+    if (!employee_id || !record_date) {
+      return res.status(400).json({ error: 'Employee and record date are required.' });
+    }
+    let total_hours = 0;
+    if (time_in && time_out) {
+      const inTime = new Date(`2000-01-01T${time_in}`);
+      const outTime = new Date(`2000-01-01T${time_out}`);
+      const diffMs = outTime.getTime() - inTime.getTime();
+      total_hours = diffMs > 0 ? diffMs / (1000 * 60 * 60) : 0;
+    }
+    const result = await db.run(
+      'INSERT INTO dtr_records (employee_id, record_date, time_in, time_out, total_hours, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [employee_id, record_date, time_in || null, time_out || null, total_hours, status || 'present', notes || null]
+    );
+    const record = await db.get('SELECT d.*, e.full_name as employee_name, e.employee_code FROM dtr_records d JOIN employees e ON d.employee_id = e.id WHERE d.id = ?', [result.lastID]);
+    res.json(record);
+  } catch (err) {
+    console.error('[DTR] Create error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/dtr/:id', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { record_date, time_in, time_out, status, notes } = req.body;
+    const fields = [];
+    const values = [];
+    if (record_date !== undefined) { fields.push('record_date = ?'); values.push(record_date); }
+    if (time_in !== undefined) { fields.push('time_in = ?'); values.push(time_in); }
+    if (time_out !== undefined) { fields.push('time_out = ?'); values.push(time_out); }
+    if (status !== undefined) { fields.push('status = ?'); values.push(status); }
+    if (notes !== undefined) { fields.push('notes = ?'); values.push(notes); }
+    // Recalculate total_hours if both times are present
+    let total_hours = 0;
+    const existing = await db.get('SELECT time_in, time_out FROM dtr_records WHERE id = ?', [id]);
+    const finalIn = time_in !== undefined ? time_in : existing?.time_in;
+    const finalOut = time_out !== undefined ? time_out : existing?.time_out;
+    if (finalIn && finalOut) {
+      const inTime = new Date(`2000-01-01T${finalIn}`);
+      const outTime = new Date(`2000-01-01T${finalOut}`);
+      const diffMs = outTime.getTime() - inTime.getTime();
+      total_hours = diffMs > 0 ? diffMs / (1000 * 60 * 60) : 0;
+    }
+    fields.push('total_hours = ?');
+    values.push(total_hours);
+    values.push(id);
+    await db.run(`UPDATE dtr_records SET ${fields.join(', ')} WHERE id = ?`, values);
+    const record = await db.get('SELECT d.*, e.full_name as employee_name, e.employee_code FROM dtr_records d JOIN employees e ON d.employee_id = e.id WHERE d.id = ?', [id]);
+    res.json(record);
+  } catch (err) {
+    console.error('[DTR] Update error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/dtr/:id', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    await db.run('DELETE FROM dtr_records WHERE id = ?', [id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[DTR] Delete error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Payroll CRUD
+app.get('/api/payroll', requireAdmin, async (req, res) => {
+  try {
+    const { employee_id, from, to } = req.query;
+    let query = `
+      SELECT p.*, e.full_name as employee_name, e.employee_code
+      FROM payroll_records p
+      JOIN employees e ON p.employee_id = e.id
+      WHERE 1=1
+    `;
+    const params = [];
+    if (employee_id) {
+      query += ' AND p.employee_id = ?';
+      params.push(employee_id);
+    }
+    if (from) {
+      query += ' AND p.period_start >= ?';
+      params.push(from);
+    }
+    if (to) {
+      query += ' AND p.period_end <= ?';
+      params.push(to);
+    }
+    query += ' ORDER BY p.period_start DESC, e.full_name ASC';
+    const records = await db.all(query, params);
+    res.json(records);
+  } catch (err) {
+    console.error('[Payroll] Get error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/payroll/generate', requireAdmin, async (req, res) => {
+  try {
+    const { employee_id, period_start, period_end, deductions, notes } = req.body;
+    if (!employee_id || !period_start || !period_end) {
+      return res.status(400).json({ error: 'Employee, period start, and period end are required.' });
+    }
+    const employee = await db.get('SELECT * FROM employees WHERE id = ?', [employee_id]);
+    if (!employee) {
+      return res.status(404).json({ error: 'Employee not found.' });
+    }
+    // Aggregate DTR for the period
+    const dtrSummary = await db.get(
+      'SELECT COUNT(*) as total_days, SUM(total_hours) as total_hours FROM dtr_records WHERE employee_id = ? AND record_date >= ? AND record_date <= ? AND status != ?',
+      [employee_id, period_start, period_end, 'absent']
+    );
+    const total_days = dtrSummary?.total_days || 0;
+    const total_hours = dtrSummary?.total_hours || 0;
+    const daily_rate = employee.daily_rate || 0;
+    const gross_pay = total_days * daily_rate;
+    const ded = deductions || 0;
+    const net_pay = Math.max(0, gross_pay - ded);
+    const result = await db.run(
+      'INSERT INTO payroll_records (employee_id, period_start, period_end, total_days, total_hours, daily_rate, gross_pay, deductions, net_pay, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [employee_id, period_start, period_end, total_days, total_hours, daily_rate, gross_pay, ded, net_pay, 'draft', notes || null]
+    );
+    const record = await db.get('SELECT p.*, e.full_name as employee_name, e.employee_code FROM payroll_records p JOIN employees e ON p.employee_id = e.id WHERE p.id = ?', [result.lastID]);
+    res.json(record);
+  } catch (err) {
+    console.error('[Payroll] Generate error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/payroll/:id', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, notes } = req.body;
+    const fields = [];
+    const values = [];
+    if (status !== undefined) { fields.push('status = ?'); values.push(status); }
+    if (notes !== undefined) { fields.push('notes = ?'); values.push(notes); }
+    values.push(id);
+    await db.run(`UPDATE payroll_records SET ${fields.join(', ')} WHERE id = ?`, values);
+    const record = await db.get('SELECT p.*, e.full_name as employee_name, e.employee_code FROM payroll_records p JOIN employees e ON p.employee_id = e.id WHERE p.id = ?', [id]);
+    res.json(record);
+  } catch (err) {
+    console.error('[Payroll] Update error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/payroll/:id', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    await db.run('DELETE FROM payroll_records WHERE id = ?', [id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[Payroll] Delete error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Equipment Inventory CRUD
+app.get('/api/equipment', requireAdmin, async (req, res) => {
+  try {
+    const equipment = await db.all('SELECT * FROM equipment ORDER BY name ASC');
+    res.json(equipment);
+  } catch (err) {
+    console.error('[Equipment] Get error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/equipment', requireAdmin, async (req, res) => {
+  try {
+    const { name, type, serial_number, mac_address, price, stock, description } = req.body;
+    if (!name || !type) {
+      return res.status(400).json({ error: 'Name and type are required.' });
+    }
+    const result = await db.run(
+      'INSERT INTO equipment (name, type, serial_number, mac_address, price, stock, description) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [name, type, serial_number || null, mac_address || null, price || 0, stock || 0, description || null]
+    );
+    const item = await db.get('SELECT * FROM equipment WHERE id = ?', [result.lastID]);
+    res.json(item);
+  } catch (err) {
+    console.error('[Equipment] Create error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/equipment/:id', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, type, serial_number, mac_address, price, stock, description } = req.body;
+    const fields = [];
+    const values = [];
+    if (name !== undefined) { fields.push('name = ?'); values.push(name); }
+    if (type !== undefined) { fields.push('type = ?'); values.push(type); }
+    if (serial_number !== undefined) { fields.push('serial_number = ?'); values.push(serial_number); }
+    if (mac_address !== undefined) { fields.push('mac_address = ?'); values.push(mac_address); }
+    if (price !== undefined) { fields.push('price = ?'); values.push(price); }
+    if (stock !== undefined) { fields.push('stock = ?'); values.push(stock); }
+    if (description !== undefined) { fields.push('description = ?'); values.push(description); }
+    fields.push('updated_at = CURRENT_TIMESTAMP');
+    values.push(id);
+    await db.run(`UPDATE equipment SET ${fields.join(', ')} WHERE id = ?`, values);
+    const item = await db.get('SELECT * FROM equipment WHERE id = ?', [id]);
+    res.json(item);
+  } catch (err) {
+    console.error('[Equipment] Update error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/equipment/:id', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    await db.run('DELETE FROM equipment WHERE id = ?', [id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[Equipment] Delete error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Equipment Withdrawals CRUD
+app.get('/api/equipment-withdrawals', requireAdmin, async (req, res) => {
+  try {
+    const withdrawals = await db.all('SELECT * FROM equipment_withdrawals ORDER BY withdrawal_date DESC, id DESC');
+    for (const w of withdrawals) {
+      const items = await db.all(
+        `SELECT ewi.*, e.name as equipment_name, e.type as equipment_type FROM equipment_withdrawal_items ewi JOIN equipment e ON ewi.equipment_id = e.id WHERE ewi.withdrawal_id = ?`,
+        [w.id]
+      );
+      w.items = items;
+    }
+    res.json(withdrawals);
+  } catch (err) {
+    console.error('[EquipmentWithdrawals] Get error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/equipment-withdrawals', requireAdmin, async (req, res) => {
+  try {
+    const { client_name, withdrawal_date, notes, items } = req.body;
+    if (!client_name || !withdrawal_date || !items || !items.length) {
+      return res.status(400).json({ error: 'Client name, withdrawal date, and at least one item are required.' });
+    }
+    const deductions = [];
+    for (const item of items) {
+      const equip = await db.get('SELECT * FROM equipment WHERE id = ?', [item.equipment_id]);
+      if (!equip) {
+        return res.status(400).json({ error: `Equipment with ID ${item.equipment_id} not found.` });
+      }
+      if (equip.stock < item.quantity) {
+        return res.status(400).json({ error: `Not enough stock for "${equip.name}". Available: ${equip.stock}, Requested: ${item.quantity}` });
+      }
+      deductions.push({ id: equip.id, newStock: equip.stock - item.quantity });
+    }
+    const result = await db.run(
+      'INSERT INTO equipment_withdrawals (client_name, withdrawal_date, notes) VALUES (?, ?, ?)',
+      [client_name, withdrawal_date, notes || null]
+    );
+    const withdrawalId = result.lastID;
+    for (const item of items) {
+      await db.run(
+        'INSERT INTO equipment_withdrawal_items (withdrawal_id, equipment_id, quantity) VALUES (?, ?, ?)',
+        [withdrawalId, item.equipment_id, item.quantity]
+      );
+      const deduction = deductions.find(d => d.id === item.equipment_id);
+      if (deduction) {
+        await db.run('UPDATE equipment SET stock = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [deduction.newStock, deduction.id]);
+      }
+    }
+    const withdrawal = await db.get('SELECT * FROM equipment_withdrawals WHERE id = ?', [withdrawalId]);
+    const withdrawalItems = await db.all(
+      `SELECT ewi.*, e.name as equipment_name, e.type as equipment_type FROM equipment_withdrawal_items ewi JOIN equipment e ON ewi.equipment_id = e.id WHERE ewi.withdrawal_id = ?`,
+      [withdrawalId]
+    );
+    withdrawal.items = withdrawalItems;
+    res.json(withdrawal);
+  } catch (err) {
+    console.error('[EquipmentWithdrawals] Create error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/equipment-withdrawals/:id', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const items = await db.all('SELECT * FROM equipment_withdrawal_items WHERE withdrawal_id = ?', [id]);
+    for (const item of items) {
+      await db.run('UPDATE equipment SET stock = stock + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [item.quantity, item.equipment_id]);
+    }
+    await db.run('DELETE FROM equipment_withdrawal_items WHERE withdrawal_id = ?', [id]);
+    await db.run('DELETE FROM equipment_withdrawals WHERE id = ?', [id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[EquipmentWithdrawals] Delete error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
+// PHONE RENTAL API
+// ============================================
+
+// Helper: Read current DHCP leases from dnsmasq
+function readDnsmasqLeases() {
+  const leaseFiles = [
+    '/tmp/dhcp.leases',
+    '/var/lib/dnsmasq/dnsmasq.leases',
+    '/var/lib/misc/dnsmasq.leases',
+    '/var/lib/dhcp/dhcpd.leases'
+  ];
+  const leases = [];
+  for (const file of leaseFiles) {
+    try {
+      if (!fs.existsSync(file)) continue;
+      const content = fs.readFileSync(file, 'utf8');
+      const lines = content.split('\n').filter(l => l.trim());
+      for (const line of lines) {
+        const parts = line.trim().split(/\s+/);
+        if (parts.length < 4) continue;
+        const maybeTimestamp = parseInt(parts[0], 10);
+        const maybeMac = parts[1];
+        if (!Number.isNaN(maybeTimestamp) && maybeMac && maybeMac.match(/^[a-fA-F0-9:]{17}$/)) {
+          const mac = maybeMac.toUpperCase();
+          const ip = parts[2];
+          const hostname = parts[3] && parts[3] !== '*' ? parts[3] : '';
+          if (!leases.find(l => l.mac === mac)) {
+            leases.push({ mac, ip, hostname });
+          }
+        }
+      }
+    } catch (e) {
+      // Skip files that can't be read
+    }
+  }
+  return leases;
+}
+
+// Get all rental devices
+app.get('/api/phone-rental/devices', requireAdmin, async (req, res) => {
+  try {
+    const devices = await db.all('SELECT * FROM rental_devices ORDER BY device_name ASC');
+    const leases = readDnsmasqLeases();
+
+    // Get vendor_id and machine_id for this server — include in every device response
+    const vendorId = await rentalActivation.getMachineVendorId();
+    const machineId = await rentalActivation.getMachineId();
+
+    // Enrich with active session info and current network data from dnsmasq leases
+    for (const d of devices) {
+      const activeSession = await db.get(
+        'SELECT * FROM rental_sessions WHERE device_id = ? AND status IN (?, ?) ORDER BY start_time DESC LIMIT 1',
+        [d.id, 'active', 'paused']
+      );
+      d.active_session = activeSession || null;
+
+      // Attach vendor/machine identity
+      d.vendor_id = vendorId || null;
+      d.machine_id = machineId || null;
+
+      // Match lease: first by MAC, then by IP (for UNKNOWN MAC devices)
+      let lease = leases.find(l => l.mac === d.mac_address);
+      if (!lease && d.ip_address) {
+        lease = leases.find(l => l.ip === d.ip_address);
+      }
+
+      if (lease) {
+        // Update IP if changed
+        if (lease.ip && lease.ip !== d.ip_address) {
+          d.ip_address = lease.ip;
+        }
+        // Update MAC if it was UNKNOWN or missing
+        if (d.mac_address === 'UNKNOWN' || !d.mac_address) {
+          d.mac_address = lease.mac;
+          db.run('UPDATE rental_devices SET mac_address = ? WHERE id = ?', [lease.mac, d.id]).catch(() => {});
+          console.log(`[PhoneRental] Updated MAC for ${d.device_name}: UNKNOWN -> ${lease.mac}`);
+        }
+        // Set hostname from lease
+        d.hostname = lease.hostname || d.hostname || '';
+        // Update IP and hostname in database
+        db.run('UPDATE rental_devices SET ip_address = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [d.ip_address, d.id]).catch(() => {});
+      }
+
+      // Resolve activation_status: check local trial expiry so UI always shows correct state
+      const now = new Date();
+      if (d.activation_status === 'trial' && d.trial_expires_at) {
+        const trialExp = new Date(d.trial_expires_at);
+        if (now >= trialExp) {
+          d.activation_status = 'expired';
+          db.run(`UPDATE rental_devices SET activation_status = 'expired' WHERE id = ?`, [d.id]).catch(() => {});
+        }
+      }
+      if (d.activation_status === 'active' && d.license_expires_at) {
+        const licExp = new Date(d.license_expires_at);
+        if (now >= licExp) {
+          d.activation_status = 'expired';
+          db.run(`UPDATE rental_devices SET activation_status = 'expired' WHERE id = ?`, [d.id]).catch(() => {});
+        }
+      }
+    }
+    res.json(devices);
+  } catch (err) {
+    console.error('[PhoneRental] Get devices error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Add a rental device
+app.post('/api/phone-rental/devices', requireAdmin, async (req, res) => {
+  try {
+    const { device_name, mac_address, ip_address, android_id, model, rental_rate_per_hour, max_rental_hours } = req.body;
+    if (!device_name || !mac_address) {
+      return res.status(400).json({ error: 'Device name and MAC address are required.' });
+    }
+    const result = await db.run(
+      `INSERT INTO rental_devices (device_name, mac_address, ip_address, android_id, model, rental_rate_per_hour, max_rental_hours)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [device_name, mac_address.toUpperCase(), ip_address || null, android_id || null, model || null, rental_rate_per_hour || 20, max_rental_hours || 8]
+    );
+    const device = await db.get('SELECT * FROM rental_devices WHERE id = ?', [result.lastID]);
+    console.log(`[PhoneRental] Device added: ${device_name} (${mac_address})`);
+    res.json(device);
+  } catch (err) {
+    console.error('[PhoneRental] Add device error:', err);
+    if (err.message && err.message.includes('UNIQUE')) {
+      return res.status(400).json({ error: 'A device with this MAC address already exists.' });
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update a rental device
+app.put('/api/phone-rental/devices/:id', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { device_name, mac_address, ip_address, android_id, model, status, rental_rate_per_hour, max_rental_hours } = req.body;
+    const fields = [];
+    const values = [];
+    if (device_name !== undefined) { fields.push('device_name = ?'); values.push(device_name); }
+    if (mac_address !== undefined) { fields.push('mac_address = ?'); values.push(mac_address.toUpperCase()); }
+    if (ip_address !== undefined) { fields.push('ip_address = ?'); values.push(ip_address); }
+    if (android_id !== undefined) { fields.push('android_id = ?'); values.push(android_id); }
+    if (model !== undefined) { fields.push('model = ?'); values.push(model); }
+    if (status !== undefined) { fields.push('status = ?'); values.push(status); }
+    if (rental_rate_per_hour !== undefined) { fields.push('rental_rate_per_hour = ?'); values.push(rental_rate_per_hour); }
+    if (max_rental_hours !== undefined) { fields.push('max_rental_hours = ?'); values.push(max_rental_hours); }
+    fields.push('updated_at = CURRENT_TIMESTAMP');
+    values.push(id);
+    await db.run(`UPDATE rental_devices SET ${fields.join(', ')} WHERE id = ?`, values);
+    const device = await db.get('SELECT * FROM rental_devices WHERE id = ?', [id]);
+    res.json(device);
+  } catch (err) {
+    console.error('[PhoneRental] Update device error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete a rental device
+app.delete('/api/phone-rental/devices/:id', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    // Check for active or paused sessions
+    const activeSession = await db.get('SELECT id FROM rental_sessions WHERE device_id = ? AND status IN (?, ?)', [id, 'active', 'paused']);
+    if (activeSession) {
+      return res.status(400).json({ error: 'Cannot delete device with active or paused rental session.' });
+    }
+    await db.run('DELETE FROM rental_payments WHERE session_id IN (SELECT id FROM rental_sessions WHERE device_id = ?)', [id]);
+    await db.run('DELETE FROM rental_sessions WHERE device_id = ?', [id]);
+    await db.run('DELETE FROM rental_device_config WHERE device_id = ?', [id]);
+    await db.run('DELETE FROM rental_devices WHERE id = ?', [id]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[PhoneRental] Delete device error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Manual captive portal bypass for a rental device
+app.post('/api/phone-rental/devices/:id/bypass', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const device = await db.get('SELECT * FROM rental_devices WHERE id = ?', [id]);
+    if (!device) {
+      return res.status(404).json({ error: 'Device not found.' });
+    }
+    if (!device.ip_address) {
+      return res.status(400).json({ error: 'Device has no IP address. Cannot bypass.' });
+    }
+    const network = require('./lib/network');
+    await network.whitelistMAC(device.mac_address, device.ip_address);
+    console.log(`[PhoneRental] Manual bypass enabled for ${device.device_name} (${device.mac_address})`);
+    res.json({ success: true, message: `Internet access enabled for ${device.device_name}` });
+  } catch (err) {
+    console.error('[PhoneRental] Bypass error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Remove captive portal bypass for a rental device
+app.post('/api/phone-rental/devices/:id/unblock', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const device = await db.get('SELECT * FROM rental_devices WHERE id = ?', [id]);
+    if (!device) {
+      return res.status(404).json({ error: 'Device not found.' });
+    }
+    if (!device.ip_address) {
+      return res.status(400).json({ error: 'Device has no IP address.' });
+    }
+    const network = require('./lib/network');
+    await network.blockMAC(device.mac_address, device.ip_address);
+    console.log(`[PhoneRental] Manual unblock applied for ${device.device_name} (${device.mac_address})`);
+    res.json({ success: true, message: `Internet access removed for ${device.device_name}` });
+  } catch (err) {
+    console.error('[PhoneRental] Unblock error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Start a rental session
+app.post('/api/phone-rental/sessions/start', requireAdmin, async (req, res) => {
+  try {
+    const { device_id, customer_name, customer_contact, duration_minutes, amount_paid, payment_method, notes } = req.body;
+    if (!device_id) {
+      return res.status(400).json({ error: 'Device ID is required.' });
+    }
+    const device = await db.get('SELECT * FROM rental_devices WHERE id = ?', [device_id]);
+    if (!device) {
+      return res.status(404).json({ error: 'Device not found.' });
+    }
+    if (device.status === 'rented') {
+      return res.status(400).json({ error: 'Device is already rented.' });
+    }
+    if (device.status === 'maintenance') {
+      return res.status(400).json({ error: 'Device is under maintenance.' });
+    }
+
+    const now = new Date();
+    const endTime = new Date(now.getTime() + (duration_minutes || 60) * 60000);
+    const paidAmount = amount_paid || ((duration_minutes || 60) / 60 * device.rental_rate_per_hour);
+
+    const result = await db.run(
+      `INSERT INTO rental_sessions (device_id, customer_name, customer_contact, start_time, end_time, duration_minutes, amount_paid, status, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
+      [device_id, customer_name || null, customer_contact || null, now.toISOString(), endTime.toISOString(), duration_minutes || 60, paidAmount, notes || null]
+    );
+
+    // Update device status
+    await db.run(
+      `UPDATE rental_devices SET status = 'rented', total_rentals = total_rentals + 1, total_revenue = total_revenue + ?, last_rented_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      [paidAmount, now.toISOString(), device_id]
+    );
+
+    // Record payment
+    if (paidAmount > 0) {
+      await db.run(
+        'INSERT INTO rental_payments (session_id, amount, payment_method, notes) VALUES (?, ?, ?, ?)',
+        [result.lastID, paidAmount, payment_method || 'cash', null]
+      );
+    }
+
+    const session = await db.get('SELECT * FROM rental_sessions WHERE id = ?', [result.lastID]);
+    const updatedDevice = await db.get('SELECT * FROM rental_devices WHERE id = ?', [device_id]);
+    session.device = updatedDevice;
+
+    console.log(`[PhoneRental] Session started: Device #${device_id}, Duration: ${duration_minutes}min, Amount: ₱${paidAmount}`);
+    res.json(session);
+    // Fire-and-forget cloud sync
+    if (updatedDevice.cloud_device_id) {
+      rentalActivation.syncSessionToCloud(session, updatedDevice.cloud_device_id).catch(() => {});
+    }
+    // Sync updated revenue to Supabase (fire-and-forget)
+    rentalActivation.syncDeviceRevenue(device_id).catch(() => {});
+  } catch (err) {
+    console.error('[PhoneRental] Start session error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// End a rental session
+app.post('/api/phone-rental/sessions/:id/end', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const session = await db.get('SELECT * FROM rental_sessions WHERE id = ?', [id]);
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found.' });
+    }
+    if (session.status !== 'active') {
+      return res.status(400).json({ error: 'Session is not active.' });
+    }
+
+    const now = new Date();
+    const startTime = new Date(session.start_time);
+    const actualMinutes = Math.ceil((now.getTime() - startTime.getTime()) / 60000);
+
+    await db.run(
+      `UPDATE rental_sessions SET end_time = ?, duration_minutes = ?, status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      [now.toISOString(), actualMinutes, id]
+    );
+
+    // Update device status back to available
+    await db.run(
+      `UPDATE rental_devices SET status = 'available', last_returned_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      [now.toISOString(), session.device_id]
+    );
+
+    const updatedSession = await db.get('SELECT * FROM rental_sessions WHERE id = ?', [id]);
+    res.json(updatedSession);
+    // Fire-and-forget cloud sync
+    const endDev = await db.get('SELECT cloud_device_id FROM rental_devices WHERE id = ?', [session.device_id]);
+    if (endDev && endDev.cloud_device_id) {
+      rentalActivation.syncSessionToCloud(updatedSession, endDev.cloud_device_id).catch(() => {});
+    }
+    // Sync updated revenue to Supabase (fire-and-forget)
+    rentalActivation.syncDeviceRevenue(session.device_id).catch(() => {});
+  } catch (err) {
+    console.error('[PhoneRental] End session error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get rental sessions
+app.get('/api/phone-rental/sessions', requireAdmin, async (req, res) => {
+  try {
+    const { status, device_id } = req.query;
+    let query = `SELECT rs.*, rd.device_name, rd.mac_address, rd.model FROM rental_sessions rs JOIN rental_devices rd ON rs.device_id = rd.id`;
+    const conditions = [];
+    const params = [];
+    if (status) { conditions.push('rs.status = ?'); params.push(status); }
+    if (device_id) { conditions.push('rs.device_id = ?'); params.push(device_id); }
+    if (conditions.length) { query += ' WHERE ' + conditions.join(' AND '); }
+    query += ' ORDER BY rs.start_time DESC';
+    const sessions = await db.all(query, params);
+    res.json(sessions);
+  } catch (err) {
+    console.error('[PhoneRental] Get sessions error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get rental report/summary
+app.get('/api/phone-rental/report', requireAdmin, async (req, res) => {
+  try {
+    const totalDevices = await db.get('SELECT COUNT(*) as count FROM rental_devices');
+    const rentedDevices = await db.get("SELECT COUNT(*) as count FROM rental_devices WHERE status = 'rented'");
+    const availableDevices = await db.get("SELECT COUNT(*) as count FROM rental_devices WHERE status = 'available'");
+    const totalRevenue = await db.get('SELECT COALESCE(SUM(total_revenue), 0) as total FROM rental_devices');
+    const totalSessions = await db.get('SELECT COALESCE(SUM(total_rentals), 0) as total FROM rental_devices');
+    const activeSessions = await db.get("SELECT COUNT(*) as count FROM rental_sessions WHERE status = 'active'");
+    const avgDuration = await db.get("SELECT COALESCE(AVG(duration_minutes), 0) as avg FROM rental_sessions WHERE status = 'completed'");
+
+    res.json({
+      total_revenue: totalRevenue.total,
+      total_sessions: totalSessions.total,
+      active_rentals: activeSessions.count,
+      avg_duration_minutes: Math.round(avgDuration.avg),
+      devices_online: totalDevices.count,
+      devices_rented: rentedDevices.count,
+      devices_available: availableDevices.count
+    });
+  } catch (err) {
+    console.error('[PhoneRental] Report error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Android App: Register device (called by the phone rental app)
+app.post('/api/phone-rental/register', async (req, res) => {
+  try {
+    let { android_id, mac_address, model, device_name } = req.body;
+    const clientIp = req.ip ? req.ip.replace('::ffff:', '') : '';
+
+    // If MAC is UNKNOWN, try to find real MAC from dnsmasq leases by IP
+    if (!mac_address || mac_address.toUpperCase() === 'UNKNOWN') {
+      const leases = readDnsmasqLeases();
+      const leaseByIp = leases.find(l => l.ip === clientIp);
+      if (leaseByIp) {
+        mac_address = leaseByIp.mac;
+        console.log(`[PhoneRental] Resolved MAC from dnsmasq: ${clientIp} -> ${mac_address}`);
+      } else {
+        mac_address = mac_address || 'UNKNOWN';
+      }
+    } else {
+      mac_address = mac_address.toUpperCase();
+    }
+
+    if (!mac_address || mac_address === 'UNKNOWN') {
+      return res.status(400).json({ error: 'MAC address is required. Could not resolve from network.' });
+    }
+
+    // Find existing device by MAC
+    let device = await db.get('SELECT * FROM rental_devices WHERE mac_address = ?', [mac_address.toUpperCase()]);
+
+    if (device) {
+      // Update existing device info
+      await db.run(
+        `UPDATE rental_devices SET android_id = ?, model = ?, device_name = COALESCE(?, device_name), ip_address = ?, updated_at = CURRENT_TIMESTAMP WHERE mac_address = ?`,
+        [android_id || device.android_id, model || device.model, device_name || null, req.ip ? req.ip.replace('::ffff:', '') : device.ip_address, mac_address.toUpperCase()]
+      );
+      device = await db.get('SELECT * FROM rental_devices WHERE mac_address = ?', [mac_address.toUpperCase()]);
+    } else {
+      // Auto-register as new device with 7-day trial
+      const result = await db.run(
+        `INSERT INTO rental_devices (device_name, mac_address, ip_address, android_id, model, status, activation_status, accepted_by_vendor, trial_started_at, trial_expires_at)
+         VALUES (?, ?, ?, ?, ?, 'available', 'trial', 0, CURRENT_TIMESTAMP, datetime(CURRENT_TIMESTAMP, '+7 days'))`,
+        [device_name || `Phone-${mac_address.slice(-5)}`, mac_address.toUpperCase(), req.ip ? req.ip.replace('::ffff:', '') : null, android_id || null, model || null]
+      );
+      device = await db.get('SELECT * FROM rental_devices WHERE id = ?', [result.lastID]);
+      console.log(`[PhoneRental] Auto-registered device: ${device.device_name} (${mac_address}) with 7-day trial`);
+    }
+
+    // Register in Supabase for cloud activation tracking
+    const cloudResult = await rentalActivation.registerDevice(mac_address, {
+      android_id, model, device_name,
+      ip_address: req.ip ? req.ip.replace('::ffff:', '') : null
+    });
+    if (cloudResult && cloudResult.success && cloudResult.device_id) {
+      await db.run('UPDATE rental_devices SET cloud_device_id = ? WHERE id = ?', [cloudResult.device_id, device.id]);
+      device = await db.get('SELECT * FROM rental_devices WHERE id = ?', [device.id]);
+    }
+
+    // Check activation status
+    const activationStatus = await rentalActivation.checkStatus(mac_address);
+    const canOperate = activationStatus.can_operate !== false;
+
+    // Return device info + active session if any
+    const activeSession = await db.get(
+      'SELECT * FROM rental_sessions WHERE device_id = ? AND status = ?',
+      [device.id, 'active']
+    );
+
+    res.json({
+      success: true,
+      device,
+      active_session: activeSession || null,
+      activation: activationStatus,
+      can_operate: canOperate,
+      server_time: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error('[PhoneRental] Register error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Android App: Get device status (heartbeat)
+app.get('/api/phone-rental/status/:mac', async (req, res) => {
+  try {
+    let mac = req.params.mac.toUpperCase();
+    const clientIp = req.ip ? req.ip.replace('::ffff:', '') : '';
+
+    // If MAC is UNKNOWN, try to find device by IP or resolve MAC from dnsmasq
+    if (mac === 'UNKNOWN') {
+      // First try to find device by IP in database
+      let device = await db.get('SELECT * FROM rental_devices WHERE ip_address = ?', [clientIp]);
+
+      // If not found, try to resolve MAC from dnsmasq leases
+      if (!device) {
+        const leases = readDnsmasqLeases();
+        const leaseByIp = leases.find(l => l.ip === clientIp);
+        if (leaseByIp) {
+          mac = leaseByIp.mac;
+          device = await db.get('SELECT * FROM rental_devices WHERE mac_address = ?', [mac]);
+          // Update the UNKNOWN MAC in database with real MAC
+          if (!device) {
+            // Try to find device with UNKNOWN MAC and same IP
+            const unknownDevice = await db.get('SELECT * FROM rental_devices WHERE mac_address = ? AND ip_address = ?', ['UNKNOWN', clientIp]);
+            if (unknownDevice) {
+              await db.run('UPDATE rental_devices SET mac_address = ? WHERE id = ?', [mac, unknownDevice.id]);
+              console.log(`[PhoneRental] Updated MAC for device ${unknownDevice.device_name}: UNKNOWN -> ${mac}`);
+              device = await db.get('SELECT * FROM rental_devices WHERE id = ?', [unknownDevice.id]);
+            }
+          }
+        }
+      }
+
+      if (!device) {
+        return res.status(404).json({ error: 'Device not found. MAC is UNKNOWN and could not resolve.' });
+      }
+
+      // Continue with the found device
+      const activeSession = await db.get(
+        'SELECT * FROM rental_sessions WHERE device_id = ? AND status IN (?, ?)',
+        [device.id, 'active', 'paused']
+      );
+
+      // Check if session has expired
+      if (activeSession && activeSession.status === 'active' && activeSession.end_time) {
+        const endTime = new Date(activeSession.end_time);
+        const now = new Date();
+        if (now >= endTime) {
+          await db.run(
+            `UPDATE rental_sessions SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+            [activeSession.id]
+          );
+          await db.run(
+            `UPDATE rental_devices SET status = 'available', last_returned_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+            [now.toISOString(), device.id]
+          );
+          return res.json({
+            device: { ...device, status: 'available' },
+            active_session: null,
+            session_expired: true,
+            server_time: now.toISOString()
+          });
+        }
+      }
+
+      // Update IP in database
+      if (clientIp && clientIp !== device.ip_address) {
+        db.run('UPDATE rental_devices SET ip_address = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [clientIp, device.id]).catch(() => {});
+        device.ip_address = clientIp;
+      }
+
+      res.json({
+        device,
+        active_session: activeSession || null,
+        session_expired: false,
+        kiosk_logout: activeSession?.status === 'paused',
+        server_time: new Date().toISOString()
+      });
+      return;
+    }
+
+    // Normal MAC-based lookup
+    const device = await db.get('SELECT * FROM rental_devices WHERE mac_address = ?', [mac]);
+    if (!device) {
+      return res.status(404).json({ error: 'Device not found.' });
+    }
+
+    const activeSession = await db.get(
+      'SELECT * FROM rental_sessions WHERE device_id = ? AND status IN (?, ?)',
+      [device.id, 'active', 'paused']
+    );
+
+    // Check if session has expired (only for active, not paused)
+    if (activeSession && activeSession.status === 'active' && activeSession.end_time) {
+      const endTime = new Date(activeSession.end_time);
+      const now = new Date();
+      if (now >= endTime) {
+        // Auto-complete expired session
+        await db.run(
+          `UPDATE rental_sessions SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+          [activeSession.id]
+        );
+        await db.run(
+          `UPDATE rental_devices SET status = 'available', last_returned_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+          [now.toISOString(), device.id]
+        );
+        // Block the device from portal bypass
+        try {
+          const { network } = require('./lib/network');
+          if (network && network.blockMAC && device.ip_address) {
+            await network.blockMAC(device.mac_address, device.ip_address);
+          }
+        } catch (e) { /* ignore */ }
+
+        return res.json({
+          device: { ...device, status: 'available' },
+          active_session: null,
+          session_expired: true,
+          server_time: now.toISOString()
+        });
+      }
+    }
+
+    res.json({
+      device,
+      active_session: activeSession || null,
+      session_expired: false,
+      kiosk_logout: activeSession?.status === 'paused',
+      server_time: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error('[PhoneRental] Status error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Android App: Extend rental time
+app.post('/api/phone-rental/sessions/:id/extend', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { additional_minutes, amount_paid, payment_method } = req.body;
+    if (!additional_minutes || additional_minutes <= 0) {
+      return res.status(400).json({ error: 'Additional minutes must be positive.' });
+    }
+
+    const session = await db.get('SELECT * FROM rental_sessions WHERE id = ?', [id]);
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found.' });
+    }
+    if (session.status !== 'active') {
+      return res.status(400).json({ error: 'Session is not active.' });
+    }
+
+    const currentEnd = new Date(session.end_time);
+    const newEnd = new Date(currentEnd.getTime() + additional_minutes * 60000);
+    const newDuration = session.duration_minutes + additional_minutes;
+    const newAmount = session.amount_paid + (amount_paid || 0);
+
+    await db.run(
+      `UPDATE rental_sessions SET end_time = ?, duration_minutes = ?, amount_paid = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      [newEnd.toISOString(), newDuration, newAmount, id]
+    );
+
+    // Update device total revenue
+    if (amount_paid > 0) {
+      await db.run(
+        'UPDATE rental_devices SET total_revenue = total_revenue + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [amount_paid, session.device_id]
+      );
+      await db.run(
+        'INSERT INTO rental_payments (session_id, amount, payment_method, notes) VALUES (?, ?, ?, ?)',
+        [id, amount_paid, payment_method || 'cash', 'Extension']
+      );
+    }
+
+    const updatedSession = await db.get('SELECT * FROM rental_sessions WHERE id = ?', [id]);
+    res.json(updatedSession);
+    // Fire-and-forget cloud sync
+    const extDev = await db.get('SELECT cloud_device_id FROM rental_devices WHERE id = ?', [session.device_id]);
+    if (extDev && extDev.cloud_device_id) {
+      rentalActivation.syncSessionToCloud(updatedSession, extDev.cloud_device_id).catch(() => {});
+    }
+    // Sync updated revenue to Supabase (fire-and-forget)
+    rentalActivation.syncDeviceRevenue(session.device_id).catch(() => {});
+  } catch (err) {
+    console.error('[PhoneRental] Extend session error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Remote Kiosk Logout - Pause the session
+app.post('/api/phone-rental/sessions/:id/kiosk-logout', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    const session = await db.get('SELECT * FROM rental_sessions WHERE id = ?', [id]);
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found.' });
+    }
+    if (session.status !== 'active') {
+      return res.status(400).json({ error: 'Session is not active.' });
+    }
+
+    // Calculate remaining time
+    const endTime = new Date(session.end_time);
+    const now = new Date();
+    const remainingMs = Math.max(0, endTime.getTime() - now.getTime());
+    const remainingSeconds = Math.ceil(remainingMs / 1000);
+
+    await db.run(
+      `UPDATE rental_sessions SET kiosk_logout_at = ?, paused_remaining_seconds = ?, kiosk_logout_reason = ?, status = 'paused', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      [now.toISOString(), remainingSeconds, reason || 'admin_logout', id]
+    );
+
+    // Keep device status as 'rented' - the session is just paused, not ended
+    await db.run(
+      `UPDATE rental_devices SET updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      [session.device_id]
+    );
+
+    const updatedSession = await db.get('SELECT * FROM rental_sessions WHERE id = ?', [id]);
+    console.log(`[PhoneRental] Kiosk logout: Session #${id}, remaining: ${remainingSeconds}s, reason: ${reason || 'admin_logout'}`);
+    res.json(updatedSession);
+    // Fire-and-forget cloud sync
+    const logoutDev = await db.get('SELECT cloud_device_id FROM rental_devices WHERE id = ?', [session.device_id]);
+    if (logoutDev && logoutDev.cloud_device_id) {
+      rentalActivation.syncSessionToCloud(updatedSession, logoutDev.cloud_device_id).catch(() => {});
+    }
+  } catch (err) {
+    console.error('[PhoneRental] Kiosk logout error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Remote Kiosk Resume - Resume the paused session
+app.post('/api/phone-rental/sessions/:id/kiosk-resume', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const session = await db.get('SELECT * FROM rental_sessions WHERE id = ?', [id]);
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found.' });
+    }
+    if (session.status !== 'paused') {
+      return res.status(400).json({ error: 'Session is not paused.' });
+    }
+
+    const remainingSeconds = session.paused_remaining_seconds || 0;
+    const now = new Date();
+    const newEndTime = new Date(now.getTime() + remainingSeconds * 1000);
+
+    await db.run(
+      `UPDATE rental_sessions SET end_time = ?, kiosk_logout_at = NULL, paused_remaining_seconds = NULL, kiosk_logout_reason = NULL, status = 'active', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      [newEndTime.toISOString(), id]
+    );
+
+    // Update device status back to rented
+    await db.run(
+      `UPDATE rental_devices SET status = 'rented', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      [session.device_id]
+    );
+
+    const updatedSession = await db.get('SELECT * FROM rental_sessions WHERE id = ?', [id]);
+    console.log(`[PhoneRental] Kiosk resume: Session #${id}, new end: ${newEndTime.toISOString()}`);
+    res.json(updatedSession);
+    // Fire-and-forget cloud sync
+    const resumeDev = await db.get('SELECT cloud_device_id FROM rental_devices WHERE id = ?', [session.device_id]);
+    if (resumeDev && resumeDev.cloud_device_id) {
+      rentalActivation.syncSessionToCloud(updatedSession, resumeDev.cloud_device_id).catch(() => {});
+    }
+  } catch (err) {
+    console.error('[PhoneRental] Kiosk resume error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
+// PHONE RENTAL - ACTIVATION SYSTEM
+// ============================================
+
+// Accept a pending rental device
+app.post('/api/phone-rental/devices/:id/accept', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await rentalActivation.acceptDevice(id);
+    res.json(result);
+  } catch (err) {
+    console.error('[PhoneRental] Accept error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Reject a pending rental device
+app.post('/api/phone-rental/devices/:id/reject', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await rentalActivation.rejectDevice(id);
+    res.json(result);
+  } catch (err) {
+    console.error('[PhoneRental] Reject error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Activate a rental device with an activation key
+app.post('/api/phone-rental/devices/:id/activate', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { activation_key } = req.body;
+    if (!activation_key) {
+      return res.status(400).json({ error: 'Activation key is required.' });
+    }
+    const result = await rentalActivation.activateDevice(id, activation_key);
+    res.json(result);
+  } catch (err) {
+    console.error('[PhoneRental] Activate error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Deactivate a rental device
+app.post('/api/phone-rental/devices/:id/deactivate', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await rentalActivation.deactivateDevice(id);
+    res.json(result);
+  } catch (err) {
+    console.error('[PhoneRental] Deactivate error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Reactivate a deactivated/expired rental device
+app.post('/api/phone-rental/devices/:id/reactivate', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await rentalActivation.reactivateDevice(id);
+    res.json(result);
+  } catch (err) {
+    console.error('[PhoneRental] Reactivate error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get activation keys for this vendor
+app.get('/api/phone-rental/activation-keys', requireAdmin, async (req, res) => {
+  try {
+    const keys = await rentalActivation.getActivationKeys();
+    res.json(keys);
+  } catch (err) {
+    console.error('[PhoneRental] Get activation keys error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Generate new activation keys
+app.post('/api/phone-rental/activation-keys/generate', requireAdmin, async (req, res) => {
+  try {
+    const { count = 1, license_type = 'standard', expiration_months = null } = req.body;
+    const keys = await rentalActivation.generateKeys(count, license_type, expiration_months);
+    res.json(keys);
+  } catch (err) {
+    console.error('[PhoneRental] Generate activation keys error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Android App: Check activation status (called on heartbeat)
+app.get('/api/phone-rental/device/:mac/activation', async (req, res) => {
+  try {
+    const mac = req.params.mac.toUpperCase();
+    const status = await rentalActivation.checkStatus(mac);
+    res.json(status);
+  } catch (err) {
+    console.error('[PhoneRental] Check activation error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin: Force-sync all local rental devices to Supabase cloud
+app.post('/api/phone-rental/sync-to-cloud', requireAdmin, async (req, res) => {
+  try {
+    const devices = await db.all('SELECT * FROM rental_devices');
+    const results = [];
+    for (const device of devices) {
+      const result = await rentalActivation.syncDeviceToCloud(device);
+      results.push({ device_name: device.device_name, mac: device.mac_address, ...result });
+    }
+    console.log(`[PhoneRental] Manual cloud sync triggered: ${results.length} device(s)`);
+    res.json({ success: true, synced: results.length, results });
+  } catch (err) {
+    console.error('[PhoneRental] sync-to-cloud error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin: Force-sync all local rental sessions to Supabase cloud
+app.post('/api/phone-rental/sync-sessions-to-cloud', requireAdmin, async (req, res) => {
+  try {
+    const sessions = await db.all(`
+      SELECT rs.*, rd.cloud_device_id
+      FROM rental_sessions rs
+      JOIN rental_devices rd ON rs.device_id = rd.id
+      WHERE rd.cloud_device_id IS NOT NULL
+      ORDER BY rs.start_time DESC
+    `);
+    let ok = 0, fail = 0;
+    const results = [];
+    for (const s of sessions) {
+      const result = await rentalActivation.syncSessionToCloud(s, s.cloud_device_id);
+      results.push({ session_id: s.id, device_id: s.device_id, status: s.status, ...result });
+      result.success ? ok++ : fail++;
+    }
+    console.log(`[PhoneRental] Manual session sync: ${ok} ok, ${fail} failed`);
+    res.json({ success: true, total: sessions.length, ok, fail, results });
+  } catch (err) {
+    console.error('[PhoneRental] sync-sessions-to-cloud error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
+// PHONE RENTAL - ALLOWED APPS CONFIG
+// ============================================
+
+// Get allowed apps for a rental device
+app.get('/api/phone-rental/devices/:id/allowed-apps', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const device = await db.get('SELECT id FROM rental_devices WHERE id = ?', [id]);
+    if (!device) {
+      return res.status(404).json({ error: 'Device not found.' });
+    }
+    const config = await db.get('SELECT allowed_apps FROM rental_device_config WHERE device_id = ?', [id]);
+    res.json({ allowed_apps: config ? JSON.parse(config.allowed_apps) : [] });
+  } catch (err) {
+    console.error('[PhoneRental] Get allowed apps error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Set allowed apps for a rental device
+app.put('/api/phone-rental/devices/:id/allowed-apps', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { allowed_apps } = req.body;
+    if (!Array.isArray(allowed_apps)) {
+      return res.status(400).json({ error: 'allowed_apps must be an array.' });
+    }
+    const device = await db.get('SELECT id FROM rental_devices WHERE id = ?', [id]);
+    if (!device) {
+      return res.status(404).json({ error: 'Device not found.' });
+    }
+    await db.run(
+      `INSERT INTO rental_device_config (device_id, allowed_apps, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(device_id) DO UPDATE SET allowed_apps = ?, updated_at = CURRENT_TIMESTAMP`,
+      [id, JSON.stringify(allowed_apps), JSON.stringify(allowed_apps)]
+    );
+    res.json({ success: true, allowed_apps });
+  } catch (err) {
+    console.error('[PhoneRental] Set allowed apps error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
+// PHONE RENTAL - OTA APP UPDATE
+// ============================================
+const APK_DIR = path.join(__dirname, 'android/phone-rental-app');
+const APK_META_FILE = path.join(APK_DIR, 'latest-release.json');
+
+const apkUpdateStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    if (!fs.existsSync(APK_DIR)) fs.mkdirSync(APK_DIR, { recursive: true });
+    cb(null, APK_DIR);
+  },
+  filename: (req, file, cb) => {
+    cb(null, file.originalname);
+  }
+});
+const uploadApk = multer({
+  storage: apkUpdateStorage,
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB max
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'application/vnd.android.package-archive' || file.originalname.endsWith('.apk')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only APK files are allowed'));
+    }
+  }
+});
+
+// GET /api/phone-rental/app-update — check latest version (public, called by Android app)
+app.get('/api/phone-rental/app-update', (req, res) => {
+  try {
+    if (!fs.existsSync(APK_META_FILE)) {
+      return res.json({ version_code: 0, version_name: '0.0.0', release_notes: '', apk_url: null });
+    }
+    const meta = JSON.parse(fs.readFileSync(APK_META_FILE, 'utf8'));
+    meta.apk_url = `${req.protocol}://${req.get('host')}/api/phone-rental/app-update/download`;
+    res.json(meta);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/phone-rental/app-update/download — stream the APK file (public)
+app.get('/api/phone-rental/app-update/download', (req, res) => {
+  try {
+    if (!fs.existsSync(APK_META_FILE)) {
+      return res.status(404).json({ error: 'No APK published yet.' });
+    }
+    const meta = JSON.parse(fs.readFileSync(APK_META_FILE, 'utf8'));
+    const apkPath = path.join(APK_DIR, meta.filename);
+    if (!fs.existsSync(apkPath)) {
+      return res.status(404).json({ error: `APK file not found: ${meta.filename}` });
+    }
+    const stat = fs.statSync(apkPath);
+    res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+    res.setHeader('Content-Disposition', `attachment; filename="${meta.filename}"`);
+    res.setHeader('Content-Length', stat.size);
+    fs.createReadStream(apkPath).pipe(res);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/phone-rental/app-update/upload — upload new APK + update metadata (admin only)
+app.post('/api/phone-rental/app-update/upload', requireAdmin, uploadApk.single('apk'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No APK file provided.' });
+    }
+    const { version_code, version_name, release_notes } = req.body;
+    if (!version_code || !version_name) {
+      return res.status(400).json({ error: 'version_code and version_name are required.' });
+    }
+    const meta = {
+      version_code: parseInt(version_code, 10),
+      version_name: version_name.trim(),
+      filename: req.file.originalname,
+      release_notes: release_notes || '',
+      published_at: new Date().toISOString()
+    };
+    fs.writeFileSync(APK_META_FILE, JSON.stringify(meta, null, 2));
+    console.log(`[PhoneRental] APK published: v${meta.version_name} (code ${meta.version_code}) - ${meta.filename}`);
+    res.json({ success: true, meta });
+  } catch (err) {
+    console.error('[PhoneRental] APK upload error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
+// PHONE RENTAL - DEVICE OWNER SETUP
+// ============================================
+
+// Check if ADB is installed
+app.get('/api/phone-rental/device-owner/check-adb', requireAdmin, async (req, res) => {
+  try {
+    const { stdout } = await execPromise('which adb');
+    res.json({ installed: true, path: stdout.trim() });
+  } catch (err) {
+    res.json({ installed: false });
+  }
+});
+
+// Install ADB
+app.post('/api/phone-rental/device-owner/install-adb', requireAdmin, async (req, res) => {
+  try {
+    const { stdout, stderr } = await execPromise('sudo apt update && sudo apt install -y android-tools-adb android-tools-fastboot');
+    res.json({ success: true, output: stdout });
+  } catch (err) {
+    res.status(500).json({ 
+      success: false, 
+      error: err.message,
+      solution: 'Try running: sudo apt install -y android-tools-adb'
+    });
+  }
+});
+
+// List connected devices
+app.get('/api/phone-rental/device-owner/list-devices', requireAdmin, async (req, res) => {
+  try {
+    const { stdout } = await execPromise('adb devices');
+    const lines = stdout.split('\n').filter(line => line.includes('\tdevice'));
+    const devices = lines.map(line => line.split('\t')[0]);
+    res.json({ devices });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Set Device Owner
+app.post('/api/phone-rental/device-owner/set-owner', requireAdmin, async (req, res) => {
+  try {
+    const { serial } = req.body;
+    if (!serial) {
+      return res.status(400).json({ error: 'Device serial is required' });
+    }
+
+    const component = 'com.ajcpisowifi.phonerental/.admin.KioskDeviceAdmin';
+    const command = serial 
+      ? `adb -s ${serial} shell dpm set-device-owner ${component}`
+      : `adb shell dpm set-device-owner ${component}`;
+
+    const { stdout, stderr } = await execPromise(command);
+    
+    if (stdout.includes('Success') || stdout.includes('Device owner set')) {
+      res.json({ success: true, message: stdout });
+    } else {
+      res.status(500).json({ 
+        success: false, 
+        error: stderr || stdout,
+        solution: 'Make sure device is factory reset and has no existing Device Owner'
+      });
+    }
+  } catch (err) {
+    let errorMessage = err.message;
+    let solution = '';
+    
+    if (errorMessage.includes('device has a device owner')) {
+      solution = 'Remove existing Device Owner first: Settings > Security > Device administrators > Deactivate';
+    } else if (errorMessage.includes('not provisioned')) {
+      solution = 'Factory reset the device and try again immediately after setup (before adding Google account)';
+    } else if (errorMessage.includes('device unauthorized')) {
+      solution = 'Accept the "Allow USB debugging?" prompt on the device';
+    }
+
+    res.status(500).json({ 
+      success: false, 
+      error: errorMessage,
+      solution
+    });
+  }
+});
+
+// Remove Device Owner
+app.post('/api/phone-rental/device-owner/remove-owner', requireAdmin, async (req, res) => {
+  try {
+    const { stdout, stderr } = await execPromise('adb shell dpm clear-device-owner');
+    
+    if (stdout.includes('Success') || stderr.includes('Success')) {
+      res.json({ success: true, message: 'Device Owner removed' });
+    } else {
+      res.status(500).json({ 
+        success: false, 
+        error: stderr || stdout,
+        solution: 'You may need to factory reset the device'
+      });
+    }
+  } catch (err) {
+    res.status(500).json({ 
+      success: false, 
+      error: err.message,
+      solution: 'Try: adb shell dpm clear-device-owner'
+    });
+  }
+});
+
+// Android App: Get allowed apps for this device (called by rental app)
+app.get('/api/phone-rental/device/:mac/allowed-apps', async (req, res) => {
+  try {
+    const mac = req.params.mac.toUpperCase();
+    const device = await db.get('SELECT id FROM rental_devices WHERE mac_address = ?', [mac]);
+    if (!device) {
+      return res.status(404).json({ error: 'Device not found.' });
+    }
+    const config = await db.get('SELECT allowed_apps FROM rental_device_config WHERE device_id = ?', [device.id]);
+    res.json({ allowed_apps: config ? JSON.parse(config.allowed_apps) : [] });
+  } catch (err) {
+    console.error('[PhoneRental] Get device allowed apps error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
+// PHONE RENTAL - COINSLOT RATES
+// ============================================
+
+// Get phone rental coin slot rates
+app.get('/api/phone-rental/rates', async (req, res) => {
+  try {
+    const ratesConfig = await db.get('SELECT value FROM config WHERE key = ?', ['phoneRentalRates']);
+    const rates = ratesConfig?.value ? JSON.parse(ratesConfig.value) : [];
+    res.json({ success: true, rates });
+  } catch (err) {
+    console.error('[PhoneRental] Get rates error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Save phone rental coin slot rates (admin only)
+app.post('/api/phone-rental/rates', requireAdmin, async (req, res) => {
+  try {
+    const { rates } = req.body;
+    if (!rates || !Array.isArray(rates)) {
+      return res.status(400).json({ error: 'Rates array is required' });
+    }
+    
+    await db.run('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)', 
+      ['phoneRentalRates', JSON.stringify(rates)]);
+    
+    console.log('[PhoneRental] Rates updated:', rates.length, 'rates saved');
+    res.json({ success: true, message: 'Rates saved successfully' });
+  } catch (err) {
+    console.error('[PhoneRental] Save rates error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get available NodeMCU devices for phone rental
+app.get('/api/phone-rental/nodemcu-devices', async (req, res) => {
+  try {
+    const devicesConfig = await db.get('SELECT value FROM config WHERE key = ?', ['nodemcuDevices']);
+    const devices = devicesConfig?.value ? JSON.parse(devicesConfig.value) : [];
+    const availableDevices = devices.filter(d => d.status === 'accepted');
+    res.json({ success: true, devices: availableDevices });
+  } catch (err) {
+    console.error('[PhoneRental] Get NodeMCU devices error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
+// PHONE RENTAL - KIOSK SESSION START (No admin auth required)
+// ============================================
+
+// Kiosk: Start rental session with coin payment (called by rental device itself)
+app.post('/api/phone-rental/sessions/start-kiosk', async (req, res) => {
+  try {
+    const { device_id, amount_paid, duration_minutes, payment_method, customer_name } = req.body;
+    
+    if (!device_id || !amount_paid || !duration_minutes) {
+      return res.status(400).json({ error: 'device_id, amount_paid, and duration_minutes are required' });
+    }
+
+    // Verify device exists and is available
+    const device = await db.get('SELECT * FROM rental_devices WHERE id = ?', [device_id]);
+    if (!device) {
+      return res.status(404).json({ error: 'Device not found' });
+    }
+    if (device.status === 'rented') {
+      return res.status(400).json({ error: 'Device is already rented' });
+    }
+    if (device.status === 'maintenance') {
+      return res.status(400).json({ error: 'Device is under maintenance' });
+    }
+
+    const now = new Date();
+    const endTime = new Date(now.getTime() + duration_minutes * 60000);
+
+    // Start session
+    const result = await db.run(
+      `INSERT INTO rental_sessions (device_id, customer_name, start_time, end_time, duration_minutes, amount_paid, status, payment_method)
+       VALUES (?, ?, ?, ?, ?, ?, 'active', ?)`,
+      [device_id, customer_name || 'Walk-in Customer', now.toISOString(), endTime.toISOString(), duration_minutes, amount_paid, payment_method || 'coinslot']
+    );
+
+    // Update device status
+    await db.run(
+      `UPDATE rental_devices SET status = 'rented', total_rentals = total_rentals + 1, total_revenue = total_revenue + ?, last_rented_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      [amount_paid, now.toISOString(), device_id]
+    );
+
+    // Record payment
+    await db.run(
+      'INSERT INTO rental_payments (session_id, amount, payment_method) VALUES (?, ?, ?)',
+      [result.lastID, amount_paid, payment_method || 'coinslot']
+    );
+
+    const session = await db.get('SELECT * FROM rental_sessions WHERE id = ?', [result.lastID]);
+    
+    console.log(`[PhoneRental Kiosk] Session started: Device #${device_id}, ₱${amount_paid} for ${duration_minutes} mins`);
+    res.json({ success: true, session });
+    
+    // Cloud sync (fire-and-forget)
+    if (device.cloud_device_id) {
+      rentalActivation.syncSessionToCloud(session, device.cloud_device_id).catch(() => {});
+    }
+    rentalActivation.syncDeviceRevenue(device_id).catch(() => {});
+  } catch (err) {
+    console.error('[PhoneRental Kiosk] Start session error:', err);
     res.status(500).json({ error: err.message });
   }
 });

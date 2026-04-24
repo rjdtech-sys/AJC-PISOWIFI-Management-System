@@ -1,5 +1,5 @@
 
-import { Rate, NetworkInterface, SystemConfig, WanConfig, VlanConfig, WifiDevice, DeviceSession, PPPoEServerConfig, PPPoEUser, PPPoESession, QoSConfig, PPPoEProfile, PPPoEBillingProfile, PPPoEPool, PPPoESale, MikrotikRouter, MikrotikBillingData, MikrotikRouterSnapshot } from '../types';
+import { Rate, NetworkInterface, SystemConfig, WanConfig, VlanConfig, WifiDevice, DeviceSession, PPPoEServerConfig, PPPoEUser, PPPoESession, QoSConfig, PPPoEProfile, PPPoEBillingProfile, PPPoEPool, PPPoESale, MikrotikRouter, MikrotikBillingData, MikrotikRouterSnapshot, Employee, DTRRecord, PayrollRecord, Equipment, EquipmentWithdrawal, RentalDevice, RentalSession, RentalReport, PhoneRentalRate } from '../types';
 
 const API_BASE = '/api';
 
@@ -442,8 +442,8 @@ export const apiClient = {
   },
 
   // System Stats API
-  async getSystemStats(): Promise<any> {
-    const res = await fetch(`${API_BASE}/system/stats`, { headers: getHeaders() });
+  async getSystemStats(signal?: AbortSignal): Promise<any> {
+    const res = await fetch(`${API_BASE}/system/stats`, { headers: getHeaders(), signal });
     return handleResponse(res);
   },
 
@@ -479,18 +479,18 @@ export const apiClient = {
     await handleResponse(res);
   },
 
-  async getSystemInfo(): Promise<any> {
-    const res = await fetch(`${API_BASE}/system/info`, { headers: getHeaders() });
+  async getSystemInfo(signal?: AbortSignal): Promise<any> {
+    const res = await fetch(`${API_BASE}/system/info`, { headers: getHeaders(), signal });
     return handleResponse(res);
   },
 
-  async getSystemInterfaces(): Promise<string[]> {
-    const res = await fetch(`${API_BASE}/system/interfaces`, { headers: getHeaders() });
+  async getSystemInterfaces(signal?: AbortSignal): Promise<string[]> {
+    const res = await fetch(`${API_BASE}/system/interfaces`, { headers: getHeaders(), signal });
     return handleResponse(res);
   },
 
-  async getMachineStatus(): Promise<any> {
-    const res = await fetch(`${API_BASE}/machine/status`, { headers: getHeaders() });
+  async getMachineStatus(signal?: AbortSignal): Promise<any> {
+    const res = await fetch(`${API_BASE}/machine/status`, { headers: getHeaders(), signal });
     return handleResponse(res);
   },
 
@@ -587,6 +587,16 @@ export const apiClient = {
     return handleResponse(res);
   },
 
+  async getMySession(): Promise<any | null> {
+    try {
+      const res = await fetch(`${API_BASE}/sessions/me`);
+      if (!res.ok) return null;
+      return handleResponse(res);
+    } catch {
+      return null;
+    }
+  },
+
   async getSalesSessions(): Promise<any[]> {
     const res = await fetch(`${API_BASE}/sales/sessions`, { headers: getHeaders() });
     return handleResponse(res);
@@ -667,8 +677,8 @@ export const apiClient = {
     return handleResponse(res);
   },
 
-  async getPPPoESessions(): Promise<PPPoESession[]> {
-    const res = await fetch(`${API_BASE}/network/pppoe/sessions`, { headers: getHeaders() });
+  async getPPPoESessions(signal?: AbortSignal): Promise<PPPoESession[]> {
+    const res = await fetch(`${API_BASE}/network/pppoe/sessions`, { headers: getHeaders(), signal });
     return handleResponse(res);
   },
 
@@ -1295,5 +1305,382 @@ export const apiClient = {
     const res = await fetch(`${API_BASE}/admin/audio-files`, { headers: getHeaders() });
     const data = await handleResponse(res);
     return data.files || [];
+  },
+
+  // Employee Management APIs
+  async getEmployees(): Promise<Employee[]> {
+    const res = await fetch(`${API_BASE}/employees`, { headers: getHeaders() });
+    return handleResponse(res);
+  },
+
+  async createEmployee(employee: Omit<Employee, 'id' | 'created_at' | 'updated_at'>): Promise<Employee> {
+    const res = await fetch(`${API_BASE}/employees`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(employee)
+    });
+    return handleResponse(res);
+  },
+
+  async updateEmployee(id: number, updates: Partial<Employee>): Promise<Employee> {
+    const res = await fetch(`${API_BASE}/employees/${id}`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify(updates)
+    });
+    return handleResponse(res);
+  },
+
+  async deleteEmployee(id: number): Promise<{ success: boolean }> {
+    const res = await fetch(`${API_BASE}/employees/${id}`, {
+      method: 'DELETE',
+      headers: getHeaders()
+    });
+    return handleResponse(res);
+  },
+
+  // DTR APIs
+  async getDTRRecords(params?: { employee_id?: number; from?: string; to?: string }): Promise<DTRRecord[]> {
+    const queryParams = new URLSearchParams();
+    if (params?.employee_id) queryParams.append('employee_id', String(params.employee_id));
+    if (params?.from) queryParams.append('from', params.from);
+    if (params?.to) queryParams.append('to', params.to);
+    const queryString = queryParams.toString();
+    const url = `${API_BASE}/dtr${queryString ? `?${queryString}` : ''}`;
+    const res = await fetch(url, { headers: getHeaders() });
+    return handleResponse(res);
+  },
+
+  async createDTRRecord(record: Omit<DTRRecord, 'id' | 'created_at'>): Promise<DTRRecord> {
+    const res = await fetch(`${API_BASE}/dtr`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(record)
+    });
+    return handleResponse(res);
+  },
+
+  async updateDTRRecord(id: number, updates: Partial<DTRRecord>): Promise<DTRRecord> {
+    const res = await fetch(`${API_BASE}/dtr/${id}`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify(updates)
+    });
+    return handleResponse(res);
+  },
+
+  async deleteDTRRecord(id: number): Promise<{ success: boolean }> {
+    const res = await fetch(`${API_BASE}/dtr/${id}`, {
+      method: 'DELETE',
+      headers: getHeaders()
+    });
+    return handleResponse(res);
+  },
+
+  // Payroll APIs
+  async getPayrollRecords(params?: { employee_id?: number; from?: string; to?: string }): Promise<PayrollRecord[]> {
+    const queryParams = new URLSearchParams();
+    if (params?.employee_id) queryParams.append('employee_id', String(params.employee_id));
+    if (params?.from) queryParams.append('from', params.from);
+    if (params?.to) queryParams.append('to', params.to);
+    const queryString = queryParams.toString();
+    const url = `${API_BASE}/payroll${queryString ? `?${queryString}` : ''}`;
+    const res = await fetch(url, { headers: getHeaders() });
+    return handleResponse(res);
+  },
+
+  async generatePayroll(payload: { employee_id: number; period_start: string; period_end: string; deductions?: number; notes?: string }): Promise<PayrollRecord> {
+    const res = await fetch(`${API_BASE}/payroll/generate`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(payload)
+    });
+    return handleResponse(res);
+  },
+
+  async updatePayroll(id: number, updates: Partial<PayrollRecord>): Promise<PayrollRecord> {
+    const res = await fetch(`${API_BASE}/payroll/${id}`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify(updates)
+    });
+    return handleResponse(res);
+  },
+
+  async deletePayroll(id: number): Promise<{ success: boolean }> {
+    const res = await fetch(`${API_BASE}/payroll/${id}`, {
+      method: 'DELETE',
+      headers: getHeaders()
+    });
+    return handleResponse(res);
+  },
+
+  // Equipment Inventory APIs
+  async getEquipment(): Promise<Equipment[]> {
+    const res = await fetch(`${API_BASE}/equipment`, { headers: getHeaders() });
+    return handleResponse(res);
+  },
+
+  async createEquipment(item: Omit<Equipment, 'id' | 'created_at' | 'updated_at'>): Promise<Equipment> {
+    const res = await fetch(`${API_BASE}/equipment`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(item)
+    });
+    return handleResponse(res);
+  },
+
+  async updateEquipment(id: number, updates: Partial<Equipment>): Promise<Equipment> {
+    const res = await fetch(`${API_BASE}/equipment/${id}`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify(updates)
+    });
+    return handleResponse(res);
+  },
+
+  async deleteEquipment(id: number): Promise<{ success: boolean }> {
+    const res = await fetch(`${API_BASE}/equipment/${id}`, {
+      method: 'DELETE',
+      headers: getHeaders()
+    });
+    return handleResponse(res);
+  },
+
+  // Equipment Withdrawal APIs
+  async getEquipmentWithdrawals(): Promise<EquipmentWithdrawal[]> {
+    const res = await fetch(`${API_BASE}/equipment-withdrawals`, { headers: getHeaders() });
+    return handleResponse(res);
+  },
+
+  async createEquipmentWithdrawal(payload: { client_name: string; withdrawal_date: string; notes?: string; items: { equipment_id: number; quantity: number }[] }): Promise<EquipmentWithdrawal> {
+    const res = await fetch(`${API_BASE}/equipment-withdrawals`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(payload)
+    });
+    return handleResponse(res);
+  },
+
+  async deleteEquipmentWithdrawal(id: number): Promise<{ success: boolean }> {
+    const res = await fetch(`${API_BASE}/equipment-withdrawals/${id}`, {
+      method: 'DELETE',
+      headers: getHeaders()
+    });
+    return handleResponse(res);
+  },
+
+  // ============================================
+  // PHONE RENTAL APIs
+  // ============================================
+
+  async getRentalDevices(): Promise<RentalDevice[]> {
+    const res = await fetch(`${API_BASE}/phone-rental/devices`, { headers: getHeaders() });
+    return handleResponse(res);
+  },
+
+  async createRentalDevice(device: Partial<RentalDevice>): Promise<RentalDevice> {
+    const res = await fetch(`${API_BASE}/phone-rental/devices`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(device)
+    });
+    return handleResponse(res);
+  },
+
+  async updateRentalDevice(id: number, updates: Partial<RentalDevice>): Promise<RentalDevice> {
+    const res = await fetch(`${API_BASE}/phone-rental/devices/${id}`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify(updates)
+    });
+    return handleResponse(res);
+  },
+
+  async deleteRentalDevice(id: number): Promise<{ success: boolean }> {
+    const res = await fetch(`${API_BASE}/phone-rental/devices/${id}`, {
+      method: 'DELETE',
+      headers: getHeaders()
+    });
+    return handleResponse(res);
+  },
+
+  async bypassRentalDevice(id: number): Promise<{ success: boolean; message: string }> {
+    const res = await fetch(`${API_BASE}/phone-rental/devices/${id}/bypass`, {
+      method: 'POST',
+      headers: getHeaders()
+    });
+    return handleResponse(res);
+  },
+
+  async unblockRentalDevice(id: number): Promise<{ success: boolean; message: string }> {
+    const res = await fetch(`${API_BASE}/phone-rental/devices/${id}/unblock`, {
+      method: 'POST',
+      headers: getHeaders()
+    });
+    return handleResponse(res);
+  },
+
+  async startRentalSession(payload: { device_id: number; customer_name?: string; customer_contact?: string; duration_minutes: number; amount_paid?: number; payment_method?: string; notes?: string }): Promise<RentalSession> {
+    const res = await fetch(`${API_BASE}/phone-rental/sessions/start`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(payload)
+    });
+    return handleResponse(res);
+  },
+
+  async endRentalSession(sessionId: number): Promise<RentalSession> {
+    const res = await fetch(`${API_BASE}/phone-rental/sessions/${sessionId}/end`, {
+      method: 'POST',
+      headers: getHeaders()
+    });
+    return handleResponse(res);
+  },
+
+  async extendRentalSession(sessionId: number, payload: { additional_minutes: number; amount_paid?: number; payment_method?: string }): Promise<RentalSession> {
+    const res = await fetch(`${API_BASE}/phone-rental/sessions/${sessionId}/extend`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(payload)
+    });
+    return handleResponse(res);
+  },
+
+  async kioskLogoutSession(sessionId: number, reason?: string): Promise<RentalSession> {
+    const res = await fetch(`${API_BASE}/phone-rental/sessions/${sessionId}/kiosk-logout`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ reason })
+    });
+    return handleResponse(res);
+  },
+
+  async kioskResumeSession(sessionId: number): Promise<RentalSession> {
+    const res = await fetch(`${API_BASE}/phone-rental/sessions/${sessionId}/kiosk-resume`, {
+      method: 'POST',
+      headers: getHeaders()
+    });
+    return handleResponse(res);
+  },
+
+  async getRentalSessions(filters?: { status?: string; device_id?: number }): Promise<RentalSession[]> {
+    const params = new URLSearchParams();
+    if (filters?.status) params.set('status', filters.status);
+    if (filters?.device_id) params.set('device_id', String(filters.device_id));
+    const query = params.toString() ? `?${params.toString()}` : '';
+    const res = await fetch(`${API_BASE}/phone-rental/sessions${query}`, { headers: getHeaders() });
+    return handleResponse(res);
+  },
+
+  async getRentalReport(): Promise<RentalReport> {
+    const res = await fetch(`${API_BASE}/phone-rental/report`, { headers: getHeaders() });
+    return handleResponse(res);
+  },
+
+  async getRentalDeviceAllowedApps(deviceId: number): Promise<{ allowed_apps: string[] }> {
+    const res = await fetch(`${API_BASE}/phone-rental/devices/${deviceId}/allowed-apps`, { headers: getHeaders() });
+    return handleResponse(res);
+  },
+
+  async setRentalDeviceAllowedApps(deviceId: number, allowedApps: string[]): Promise<{ success: boolean; allowed_apps: string[] }> {
+    const res = await fetch(`${API_BASE}/phone-rental/devices/${deviceId}/allowed-apps`, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify({ allowed_apps: allowedApps })
+    });
+    return handleResponse(res);
+  },
+
+  // Activation System
+  async acceptRentalDevice(deviceId: number): Promise<any> {
+    const res = await fetch(`${API_BASE}/phone-rental/devices/${deviceId}/accept`, {
+      method: 'POST',
+      headers: getHeaders()
+    });
+    return handleResponse(res);
+  },
+
+  async rejectRentalDevice(deviceId: number): Promise<any> {
+    const res = await fetch(`${API_BASE}/phone-rental/devices/${deviceId}/reject`, {
+      method: 'POST',
+      headers: getHeaders()
+    });
+    return handleResponse(res);
+  },
+
+  async activateRentalDevice(deviceId: number, activationKey: string): Promise<any> {
+    const res = await fetch(`${API_BASE}/phone-rental/devices/${deviceId}/activate`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ activation_key: activationKey })
+    });
+    return handleResponse(res);
+  },
+
+  async deactivateRentalDevice(deviceId: number): Promise<any> {
+    const res = await fetch(`${API_BASE}/phone-rental/devices/${deviceId}/deactivate`, {
+      method: 'POST',
+      headers: getHeaders()
+    });
+    return handleResponse(res);
+  },
+
+  async reactivateRentalDevice(deviceId: number): Promise<any> {
+    const res = await fetch(`${API_BASE}/phone-rental/devices/${deviceId}/reactivate`, {
+      method: 'POST',
+      headers: getHeaders()
+    });
+    return handleResponse(res);
+  },
+
+  async getRentalActivationKeys(): Promise<any[]> {
+    const res = await fetch(`${API_BASE}/phone-rental/activation-keys`, { headers: getHeaders() });
+    return handleResponse(res);
+  },
+
+  async generateRentalActivationKeys(count: number, licenseType: string = 'standard', expirationMonths: number | null = null): Promise<any[]> {
+    const res = await fetch(`${API_BASE}/phone-rental/activation-keys/generate`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ count, license_type: licenseType, expiration_months: expirationMonths })
+    });
+    return handleResponse(res);
+  },
+
+  async syncRentalDevicesToCloud(): Promise<any> {
+    const res = await fetch(`${API_BASE}/phone-rental/sync-to-cloud`, {
+      method: 'POST',
+      headers: getHeaders()
+    });
+    return handleResponse(res);
+  },
+
+  async syncRentalSessionsToCloud(): Promise<any> {
+    const res = await fetch(`${API_BASE}/phone-rental/sync-sessions-to-cloud`, {
+      method: 'POST',
+      headers: getHeaders()
+    });
+    return handleResponse(res);
+  },
+
+  // ============================================
+  // PHONE RENTAL - COINSLOT RATES
+  // ============================================
+
+  async getPhoneRentalRates(): Promise<PhoneRentalRate[]> {
+    const res = await fetch(`${API_BASE}/phone-rental/rates`);
+    if (!res.ok) throw new Error('Failed to fetch rental rates');
+    const data = await res.json();
+    return data.rates || [];
+  },
+
+  async savePhoneRentalRates(rates: PhoneRentalRate[]): Promise<void> {
+    const res = await fetch(`${API_BASE}/phone-rental/rates`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ rates })
+    });
+    if (!res.ok) throw new Error('Failed to save rental rates');
   }
 };

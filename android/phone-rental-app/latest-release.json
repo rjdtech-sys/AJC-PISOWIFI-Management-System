@@ -1,0 +1,7 @@
+{
+  "version_code": 16,
+  "version_name": "2.1.0",
+  "filename": "AJC-Phone-Rental-v2.1.0-SmartUpdater.apk",
+  "release_notes": "- NEW: Smart in-app updater with real-time progress bar\n- NEW: Shows download percentage (0% to 100%)\n- NEW: Auto-installs after download completes\n- NEW: Auto-restarts app after installation\n- NEW: Seamless update experience - no system installer prompts\n- IMPROVED: Works perfectly in Device Owner mode\n- IMPROVED: 5-minute cooldown prevents update loops\n- IMPROVED: Installation tracking prevents duplicate updates",
+  "published_at": "2026-04-26T13:00:00.000Z"
+}

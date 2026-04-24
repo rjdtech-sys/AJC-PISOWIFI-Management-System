@@ -22,6 +22,9 @@ import RemoteManager from './components/Admin/RemoteManager';
 import RewardsSettings from './components/Admin/RewardsSettings';
 import CompanySettings from './components/Admin/CompanySettings';
 import ToolsPage from './components/Admin/ToolsPage';
+import EmployeeManagement from './components/Admin/EmployeeManagement';
+import EquipmentInventory from './components/Admin/EquipmentInventory';
+import PhoneRental from './components/Admin/PhoneRental';
 import { apiClient } from './lib/api';
 import { initAdminTheme, setAdminTheme, applyAdminTheme } from './lib/theme';
 
@@ -421,6 +424,9 @@ const App: React.FC = () => {
             <SidebarItem disabled={!licenseStatus.canOperate && !licenseStatus.isRevoked} active={activeTab === AdminTab.Vouchers} onClick={() => setActiveTab(AdminTab.Vouchers)} icon="🎟️" label="Vouchers" collapsed={!sidebarOpen} />
             <SidebarItem disabled={!licenseStatus.canOperate && !licenseStatus.isRevoked} active={activeTab === AdminTab.Rewards} onClick={() => setActiveTab(AdminTab.Rewards)} icon="🎁" label="Rewards" collapsed={!sidebarOpen} />
             <SidebarItem disabled={!licenseStatus.canOperate && !licenseStatus.isRevoked} active={activeTab === AdminTab.SalesInventory} onClick={() => setActiveTab(AdminTab.SalesInventory)} icon="📒" label="Sales Inventory" collapsed={!sidebarOpen} />
+            <SidebarItem disabled={!licenseStatus.canOperate && !licenseStatus.isRevoked} active={activeTab === AdminTab.Employees} onClick={() => setActiveTab(AdminTab.Employees)} icon="👷" label="Employees" collapsed={!sidebarOpen} />
+            <SidebarItem disabled={!licenseStatus.canOperate && !licenseStatus.isRevoked} active={activeTab === AdminTab.EquipmentInventory} onClick={() => setActiveTab(AdminTab.EquipmentInventory)} icon="📦" label="Equipment" collapsed={!sidebarOpen} />
+            <SidebarItem disabled={!licenseStatus.canOperate && !licenseStatus.isRevoked} active={activeTab === AdminTab.PhoneRental} onClick={() => setActiveTab(AdminTab.PhoneRental)} icon="📲" label="Phone Rental" collapsed={!sidebarOpen} />
             <SidebarItem disabled={!licenseStatus.canOperate && !licenseStatus.isRevoked} active={activeTab === AdminTab.Remote} onClick={() => setActiveTab(AdminTab.Remote)} icon="🛰️" label="Remote" collapsed={!sidebarOpen} />
             <SidebarItem active={activeTab === AdminTab.CompanySettings} onClick={() => setActiveTab(AdminTab.CompanySettings)} icon="🏢" label="Company" collapsed={!sidebarOpen} />
             <SidebarItem active={activeTab === AdminTab.System} onClick={() => setActiveTab(AdminTab.System)} icon="⚙️" label="System" collapsed={!sidebarOpen} />
@@ -495,6 +501,9 @@ const App: React.FC = () => {
                   {activeTab === AdminTab.Machines && <MyMachines />}
                   {activeTab === AdminTab.Vouchers && <VoucherManager />}
                   {activeTab === AdminTab.SalesInventory && <SalesInventory sessions={salesSessions.length ? salesSessions : activeSessions} />}
+                  {activeTab === AdminTab.Employees && <EmployeeManagement />}
+                  {activeTab === AdminTab.EquipmentInventory && <EquipmentInventory />}
+                  {activeTab === AdminTab.PhoneRental && <PhoneRental />}
                   {activeTab === AdminTab.Remote && <RemoteManager />}
                   {activeTab === AdminTab.Rewards && <RewardsSettings />}
                   {activeTab === AdminTab.CompanySettings && <CompanySettings />}

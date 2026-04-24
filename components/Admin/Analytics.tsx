@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, LineChart, Line } from 'recharts';
 import { UserSession, SystemStats } from '../../types';
 import { apiClient } from '../../lib/api';
@@ -14,6 +14,43 @@ interface InterfaceDataPoint {
   tx: number;
 }
 
+const STATS_POLL_INTERVAL = 5000; // 5s instead of 2s – easier on Pi hardware
+const HISTORY_MAX_POINTS = 20;
+const API_TIMEOUT_MS = 6000; // 6s timeout for API calls on embedded hardware
+
+// Safety-net: skip VLAN subinterfaces on client side too
+const isVlanInterface = (iface: string) => {
+  if (!iface) return false;
+  const name = iface.toLowerCase();
+  if (name.includes('.')) return true;
+  if (name.startsWith('vlan')) return true;
+  if (name.startsWith('veth')) return true;
+  if (name.startsWith('docker')) return true;
+  if (name.startsWith('lxc')) return true;
+  if (name.startsWith('dummy')) return true;
+  if (name === 'lo') return true;
+  return false;
+};
+
+// Helper: race a promise against a timeout, with real abort support
+const withTimeoutAndAbort = <T,>(
+  makePromise: (signal: AbortSignal) => Promise<T>,
+  ms: number,
+  fallback: T
+): { promise: Promise<T>; abort: () => void } => {
+  const ctrl = new AbortController();
+  const timeout = setTimeout(() => ctrl.abort(), ms);
+
+  const promise = makePromise(ctrl.signal)
+    .then((val) => { clearTimeout(timeout); return val; })
+    .catch(() => { clearTimeout(timeout); return fallback; });
+
+  return {
+    promise,
+    abort: () => { clearTimeout(timeout); ctrl.abort(); }
+  };
+};
+
 const Analytics: React.FC<AnalyticsProps> = ({ sessions, salesHistory }) => {
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [sysInfo, setSysInfo] = useState<{manufacturer: string, model: string, distro: string, arch: string} | null>(null);
@@ -24,21 +61,29 @@ const Analytics: React.FC<AnalyticsProps> = ({ sessions, salesHistory }) => {
   const [pppoeOnline, setPppoeOnline] = useState<number>(0);
   const [machineMetrics, setMachineMetrics] = useState<{ cpuTemp?: number; uptime?: number; storageUsed?: number; storageTotal?: number } | null>(null);
   const [cpuHistory, setCpuHistory] = useState<{ time: string; load: number }[]>([]);
-  const [coreLoads, setCoreLoads] = useState<number[]>([0, 0, 0, 0]);
+  const [coreLoads, setCoreLoads] = useState<number[]>([]);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const mountedRef = useRef(true);
 
+  // Lightweight init data fetch — renders dashboard immediately, fills data async
   useEffect(() => {
-    // Fetch available interfaces and system info once on mount
+    mountedRef.current = true;
+
+    const t1 = withTimeoutAndAbort((s) => apiClient.getSystemInterfaces(s), API_TIMEOUT_MS, [] as string[]);
+    const t2 = withTimeoutAndAbort((s) => apiClient.getSystemInfo(s), API_TIMEOUT_MS, null);
+    const t3 = withTimeoutAndAbort((s) => apiClient.getPPPoESessions(s), API_TIMEOUT_MS, [] as any[]);
+    const t4 = withTimeoutAndAbort((s) => apiClient.getMachineStatus(s), API_TIMEOUT_MS, null);
+
     const fetchInitData = async () => {
       try {
         const [ifaceData, infoData, pppoeData, machineData] = await Promise.all([
-          apiClient.getSystemInterfaces(),
-          apiClient.getSystemInfo(),
-          apiClient.getPPPoESessions().catch(() => []),
-          apiClient.getMachineStatus().catch(() => null)
+          t1.promise, t2.promise, t3.promise, t4.promise
         ]);
-        
+
+        if (!mountedRef.current) return;
+
         setAvailableInterfaces(ifaceData);
-        setSysInfo(infoData);
+        if (infoData) setSysInfo(infoData);
         setPppoeOnline(Array.isArray(pppoeData) ? pppoeData.length : 0);
         if (machineData && machineData.metrics) {
           const m = machineData.metrics;
@@ -55,50 +100,82 @@ const Analytics: React.FC<AnalyticsProps> = ({ sessions, salesHistory }) => {
     };
     fetchInitData();
 
+    return () => {
+      mountedRef.current = false;
+      t1.abort();
+      t2.abort();
+      t3.abort();
+      t4.abort();
+    };
+  }, []);
+
+  // Stats polling – slower interval, safe cleanup, real abort
+  useEffect(() => {
+    let active = true;
+    let currentAbort: (() => void) | null = null;
+
     const fetchStats = async () => {
+      // Abort any previous in-flight request before starting a new one
+      if (currentAbort) { currentAbort(); currentAbort = null; }
+
+      const t = withTimeoutAndAbort((s) => apiClient.getSystemStats(s), API_TIMEOUT_MS, null);
+      currentAbort = t.abort;
+
       try {
-        const data: SystemStats = await apiClient.getSystemStats();
+        const data = await t.promise;
+        if (!active) return;
+        if (!data) return;
+
         setStats(data);
-        
-        // Update history
+
         const now = new Date().toLocaleTimeString();
         setCpuHistory(prev => [...prev, { time: now, load: data.cpu?.load || 0 }].slice(-30));
         const avg = data.cpu?.load || 0;
-        const t = Date.now() / 1000;
+        const t2 = Date.now() / 1000;
         const vary = (b: number) => Math.max(0, Math.min(100, b));
-        setCoreLoads([
-          vary(avg * (0.92 + 0.06 * Math.abs(Math.sin(t)))),
-          vary(avg * (0.94 + 0.06 * Math.abs(Math.cos(t * 0.8)))),
-          vary(avg * (0.96 + 0.06 * Math.abs(Math.sin(t * 0.6)))),
-          vary(avg * (0.98 + 0.06 * Math.abs(Math.cos(t * 0.4))))
-        ]);
+
+        // If server sends real per-core loads, use them; otherwise simulate
+        if (data.cpu?.cpus && data.cpu.cpus.length > 0) {
+          setCoreLoads(data.cpu.cpus);
+        } else {
+          // Animated simulation — number of bars = physical cores (fallback 4)
+          const numCores = data.cpu?.cores || 4;
+          setCoreLoads(
+            Array.from({ length: numCores }, (_, i) =>
+              vary(avg * (0.90 + 0.10 * Math.abs(Math.sin(t2 * (0.7 + i * 0.13)))))
+            )
+          );
+        }
         setHistory(prev => {
           const newHistory = { ...prev };
-          data.network.forEach(net => {
+          data.network.forEach((net: any) => {
+            if (isVlanInterface(net.iface)) return; // skip VLANs
             if (!newHistory[net.iface]) newHistory[net.iface] = [];
-            // Calculate speed (bytes per second) - systeminformation returns bytes/sec in rx_sec/tx_sec
-            // We'll convert to Mb/s (Megabits per second) for display
-            // Bytes * 8 = bits
             newHistory[net.iface] = [
               ...newHistory[net.iface],
-              { 
-                time: now, 
-                rx: (net.rx_sec * 8) / 1024 / 1024, // Mb/s
-                tx: (net.tx_sec * 8) / 1024 / 1024  // Mb/s
+              {
+                time: now,
+                rx: (net.rx_sec * 8) / 1024 / 1024,
+                tx: (net.tx_sec * 8) / 1024 / 1024
               }
-            ].slice(-20); // Keep last 20 points
+            ].slice(-HISTORY_MAX_POINTS);
           });
           return newHistory;
         });
-
       } catch (err) {
+        if (!active) return;
         console.error('Failed to fetch system stats', err);
       }
     };
 
-    const interval = setInterval(fetchStats, 2000);
     fetchStats();
-    return () => clearInterval(interval);
+    intervalRef.current = setInterval(fetchStats, STATS_POLL_INTERVAL);
+
+    return () => {
+      active = false;
+      if (currentAbort) currentAbort();
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
   }, []);
 
   const addGraph = (iface: string) => {
@@ -112,24 +189,24 @@ const Analytics: React.FC<AnalyticsProps> = ({ sessions, salesHistory }) => {
     setActiveGraphs(activeGraphs.filter(g => g !== iface));
   };
 
+  // Optimized aggHistory: O(n) using Map for lookups instead of O(n²)
   const aggHistory = useMemo(() => {
-    const times: string[] = [];
-    Object.values(history).forEach(arr => arr.forEach(p => { if (!times.includes(p.time)) times.push(p.time); }));
-    return times.map(t => {
-      let rx = 0;
-      let tx = 0;
-      Object.values(history).forEach(arr => {
-        const found = arr.find(p => p.time === t);
-        if (found) {
-          rx += found.rx;
-          tx += found.tx;
+    const timeMap = new Map<string, { rx: number; tx: number }>();
+    for (const arr of Object.values(history) as InterfaceDataPoint[][]) {
+      for (const p of arr) {
+        const existing = timeMap.get(p.time);
+        if (existing) {
+          existing.rx += p.rx;
+          existing.tx += p.tx;
+        } else {
+          timeMap.set(p.time, { rx: p.rx, tx: p.tx });
         }
-      });
-      return { time: t, rx, tx };
-    });
+      }
+    }
+    return Array.from(timeMap.entries()).map(([time, { rx, tx }]) => ({ time, rx, tx }));
   }, [history]);
 
-  const sumRevenue = (range: 'today' | '7d' | 'month' | 'year') => {
+  const sumRevenue = useCallback((range: 'today' | '7d' | 'month' | 'year') => {
     const now = new Date();
     // Prefer salesHistory (transactions) over sessions (active state)
     const data = (salesHistory && salesHistory.length > 0) ? salesHistory : sessions;
@@ -154,26 +231,32 @@ const Analytics: React.FC<AnalyticsProps> = ({ sessions, salesHistory }) => {
         return d.getFullYear() === now.getFullYear();
       })
       .reduce((acc, s: any) => acc + (s.amount || s.totalPaid || 0), 0);
-  };
+  }, [salesHistory, sessions]);
+
+  const revenueToday  = useMemo(() => sumRevenue('today'),  [sumRevenue]);
+  const revenue7d     = useMemo(() => sumRevenue('7d'),     [sumRevenue]);
+  const revenueMonth  = useMemo(() => sumRevenue('month'),  [sumRevenue]);
+  const revenueYear   = useMemo(() => sumRevenue('year'),   [sumRevenue]);
 
   const hotspotConnected = sessions.filter(s => !s.isPaused && s.remainingSeconds > 0).length;
   const hotspotPaused = sessions.filter(s => s.isPaused).length;
   const hotspotDisconnected = 0;
 
-  if (!stats) return (
-    <div className="flex flex-col items-center justify-center min-h-[400px] text-slate-400">
-        <div className="animate-spin text-4xl mb-4">⚙️</div>
-        <p className="text-xs font-black uppercase tracking-widest">Loading System Stats...</p>
-    </div>
-  );
-
+  // Dashboard renders immediately — no full-page spinner
+  // Data populates asynchronously via effects above
   return (
     <div className="space-y-6 animate-in fade-in duration-500 pb-20">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="flex justify-between items-start mb-4">
             <div>
-              <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">System Info</h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">System Info</h3>
+                {!stats && <span className="relative flex h-1.5 w-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-blue-500"></span>
+                </span>}
+              </div>
               <div className="text-sm font-black text-slate-800 mt-0.5">{sysInfo ? `${sysInfo.manufacturer} ${sysInfo.model}` : 'Device'}</div>
               <div className="text-[10px] font-bold text-slate-500 mt-0.5">{sysInfo ? `${sysInfo.distro} / ${sysInfo.arch}` : ''}</div>
             </div>
@@ -190,17 +273,17 @@ const Analytics: React.FC<AnalyticsProps> = ({ sessions, salesHistory }) => {
             </div>
             <div className="flex justify-between text-[10px] font-bold text-slate-500">
               <span>CPU Temp</span>
-              <span>{(stats.cpu?.temp ?? machineMetrics?.cpuTemp ?? 0).toFixed ? (stats.cpu?.temp ?? machineMetrics?.cpuTemp ?? 0).toFixed(1) : 'N/A'}°C</span>
+              <span>{((stats?.cpu?.temp ?? machineMetrics?.cpuTemp) != null) ? (stats?.cpu?.temp ?? machineMetrics?.cpuTemp ?? 0).toFixed(1) + '°C' : 'N/A'}</span>
             </div>
             <div className="flex justify-between text-[10px] font-bold text-slate-500">
               <span>RAM Usage</span>
-              <span>{((stats.memory.used / stats.memory.total) * 100).toFixed(1)}%</span>
+              <span>{stats ? ((stats.memory.used / stats.memory.total) * 100).toFixed(1) + '%' : '...'}</span>
             </div>
             <div className="flex justify-between text-[10px] font-bold text-slate-500">
               <span>Storage</span>
               <span>
-                {machineMetrics?.storageTotal && machineMetrics?.storageUsed !== undefined
-                  ? `Used: ${((machineMetrics.storageUsed / 1024 / 1024 / 1024)).toFixed(1)} / ${(machineMetrics.storageTotal / 1024 / 1024 / 1024).toFixed(1)} GB`
+                {stats?.storage
+                  ? `${((stats.storage.used / stats.storage.total) * 100).toFixed(1)}% (${(stats.storage.used / 1024 / 1024 / 1024).toFixed(1)} / ${(stats.storage.total / 1024 / 1024 / 1024).toFixed(1)} GB)`
                   : 'N/A'}
               </span>
             </div>
@@ -214,52 +297,68 @@ const Analytics: React.FC<AnalyticsProps> = ({ sessions, salesHistory }) => {
             </div>
           </div>
         </div>
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="flex justify-between items-start mb-4">
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+          <div className="flex justify-between items-start mb-3">
             <div>
               <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">CPU Usage</h3>
-              <div className="text-sm font-black text-slate-800 mt-0.5">AVG</div>
+              <div className="text-sm font-black text-slate-800 mt-0.5">
+                {stats?.cpu?.brand ? stats.cpu.brand : sysInfo ? `${sysInfo.manufacturer} ${sysInfo.model}` : 'CPU'}
+              </div>
+              <div className="text-[10px] font-bold text-slate-500 mt-0.5">
+                {stats?.cpu
+                  ? `${stats.cpu.cores} Core${stats.cpu.cores > 1 ? 's' : ''}${stats.cpu.physicalCores && stats.cpu.physicalCores !== stats.cpu.cores ? ` / ${stats.cpu.physicalCores} Physical` : ''} @ ${stats.cpu.speed}GHz`
+                  : ''}
+              </div>
             </div>
             <div className="bg-blue-50 text-blue-600 p-2 rounded-lg">⚡</div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              {[
-                { label: 'AVG', color: '#3b82f6' },
-                { label: 'CPU 1', color: '#06b6d4' },
-                { label: 'CPU 2', color: '#f59e0b' },
-                { label: 'CPU 3', color: '#a78bfa' },
-                { label: 'CPU 4', color: '#10b981' }
-              ].map((item) => (
-                <div key={item.label} className="flex items-center gap-2">
-                  <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: item.color }}></div>
-                  <span className="text-[10px] font-bold text-slate-700">{item.label}</span>
-                </div>
-              ))}
-            </div>
-            <div className="space-y-2">
+          <div className="overflow-y-auto pr-1 max-h-[220px]">
+            <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 items-center">
+              {/* AVG row */}
+              <div className="flex items-center gap-2">
+                <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: '#3b82f6' }}></div>
+                <span className="text-[10px] font-bold text-slate-700">AVG</span>
+              </div>
               <div className="flex items-center gap-3">
                 <div className="flex-1 w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                  <div className="h-full rounded-full transition-all duration-700" style={{ width: `${stats.cpu?.load || 0}%`, backgroundColor: '#3b82f6' }}></div>
+                  <div className="h-full rounded-full transition-all duration-700" style={{ width: `${stats?.cpu?.load || 0}%`, backgroundColor: '#3b82f6' }}></div>
                 </div>
-                <div className="text-[10px] font-bold text-slate-600">{stats.cpu?.load?.toFixed(1) || 0}%</div>
+                <div className="text-[10px] font-bold text-slate-600 w-10 text-right">{stats?.cpu?.load?.toFixed(1) || 0}%</div>
               </div>
-              {[0,1,2,3].map((i) => {
-                const colors = ['#06b6d4', '#f59e0b', '#a78bfa', '#10b981'];
-                const val = coreLoads[i] || 0;
+
+              {/* Per-core rows — dynamic based on actual CPU */}
+              {(stats?.cpu?.cpus?.length ? stats.cpu.cpus : coreLoads).map((load, i) => {
+                const colors = [
+                  '#06b6d4', '#f59e0b', '#a78bfa', '#10b981', '#ef4444', '#8b5cf6',
+                  '#f97316', '#14b8a6', '#e11d48', '#6366f1', '#84cc16', '#d946ef',
+                  '#0ea5e9', '#f43f5e', '#22c55e', '#a855f7', '#eab308', '#3b82f6'
+                ];
+                const color = colors[i % colors.length];
+                const isReal = stats?.cpu?.cpus && i < stats.cpu.cpus.length;
                 return (
-                  <div key={i} className="flex items-center gap-3">
-                    <div className="flex-1 w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                      <div className="h-full rounded-full transition-all duration-700" style={{ width: `${val}%`, backgroundColor: colors[i] }}></div>
+                  <React.Fragment key={i}>
+                    <div className="flex items-center gap-2">
+                      <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: color }}></div>
+                      <span className="text-[10px] font-bold text-slate-700">CPU {i + 1}</span>
                     </div>
-                    <div className="text-[10px] font-bold text-slate-600">{val.toFixed(1)}%</div>
-                  </div>
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all duration-700"
+                          style={{ width: `${load}%`, backgroundColor: color }}
+                        ></div>
+                      </div>
+                      <div className="text-[10px] font-bold text-slate-600 w-10 text-right">
+                        {isReal ? load : (load || 0).toFixed(1)}%
+                      </div>
+                    </div>
+                  </React.Fragment>
                 );
               })}
-              <div className="flex justify-between text-[9px] text-slate-400 font-bold">
-                <span>0%</span><span>20%</span><span>40%</span><span>60%</span><span>80%</span><span>100%</span>
-              </div>
             </div>
+          </div>
+          <div className="flex justify-between text-[9px] text-slate-400 font-bold mt-2 px-1">
+            <span>0%</span><span>20%</span><span>40%</span><span>60%</span><span>80%</span><span>100%</span>
           </div>
         </div>
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -299,10 +398,10 @@ const Analytics: React.FC<AnalyticsProps> = ({ sessions, salesHistory }) => {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <RevenueCard title="Daily Revenue" amount={sumRevenue('today')} subtitle="Today" />
-        <RevenueCard title="Weekly Revenue" amount={sumRevenue('7d')} subtitle="Last 7 Days" />
-        <RevenueCard title="Monthly Revenue" amount={sumRevenue('month')} subtitle="This Month" />
-        <RevenueCard title="Yearly Revenue" amount={sumRevenue('year')} subtitle="This Year" />
+        <RevenueCard title="Daily Revenue" amount={revenueToday} subtitle="Today" />
+        <RevenueCard title="Weekly Revenue" amount={revenue7d} subtitle="Last 7 Days" />
+        <RevenueCard title="Monthly Revenue" amount={revenueMonth} subtitle="This Month" />
+        <RevenueCard title="Yearly Revenue" amount={revenueYear} subtitle="This Year" />
       </div>
 
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
@@ -348,7 +447,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ sessions, salesHistory }) => {
           </div>
           <div className="flex items-center justify-between">
             <div className="text-sm font-black text-slate-800">Main Vendo</div>
-            <div className="text-sm font-black text-slate-800">₱{sumRevenue('month').toFixed(2)}</div>
+            <div className="text-sm font-black text-slate-800">₱{revenueMonth.toFixed(2)}</div>
           </div>
         </div>
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm lg:col-span-2">

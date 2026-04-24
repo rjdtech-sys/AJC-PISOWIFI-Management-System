@@ -327,21 +327,23 @@ const NetworkSettings: React.FC = () => {
             {loading ? 'Syncing...' : 'Sync Kernel'}
           </button>
         </div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-slate-100">
-          {interfaces.map(iface => (
-            <div key={iface.name} className="p-3 flex flex-col gap-1">
-              <div className="flex items-center justify-between">
-                <span className={`text-[7px] font-black uppercase px-1 py-0.5 rounded ${iface.status === 'up' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                  {iface.status}
-                </span>
-                <span className="text-[8px] text-slate-400 font-mono uppercase">{iface.type}</span>
+        <div className="max-h-[200px] overflow-y-auto">
+          <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-slate-100">
+            {interfaces.map(iface => (
+              <div key={iface.name} className="p-3 flex flex-col gap-1">
+                <div className="flex items-center justify-between">
+                  <span className={`text-[7px] font-black uppercase px-1 py-0.5 rounded ${iface.status === 'up' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                    {iface.status}
+                  </span>
+                  <span className="text-[8px] text-slate-400 font-mono uppercase">{iface.type}</span>
+                </div>
+                <div>
+                  <h4 className="font-black text-slate-900 text-xs">{iface.name}</h4>
+                  <p className="text-[9px] text-slate-500 font-mono truncate">{iface.ip || '-'}</p>
+                </div>
               </div>
-              <div>
-                <h4 className="font-black text-slate-900 text-xs">{iface.name}</h4>
-                <p className="text-[9px] text-slate-500 font-mono truncate">{iface.ip || '-'}</p>
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </section>
 
@@ -456,32 +458,34 @@ const NetworkSettings: React.FC = () => {
           </div>
         </div>
 
-        <div className="lg:col-span-2 space-y-3">
+        <div className="lg:col-span-2 space-y-3 flex flex-col">
           <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Portal Segments</h4>
-          {hotspots.length > 0 ? hotspots.map(hs => (
-             <div key={hs.interface} className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between group">
-               <div className="flex items-center gap-3">
-                 <div className="w-10 h-10 bg-slate-900 rounded-lg flex items-center justify-center text-lg">🏛️</div>
-                 <div>
-                   <h5 className="font-black text-slate-900 text-[11px] uppercase">{hs.interface}</h5>
-                   <p className="text-[9px] text-slate-500 font-mono">
-                     GW: {(hs as any).dhcp_gateway || hs.ip_address} • DHCP: {hs.dhcp_range}
-                   </p>
-                   {(hs as any).netmask && (
-                     <p className="text-[8px] text-slate-400 font-mono">
-                       Netmask: {(hs as any).netmask}
+          <div className="max-h-[280px] overflow-y-auto space-y-3 pr-1">
+            {hotspots.length > 0 ? hotspots.map(hs => (
+               <div key={hs.interface} className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between group">
+                 <div className="flex items-center gap-3">
+                   <div className="w-10 h-10 bg-slate-900 rounded-lg flex items-center justify-center text-lg">🏛️</div>
+                   <div>
+                     <h5 className="font-black text-slate-900 text-[11px] uppercase">{hs.interface}</h5>
+                     <p className="text-[9px] text-slate-500 font-mono">
+                       GW: {(hs as any).dhcp_gateway || hs.ip_address} • DHCP: {hs.dhcp_range}
                      </p>
-                   )}
+                     {(hs as any).netmask && (
+                       <p className="text-[8px] text-slate-400 font-mono">
+                         Netmask: {(hs as any).netmask}
+                       </p>
+                     )}
+                   </div>
+                 </div>
+                 <div className="flex items-center gap-2">
+                   <button onClick={() => startEdit(hs)} className="bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg font-black text-[8px] uppercase hover:bg-blue-100 transition-opacity opacity-0 group-hover:opacity-100">Edit</button>
+                   <button onClick={() => deleteHotspot(hs.interface)} className="bg-red-50 text-red-600 px-3 py-1.5 rounded-lg font-black text-[8px] uppercase hover:bg-red-100 transition-opacity opacity-0 group-hover:opacity-100">Terminate</button>
                  </div>
                </div>
-               <div className="flex items-center gap-2">
-                 <button onClick={() => startEdit(hs)} className="bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg font-black text-[8px] uppercase hover:bg-blue-100 transition-opacity opacity-0 group-hover:opacity-100">Edit</button>
-                 <button onClick={() => deleteHotspot(hs.interface)} className="bg-red-50 text-red-600 px-3 py-1.5 rounded-lg font-black text-[8px] uppercase hover:bg-red-100 transition-opacity opacity-0 group-hover:opacity-100">Terminate</button>
-               </div>
-             </div>
-          )) : (
-            <div className="py-10 text-center border-2 border-dashed border-slate-200 rounded-xl text-slate-300 text-[10px] font-black uppercase">No Active Segments</div>
-          )}
+            )) : (
+              <div className="py-10 text-center border-2 border-dashed border-slate-200 rounded-xl text-slate-300 text-[10px] font-black uppercase">No Active Segments</div>
+            )}
+          </div>
           {editHS && (
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
               <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Edit: {editHS.interface}</p>
@@ -640,7 +644,7 @@ const NetworkSettings: React.FC = () => {
               </button>
             )}
             
-            <div className="space-y-1.5">
+            <div className="max-h-[160px] overflow-y-auto space-y-1.5 pr-1">
               {vlans.map(v => (
                 <div key={v.name} className="flex items-center justify-between p-2 bg-slate-50 rounded-lg border border-slate-100 group">
                   <p className="text-[10px] font-black text-slate-900">{v.name} <span className="text-[8px] text-slate-400 font-mono ml-1">ID: {v.id}</span></p>
@@ -661,7 +665,7 @@ const NetworkSettings: React.FC = () => {
                 <span className="text-[8px] font-black text-slate-600 uppercase">STP</span>
               </label>
             </div>
-            <div className="grid grid-cols-4 gap-1.5">
+            <div className="max-h-[120px] overflow-y-auto grid grid-cols-4 gap-1.5 pr-1">
                {interfaces.map(iface => (
                  <button key={iface.name} onClick={() => toggleBridgeMember(iface.name)} className={`py-1 rounded border text-[7px] font-black uppercase transition-all ${bridge.members.includes(iface.name) ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-200 text-slate-400'}`}>
                    {iface.name}
@@ -676,7 +680,7 @@ const NetworkSettings: React.FC = () => {
               Deploy Bridge
             </button>
             
-            <div className="space-y-1.5">
+            <div className="max-h-[160px] overflow-y-auto space-y-1.5 pr-1">
               {bridges.map(b => (
                 <div key={b.name} className="flex items-center justify-between p-2 bg-slate-50 rounded-lg border border-slate-100 group">
                   <p className="text-[10px] font-black text-slate-900">{b.name} <span className="text-[8px] text-slate-400 font-mono ml-1">({(b.members || []).join(',')})</span></p>

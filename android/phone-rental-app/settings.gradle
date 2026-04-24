@@ -1,0 +1,2 @@
+rootProject.name = "AJC Phone Rental"
+include ':app'

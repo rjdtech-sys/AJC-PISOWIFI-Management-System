@@ -246,9 +246,28 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
   }, []);
 
   const sessionToken = typeof window !== 'undefined' ? (getCookie('ajc_session_token') || localStorage.getItem('ajc_session_token')) : null;
-  const mySession = sessionToken 
-    ? sessions.find(s => s.token === sessionToken) 
-    : sessions.find(s => s.mac === myMac);
+
+  // Robust session lookup: try token -> MAC (case-insensitive) -> IP
+  // This ensures remaining time is visible even when opening in Chrome
+  // instead of the captive portal mini-browser (different cookie/localStorage)
+  const mySession = (() => {
+    // 1. Try token-based lookup (most specific)
+    if (sessionToken) {
+      const found = sessions.find(s => s.token === sessionToken);
+      if (found) return found;
+    }
+    // 2. Try MAC-based lookup (case-insensitive, skip fallback DEV- IDs)
+    if (myMac && !myMac.startsWith('DEV-')) {
+      const found = sessions.find(s => s.mac.toUpperCase() === myMac.toUpperCase());
+      if (found) return found;
+    }
+    // 3. Try IP-based lookup as last resort (works across different browsers)
+    if (clientIp) {
+      const found = sessions.find(s => s.ip === clientIp && s.remainingSeconds > 0);
+      if (found) return found;
+    }
+    return undefined;
+  })();
 
   useEffect(() => {
     // If the user has manually selected a slot, do not override
@@ -302,6 +321,56 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
       }
     }
   }, [clientVlanId, availableSlots, selectedSlot, userHasSelectedSlot]);
+
+  // Clean up stale session tokens that don't match any active session
+  // This prevents a stale token from blocking MAC/IP fallback lookups
+  useEffect(() => {
+    if (sessions.length > 0 && sessionToken && !sessions.find(s => s.token === sessionToken)) {
+      localStorage.removeItem('ajc_session_token');
+      document.cookie = 'ajc_session_token=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;SameSite=Lax';
+    }
+  }, [sessionToken, sessions]);
+
+  // Server-side session fetch as final fallback
+  // When opened in Chrome (not captive portal), client-side lookup may fail
+  // because localStorage/cookies are not shared between browser contexts.
+  // The server can find the session by IP directly.
+  const [serverSession, setServerSession] = useState<UserSession | null>(null);
+
+  useEffect(() => {
+    if (mySession) {
+      setServerSession(null); // Client-side lookup worked, no need for server fallback
+      return;
+    }
+    if (typeof window === 'undefined') return;
+    if (window.location.hostname.includes('localhost')) return;
+
+    let cancelled = false;
+    const fetchMySession = async () => {
+      try {
+        const session = await apiClient.getMySession();
+        if (!cancelled && session && session.remainingSeconds > 0) {
+          setServerSession(session);
+          // Save token so future lookups work client-side
+          if (session.token) {
+            localStorage.setItem('ajc_session_token', session.token);
+            setCookie('ajc_session_token', session.token, 30);
+          }
+        }
+      } catch (e) {
+        // Silently fail - client-side lookup will keep trying
+      }
+    };
+    // Small delay to allow client-side lookup to resolve first
+    const timer = setTimeout(fetchMySession, 2000);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [mySession, myMac, clientIp]);
+
+  // Use server session as final fallback
+  const activeMySession = mySession || serverSession;
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -392,9 +461,9 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
   };
 
   const handlePause = async () => {
-    if (!mySession || !mySession.token) return;
+    if (!activeMySession || !activeMySession.token) return;
     try {
-      const result = await apiClient.pauseSession(mySession.token);
+      const result = await apiClient.pauseSession(activeMySession.token);
       if (result.success) {
         if (refreshSessions) refreshSessions();
       } else {
@@ -406,9 +475,9 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
   };
 
   const handleResume = async () => {
-    if (!mySession || !mySession.token) return;
+    if (!activeMySession || !activeMySession.token) return;
     try {
-      const result = await apiClient.resumeSession(mySession.token);
+      const result = await apiClient.resumeSession(activeMySession.token);
       if (result.success) {
         if (refreshSessions) refreshSessions();
         
@@ -507,10 +576,10 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
 
   // Play success audio when session becomes active
   useEffect(() => {
-    if (mySession && mySession.remainingSeconds > 0 && config.connectedAudio) {
+    if (activeMySession && activeMySession.remainingSeconds > 0 && config.connectedAudio) {
       // Only play if we haven't just refreshed the page (optional logic, but for now simple is better)
       // Check if we just started this session recently (e.g. within last 10 seconds)
-      const isNewSession = (Date.now() - mySession.connectedAt) < 10000;
+      const isNewSession = (Date.now() - activeMySession.connectedAt) < 10000;
       
       if (isNewSession) {
         try {
@@ -522,7 +591,7 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
         }
       }
     }
-  }, [mySession, config.connectedAudio]);
+  }, [activeMySession, config.connectedAudio]);
 
   const handleRefreshNetwork = async () => {
     setIsRefreshing(true);
@@ -645,14 +714,14 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
 
       <main className="relative z-20">
         <div className="portal-card">
-          {mySession ? (
+          {activeMySession ? (
               <div className="mb-6 animate-in fade-in zoom-in duration-500">
               <p className="text-blue-600 text-[10px] font-black uppercase tracking-[0.2em] mb-2">Authenticated Session</p>
-              <h2 className={`text-6xl font-black mb-4 tracking-tighter ${mySession.isPaused ? 'text-orange-500 animate-pulse' : 'text-slate-900'}`}>
-                {formatSessionTime(mySession.remainingSeconds)}
+              <h2 className={`text-6xl font-black mb-4 tracking-tighter ${activeMySession.isPaused ? 'text-orange-500 animate-pulse' : 'text-slate-900'}`}>
+                {formatSessionTime(activeMySession.remainingSeconds)}
               </h2>
               <div className="flex flex-col gap-1 text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-6">
-                {mySession.isPaused ? (
+                {activeMySession.isPaused ? (
                   <span className="text-orange-500 font-black flex items-center justify-center gap-2">
                     <span className="w-1.5 h-1.5 bg-orange-500 rounded-full"></span>
                     Time Paused - Internet Suspended
@@ -674,7 +743,7 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
                 </div>
               </div>
               
-              {!mySession.isPaused ? (
+              {!activeMySession.isPaused ? (
                 <>
                   <button 
                     onClick={handleGoToInternet}
@@ -683,7 +752,7 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
                     <span>🌍</span> PROCEED TO INTERNET
                   </button>
                   
-                  {mySession.isPausable !== 0 && (
+                  {activeMySession.isPausable !== 0 && (
                     <button 
                       onClick={handlePause}
                       className="w-full bg-orange-500 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest mb-3 shadow-xl hover:bg-orange-600 transition-all active:scale-95 flex items-center justify-center gap-2"
@@ -797,7 +866,7 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
           )}
 
           <button onClick={handleOpenModal} className="portal-btn">
-            {mySession ? 'ADD MORE TIME' : 'INSERT COIN'}
+            {activeMySession ? 'ADD MORE TIME' : 'INSERT COIN'}
           </button>
           {creditPesos > 0 && (
             <button
@@ -814,7 +883,7 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
             View Rates
           </button>
           
-          {!mySession && onRestoreSession && (
+          {!activeMySession && onRestoreSession && (
             <button 
               onClick={onRestoreSession}
               className="mt-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest hover:text-blue-600 transition-colors"
@@ -827,7 +896,7 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
         <VoucherActivation onVoucherActivate={handleVoucherActivate} loading={isVoucherLoading} />
 
         {/* Free Internet Section */}
-        {freeInternetConfig.enabled && freeInternetConfig.minutes > 0 && !mySession && (
+        {freeInternetConfig.enabled && freeInternetConfig.minutes > 0 && !activeMySession && (
           <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-2xl shadow-xl border border-green-200 p-6 mb-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
             <h3 className="text-lg font-bold text-green-800 mb-3 flex items-center gap-2">
               <span className="text-2xl">🎁</span> Free Internet Available!

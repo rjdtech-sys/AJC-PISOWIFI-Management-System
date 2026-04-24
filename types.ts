@@ -64,6 +64,13 @@ export interface Rate {
   expiration_unit?: 'minutes' | 'hours' | 'days';
 }
 
+export interface PhoneRentalRate {
+  id: string;
+  pesos: number;
+  minutes: number;
+  label?: string; // e.g., "1 Hour", "2 Hours"
+}
+
 export interface QoSConfig {
   discipline: 'cake' | 'fq_codel';
 }
@@ -286,7 +293,10 @@ export enum AdminTab {
   Remote = 'remote',
   Rewards = 'rewards',
   CompanySettings = 'company_settings',
-  Tools = 'tools'
+  Tools = 'tools',
+  Employees = 'employees',
+  EquipmentInventory = 'equipment_inventory',
+  PhoneRental = 'phone_rental'
 }
 
 export type MikrotikRouterStatus = 'connected' | 'disconnected' | 'error';
@@ -373,8 +383,10 @@ export interface SystemStats {
     brand: string;
     speed: number;
     cores: number;
+    physicalCores?: number;
     load: number;
     temp: number;
+    cpus?: number[]; // per-core/thread load percentages
   };
   memory: {
     total: number;
@@ -382,6 +394,11 @@ export interface SystemStats {
     used: number;
     active: number;
     available: number;
+  };
+  storage: {
+    total: number;
+    used: number;
+    percentage: number;
   };
   network: {
     iface: string;
@@ -501,38 +518,146 @@ export interface VoucherActivationResponse {
 }
 
 // ============================================
-// VOUCHER SYSTEM TYPES
+// EMPLOYEE MANAGEMENT TYPES
 // ============================================
 
-export interface Voucher {
+export interface Employee {
   id: number;
-  code: string;
-  amount: number;
-  time_minutes: number;
-  created_at: string;
-  used_at: string | null;
-  used_by_mac: string | null;
-  used_by_ip: string | null;
-  is_used: 0 | 1;
-  created_by: string;
+  employee_code: string;
+  full_name: string;
+  position: string;
+  contact_number?: string | null;
+  email?: string | null;
+  address?: string | null;
+  daily_rate: number;
+  status: 'active' | 'inactive';
+  created_at?: string;
+  updated_at?: string;
 }
 
-export interface VoucherGenerationRequest {
-  amount: number;
-  time_minutes: number;
-  count: number;
+export interface DTRRecord {
+  id: number;
+  employee_id: number;
+  employee_name?: string;
+  employee_code?: string;
+  record_date: string;
+  time_in: string | null;
+  time_out: string | null;
+  total_hours: number;
+  status: 'present' | 'absent' | 'late' | 'half_day' | 'leave';
+  notes?: string | null;
+  created_at?: string;
 }
 
-export interface VoucherActivationRequest {
-  code: string;
+export interface PayrollRecord {
+  id: number;
+  employee_id: number;
+  employee_name?: string;
+  employee_code?: string;
+  period_start: string;
+  period_end: string;
+  total_days: number;
+  total_hours: number;
+  daily_rate: number;
+  gross_pay: number;
+  deductions: number;
+  net_pay: number;
+  status: 'draft' | 'approved' | 'paid';
+  notes?: string | null;
+  created_at?: string;
 }
 
-export interface VoucherActivationResponse {
-  success: boolean;
-  mac: string;
-  token: string;
-  time_minutes: number;
+// ============================================
+// EQUIPMENT INVENTORY TYPES
+// ============================================
+
+export interface Equipment {
+  id: number;
+  name: string;
+  type: 'router' | 'access_point' | 'switch' | 'cable' | 'antenna' | 'other';
+  serial_number?: string | null;
+  mac_address?: string | null;
+  price: number;
+  stock: number;
+  description?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface EquipmentWithdrawal {
+  id: number;
+  client_name: string;
+  withdrawal_date: string;
+  notes?: string | null;
+  created_at?: string;
+  items?: EquipmentWithdrawalItem[];
+}
+
+export interface EquipmentWithdrawalItem {
+  id: number;
+  withdrawal_id: number;
+  equipment_id: number;
+  equipment_name?: string;
+  equipment_type?: string;
+  quantity: number;
+}
+
+// ============================================
+// PHONE RENTAL SYSTEM TYPES
+// ============================================
+
+export interface RentalDevice {
+  id: number;
+  device_name: string;
+  mac_address: string;
+  ip_address?: string | null;
+  android_id?: string | null;
+  model?: string | null;
+  status: 'available' | 'rented' | 'maintenance' | 'offline';
+  rental_rate_per_hour: number;
+  max_rental_hours: number;
+  total_revenue: number;
+  total_rentals: number;
+  last_rented_at?: string | null;
+  last_returned_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface RentalSession {
+  id: number;
+  device_id: number;
+  device_name?: string;
+  customer_name?: string | null;
+  customer_contact?: string | null;
+  start_time: string;
+  end_time?: string | null;
+  duration_minutes: number;
+  amount_paid: number;
+  status: 'active' | 'completed' | 'overdue' | 'cancelled' | 'paused';
+  notes?: string | null;
+  kiosk_logout_at?: string | null;
+  paused_remaining_seconds?: number | null;
+  kiosk_logout_reason?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface RentalPayment {
+  id: number;
+  session_id: number;
   amount: number;
-  message: string;
-  error?: string;
+  payment_method: 'cash' | 'coins' | 'ewallet' | 'other';
+  paid_at: string;
+  notes?: string | null;
+}
+
+export interface RentalReport {
+  total_revenue: number;
+  total_sessions: number;
+  active_rentals: number;
+  avg_duration_minutes: number;
+  devices_online: number;
+  devices_rented: number;
+  devices_available: number;
 }
