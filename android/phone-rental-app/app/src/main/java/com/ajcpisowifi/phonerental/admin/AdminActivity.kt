@@ -23,6 +23,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.asRequestBody
 
 /**
  * Admin Activity - accessible via long-press on the main screen
@@ -60,6 +62,8 @@ class AdminActivity : AppCompatActivity() {
     private lateinit var checkUpdateBtn: Button
     private lateinit var appVersionLabel: TextView
     private lateinit var updateStatusLabel: TextView
+    private lateinit var setWallpaperBtn: Button
+    private lateinit var refreshWallpaperBtn: Button
 
     private var currentTab = "common"
     private var isAuthenticated = false
@@ -129,6 +133,8 @@ class AdminActivity : AppCompatActivity() {
         checkUpdateBtn = findViewById(R.id.checkUpdateBtn)
         appVersionLabel = findViewById(R.id.appVersionLabel)
         updateStatusLabel = findViewById(R.id.updateStatusLabel)
+        setWallpaperBtn = findViewById(R.id.setWallpaperBtn)
+        refreshWallpaperBtn = findViewById(R.id.refreshWallpaperBtn)
 
         // Setup
         serverUrlInput.setText(apiClient.serverUrl)
@@ -248,6 +254,17 @@ class AdminActivity : AppCompatActivity() {
             startActivity(Intent(this, SetupActivity::class.java))
         }
 
+        // Set Wallpaper button - opens image picker and uploads to server
+        setWallpaperBtn.setOnClickListener {
+            openImagePickerForWallpaper()
+        }
+
+        // Refresh Wallpaper button - returns to MainActivity to trigger wallpaper reload
+        refreshWallpaperBtn.setOnClickListener {
+            Toast.makeText(this, "Refreshing wallpaper...", Toast.LENGTH_SHORT).show()
+            finish()
+        }
+
         // Check for app updates (optional/interactive)
         checkUpdateBtn.setOnClickListener {
             checkUpdateBtn.isEnabled = false
@@ -325,6 +342,171 @@ class AdminActivity : AppCompatActivity() {
     }
 
     /**
+     * Open image picker to select wallpaper from gallery
+     */
+    private fun openImagePickerForWallpaper() {
+        val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+            type = "image/*"
+            addCategory(Intent.CATEGORY_OPENABLE)
+        }
+        startActivityForResult(Intent.createChooser(intent, "Select Wallpaper"), PICK_WALLPAPER_REQUEST)
+    }
+
+    /**
+     * Handle wallpaper image selection and upload to server
+     */
+    private fun uploadWallpaperToServer(imageUri: android.net.Uri) {
+        scope.launch {
+            try {
+                withContext(Dispatchers.Main) {
+                    setWallpaperBtn.isEnabled = false
+                    setWallpaperBtn.text = "⏳ Uploading..."
+                }
+
+                val deviceId = apiClient.deviceId
+                Log.d("AdminActivity", "Upload wallpaper - deviceId: $deviceId")
+                
+                if (deviceId <= 0) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(this@AdminActivity, "Device not registered yet", Toast.LENGTH_LONG).show()
+                        setWallpaperBtn.isEnabled = true
+                        setWallpaperBtn.text = "🖼️ Set Wallpaper"
+                    }
+                    return@launch
+                }
+
+                // Read file from URI
+                Log.d("AdminActivity", "Opening input stream for URI: $imageUri")
+                val inputStream = contentResolver.openInputStream(imageUri)
+                if (inputStream == null) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(this@AdminActivity, "Cannot read selected image", Toast.LENGTH_LONG).show()
+                        setWallpaperBtn.isEnabled = true
+                        setWallpaperBtn.text = "🖼️ Set Wallpaper"
+                    }
+                    return@launch
+                }
+                
+                // Get actual MIME type and original filename
+                var mimeType = contentResolver.getType(imageUri) ?: "image/jpeg"
+                var originalName = "wallpaper.jpg"
+                
+                // Try to get original filename from URI
+                contentResolver.query(imageUri, null, null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                        if (nameIndex >= 0) {
+                            originalName = cursor.getString(nameIndex) ?: originalName
+                        }
+                    }
+                }
+                
+                Log.d("AdminActivity", "Original file: $originalName, MIME type: $mimeType")
+                
+                // Validate MIME type against server allowed types
+                val allowedTypes = setOf("image/jpeg", "image/png", "image/webp", "image/gif", "image/bmp", "image/tiff")
+                if (!allowedTypes.contains(mimeType)) {
+                    // Try to infer from extension
+                    val ext = originalName.substringAfterLast('.', "").lowercase()
+                    mimeType = when (ext) {
+                        "jpg", "jpeg" -> "image/jpeg"
+                        "png" -> "image/png"
+                        "webp" -> "image/webp"
+                        "gif" -> "image/gif"
+                        "bmp" -> "image/bmp"
+                        "tiff", "tif" -> "image/tiff"
+                        else -> mimeType
+                    }
+                    Log.d("AdminActivity", "Inferred MIME type from extension: $mimeType")
+                }
+                
+                val tempFile = java.io.File(cacheDir, originalName)
+                inputStream.use { input ->
+                    java.io.FileOutputStream(tempFile).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                Log.d("AdminActivity", "Temp file created: ${tempFile.absolutePath}, size: ${tempFile.length()} bytes, MIME: $mimeType")
+
+                // Upload using OkHttp
+                val serverUrl = apiClient.serverUrl
+                val uploadUrl = "$serverUrl/api/phone-rental/devices/$deviceId/wallpaper"
+                Log.d("AdminActivity", "Uploading to: $uploadUrl")
+                
+                val mediaType = mimeType.toMediaTypeOrNull()
+                val requestBody = okhttp3.MultipartBody.Builder()
+                    .setType(okhttp3.MultipartBody.FORM)
+                    .addFormDataPart(
+                        "wallpaper",
+                        originalName,
+                        tempFile.asRequestBody(mediaType)
+                    )
+                    .build()
+
+                val request = okhttp3.Request.Builder()
+                    .url(uploadUrl)
+                    .post(requestBody)
+                    .build()
+
+                val client = okhttp3.OkHttpClient.Builder()
+                    .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                    .writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                    .build()
+
+                val response = withContext(Dispatchers.IO) {
+                    client.newCall(request).execute()
+                }
+                val body = response.body?.string()
+                Log.d("AdminActivity", "Response code: ${response.code}, body: $body")
+
+                withContext(Dispatchers.Main) {
+                    setWallpaperBtn.isEnabled = true
+                    setWallpaperBtn.text = "🖼️ Set Wallpaper"
+
+                    if (response.isSuccessful && body != null) {
+                        val json = org.json.JSONObject(body)
+                        if (json.optBoolean("success", false)) {
+                            Toast.makeText(this@AdminActivity, "✅ Wallpaper uploaded! Returning to apply...", Toast.LENGTH_SHORT).show()
+                            // Return to MainActivity which will refresh wallpaper in onResume
+                            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                finish()
+                            }, 1500)
+                        } else {
+                            Toast.makeText(this@AdminActivity, "Upload failed: ${json.optString("error", "Unknown error")}", Toast.LENGTH_LONG).show()
+                        }
+                    } else {
+                        Toast.makeText(this@AdminActivity, "Upload failed: HTTP ${response.code}", Toast.LENGTH_LONG).show()
+                    }
+                }
+
+                // Clean up temp file
+                tempFile.delete()
+            } catch (e: Exception) {
+                val errorMsg = e.message ?: e.javaClass.simpleName
+                Log.e("AdminActivity", "Wallpaper upload error: $errorMsg", e)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@AdminActivity, "Error: $errorMsg", Toast.LENGTH_LONG).show()
+                    setWallpaperBtn.isEnabled = true
+                    setWallpaperBtn.text = "🖼️ Set Wallpaper"
+                }
+            }
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == PICK_WALLPAPER_REQUEST && resultCode == RESULT_OK && data != null) {
+            val imageUri = data.data
+            if (imageUri != null) {
+                uploadWallpaperToServer(imageUri)
+            } else {
+                Toast.makeText(this, "No image selected", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    /**
      * RecyclerView Adapter for app list
      */
     inner class AppListAdapter(
@@ -358,5 +540,9 @@ class AdminActivity : AppCompatActivity() {
         }
 
         override fun getItemCount() = apps.size
+    }
+
+    companion object {
+        private const val PICK_WALLPAPER_REQUEST = 1001
     }
 }

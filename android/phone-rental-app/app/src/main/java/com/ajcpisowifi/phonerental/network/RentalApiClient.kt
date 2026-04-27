@@ -317,6 +317,72 @@ class RentalApiClient(private val context: Context) {
     }
 
     /**
+     * Extend an active rental session (kiosk mode)
+     */
+    suspend fun extendRentalSession(
+        sessionId: Int,
+        additionalMinutes: Int,
+        amountPaid: Int,
+        paymentMethod: String = "coinslot"
+    ): Result<RentalSessionInfo> = withContext(Dispatchers.IO) {
+        try {
+            val requestBody = gson.toJson(mapOf(
+                "additional_minutes" to additionalMinutes,
+                "amount_paid" to amountPaid,
+                "payment_method" to paymentMethod
+            ))
+
+            android.util.Log.d("RentalApi", "extendRentalSession: sessionId=$sessionId, additionalMinutes=$additionalMinutes, amountPaid=$amountPaid")
+            android.util.Log.d("RentalApi", "extendRentalSession: requestBody=$requestBody")
+
+            val request = Request.Builder()
+                .url("$serverUrl/api/phone-rental/sessions/$sessionId/extend-kiosk")
+                .post(requestBody.toRequestBody("application/json".toMediaType()))
+                .build()
+
+            val response = client.newCall(request).execute()
+            val body = response.body?.string()
+                ?: return@withContext Result.failure(Exception("Empty response"))
+
+            android.util.Log.d("RentalApi", "extendRentalSession: response code=${response.code}, body=$body")
+
+            if (!response.isSuccessful) {
+                return@withContext Result.failure(Exception("Server error: ${response.code}, body=$body"))
+            }
+
+            val json = gson.fromJson(body, Map::class.java) as Map<*, *>
+            val sessionMap = json["session"] as? Map<*, *> ?: return@withContext Result.failure(Exception("No session data in response. Keys: ${json.keys}"))
+            
+            android.util.Log.d("RentalApi", "extendRentalSession: sessionMap=$sessionMap")
+            
+            val session = RentalSessionInfo(
+                id = (sessionMap["id"] as? Number)?.toInt() ?: 0,
+                device_id = (sessionMap["device_id"] as? Number)?.toInt() ?: 0,
+                device_name = sessionMap["device_name"] as? String,
+                customer_name = sessionMap["customer_name"] as? String,
+                customer_contact = sessionMap["customer_contact"] as? String,
+                start_time = sessionMap["start_time"] as? String ?: "",
+                end_time = sessionMap["end_time"] as? String,
+                duration_minutes = (sessionMap["duration_minutes"] as? Number)?.toInt() ?: 0,
+                amount_paid = (sessionMap["amount_paid"] as? Number)?.toDouble() ?: 0.0,
+                status = sessionMap["status"] as? String ?: "active",
+                notes = sessionMap["notes"] as? String,
+                kiosk_logout_at = sessionMap["kiosk_logout_at"] as? String,
+                paused_remaining_seconds = (sessionMap["paused_remaining_seconds"] as? Number)?.toInt(),
+                kiosk_logout_reason = sessionMap["kiosk_logout_reason"] as? String,
+                created_at = sessionMap["created_at"] as? String,
+                updated_at = sessionMap["updated_at"] as? String
+            )
+            
+            android.util.Log.d("RentalApi", "extendRentalSession: parsed session end_time=${session.end_time}, duration=${session.duration_minutes}")
+            Result.success(session)
+        } catch (e: Exception) {
+            android.util.Log.e("RentalApi", "extendRentalSession exception: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
      * Get available NodeMCU coinslot devices (public endpoint)
      */
     suspend fun getAvailableCoinslots(): Result<List<CoinslotDevice>> = withContext(Dispatchers.IO) {

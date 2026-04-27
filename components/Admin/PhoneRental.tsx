@@ -6,7 +6,7 @@ import ApkInstallerSubPage from './ApkInstaller';
 // ============================================
 // SUB-PAGE SELECTOR
 // ============================================
-type SubPage = 'devices' | 'sessions' | 'report' | 'apps' | 'appupdate' | 'rates' | 'apkinstaller';
+type SubPage = 'devices' | 'sessions' | 'report' | 'apps' | 'appupdate' | 'rates' | 'apkinstaller' | 'wallpaper';
 
 // ============================================
 // PHONE RENTAL MANAGEMENT PAGE
@@ -52,7 +52,8 @@ const PhoneRental: React.FC = () => {
     { key: 'report', label: 'Report', icon: '📊' },
     { key: 'appupdate', label: 'App Update', icon: '⬆️' },
     { key: 'rates', label: 'CoinSlot Rates', icon: '💰' },
-    { key: 'apkinstaller', label: 'APK Installer', icon: '📱' }
+    { key: 'apkinstaller', label: 'APK Installer', icon: '📱' },
+    { key: 'wallpaper', label: 'Wallpaper', icon: '🖼️' }
   ];
 
   return (
@@ -126,6 +127,9 @@ const PhoneRental: React.FC = () => {
           )}
           {activeSubPage === 'apkinstaller' && (
             <ApkInstallerSubPage onRefresh={loadData} />
+          )}
+          {activeSubPage === 'wallpaper' && (
+            <WallpaperSubPage devices={devices} />
           )}
         </>
       )}
@@ -2303,6 +2307,239 @@ const DeviceOwnerSubPage: React.FC = () => {
           <li>• Device will be in full kiosk mode after setup</li>
           <li>• To remove: Use "Remove Device Owner" button or factory reset device</li>
           <li>• App will auto-start on boot and cannot be force-closed</li>
+        </ul>
+      </div>
+    </div>
+  );
+};
+
+// ============================================
+// WALLPAPER SUB-PAGE
+// ============================================
+const WallpaperSubPage: React.FC<{ devices: RentalDevice[] }> = ({ devices }) => {
+  const [selectedDevice, setSelectedDevice] = useState<string>('');
+  const [uploading, setUploading] = useState(false);
+  const [currentWallpaper, setCurrentWallpaper] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [messageType, setMessageType] = useState<'success' | 'error'>('success');
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!selectedDevice) {
+      setMessageType('error');
+      setMessage('Please select a device first');
+      return;
+    }
+
+    // Validate file size (GIF: 30MB, others: 10MB)
+    const isGif = file.type === 'image/gif';
+    const maxSize = isGif ? 30 * 1024 * 1024 : 10 * 1024 * 1024;
+    const sizeLimit = isGif ? '30MB' : '10MB';
+    
+    if (file.size > maxSize) {
+      setMessageType('error');
+      setMessage(`File too large. Maximum size for ${isGif ? 'GIF' : 'this format'}: ${sizeLimit}`);
+      return;
+    }
+
+    // Validate file type
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/bmp', 'image/tiff'];
+    if (!allowedTypes.includes(file.type)) {
+      setMessageType('error');
+      setMessage('Invalid file type. Supported: JPG, PNG, WEBP, GIF, BMP, TIFF');
+      return;
+    }
+
+    setUploading(true);
+    setMessage(null);
+
+    try {
+      const formData = new FormData();
+      formData.append('wallpaper', file);
+
+      const response = await fetch(`/api/phone-rental/devices/${selectedDevice}/wallpaper`, {
+        method: 'POST',
+        body: formData
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Upload failed');
+      }
+
+      setMessageType('success');
+      setMessage('Wallpaper uploaded successfully!');
+      setCurrentWallpaper(result.wallpaper_url);
+
+      // Clear file input
+      if (e.target) {
+        e.target.value = '';
+      }
+    } catch (err) {
+      setMessageType('error');
+      setMessage(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleDeleteWallpaper = async () => {
+    if (!selectedDevice) return;
+
+    setUploading(true);
+    setMessage(null);
+
+    try {
+      const response = await fetch(`/api/phone-rental/devices/${selectedDevice}/wallpaper`, {
+        method: 'DELETE'
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Delete failed');
+      }
+
+      setMessageType('success');
+      setMessage('Wallpaper deleted successfully!');
+      setCurrentWallpaper(null);
+    } catch (err) {
+      setMessageType('error');
+      setMessage(err instanceof Error ? err.message : 'Delete failed');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // Load current wallpaper when device is selected
+  useEffect(() => {
+    if (!selectedDevice) {
+      setCurrentWallpaper(null);
+      return;
+    }
+
+    const device = devices.find(d => d.id === Number(selectedDevice));
+    if (device && device.wallpaper_path) {
+      setCurrentWallpaper(device.wallpaper_path);
+    } else {
+      setCurrentWallpaper(null);
+    }
+  }, [selectedDevice, devices]);
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-100 rounded-xl p-4">
+        <h3 className="text-sm font-black text-purple-800 mb-1">🖼️ Device Wallpaper Manager</h3>
+        <p className="text-[10px] text-purple-600">Upload custom full-screen wallpapers for each rental device</p>
+      </div>
+
+      {/* Device Selection */}
+      <div className="bg-white border border-slate-200 rounded-xl p-4">
+        <label className="text-[10px] font-black uppercase tracking-widest text-slate-700 mb-2 block">
+          Select Device
+        </label>
+        <select
+          value={selectedDevice}
+          onChange={(e) => setSelectedDevice(e.target.value)}
+          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-purple-500"
+        >
+          <option value="">-- Choose a device --</option>
+          {devices.map(device => (
+            <option key={device.id} value={device.id}>
+              {device.device_name} (ID: {device.id} | MAC: {device.mac_address})
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Upload Section */}
+      {selectedDevice && (
+        <div className="bg-white border border-slate-200 rounded-xl p-4">
+          <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-700 mb-3">
+            Upload Wallpaper
+          </h4>
+
+          {/* Current Wallpaper Preview */}
+          {currentWallpaper && (
+            <div className="mb-4">
+              <label className="text-[10px] font-bold text-slate-600 mb-2 block">Current Wallpaper:</label>
+              <div className="relative rounded-lg overflow-hidden border-2 border-slate-200" style={{ maxHeight: '300px' }}>
+                <img
+                  src={currentWallpaper.startsWith('/') ? currentWallpaper : `/uploads/wallpapers/${currentWallpaper}`}
+                  alt="Current wallpaper"
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = 'none';
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Upload Input */}
+          <div className="space-y-3">
+            <label className="text-[10px] font-bold text-slate-600 block">Upload New Wallpaper:</label>
+            <div className="flex items-center gap-3">
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleFileUpload}
+                disabled={uploading}
+                className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-xs file:mr-3 file:py-1.5 file:px-4 file:rounded-lg file:border-0 file:text-[10px] file:font-black file:uppercase file:tracking-widest file:bg-purple-500 file:text-white hover:file:bg-purple-600 disabled:opacity-50"
+              />
+              {currentWallpaper && (
+                <button
+                  onClick={handleDeleteWallpaper}
+                  disabled={uploading}
+                  className="px-4 py-2 bg-red-500 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-red-600 disabled:opacity-50"
+                >
+                  🗑️ Delete
+                </button>
+              )}
+            </div>
+
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <p className="text-[10px] text-blue-800">
+                <strong>Supported formats:</strong> JPG, PNG, WEBP, GIF, BMP, TIFF
+              </p>
+              <p className="text-[10px] text-blue-800 mt-1">
+                <strong>Max file size:</strong> 30MB for GIF, 10MB for other formats
+              </p>
+              <p className="text-[10px] text-blue-800 mt-1">
+                <strong>Recommended size:</strong> 1080x1920 (portrait) or match device screen size
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Message */}
+      {message && (
+        <div className={`border rounded-lg p-3 ${
+          messageType === 'success' 
+            ? 'bg-green-50 border-green-200 text-green-700' 
+            : 'bg-red-50 border-red-200 text-red-700'
+        }`}>
+          <p className="text-[10px] font-bold">
+            {messageType === 'success' ? '✅' : '❌'} {message}
+          </p>
+        </div>
+      )}
+
+      {/* Info */}
+      <div className="bg-purple-50 border border-purple-200 rounded-xl p-4">
+        <h4 className="text-[10px] font-black uppercase tracking-widest text-purple-600 mb-2">ℹ️ How It Works</h4>
+        <ul className="text-[10px] text-purple-800 space-y-1">
+          <li>• Select a device from the dropdown</li>
+          <li>• Upload an image (JPG, PNG, WEBP, etc.)</li>
+          <li>• Wallpaper will be displayed as full-screen background on the device</li>
+          <li>• UI elements (timer, buttons) will appear on top of the wallpaper</li>
+          <li>• Each device can have its own custom wallpaper</li>
+          <li>• Wallpaper downloads automatically when the rental app starts</li>
         </ul>
       </div>
     </div>

@@ -5,6 +5,7 @@ const { Server } = require('socket.io');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const fileUpload = require('express-fileupload');
 const si = require('systeminformation');
 const db = require('./lib/db');
 const { initGPIO, updateGPIO, registerSlotCallback, unregisterSlotCallback, setRelayState } = require('./lib/gpio');
@@ -420,6 +421,13 @@ async function pushNodeMCUPinsToDevice(device, { coinPinGpio, relayPinGpio }) {
 }
 
 app.use(express.json());
+
+// File upload middleware
+app.use(fileUpload({
+  limits: { fileSize: 30 * 1024 * 1024 }, // 30MB max (for GIF files)
+  abortOnLimit: true,
+  createParentPath: true
+}));
 
 // Prevent caching of API responses
 app.use((req, res, next) => {
@@ -9785,6 +9793,215 @@ app.post('/api/phone-rental/sessions/start-kiosk', async (req, res) => {
     console.error('[PhoneRental Kiosk] Start session error:', err);
     res.status(500).json({ error: err.message });
   }
+});
+
+// Extend active session from kiosk (public - no admin required)
+app.post('/api/phone-rental/sessions/:id/extend-kiosk', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { additional_minutes, amount_paid, payment_method } = req.body;
+    
+    console.log(`[PhoneRental Kiosk] Extend request: session=${id}, additional_minutes=${additional_minutes}, amount_paid=${amount_paid}`);
+    
+    if (!additional_minutes || additional_minutes <= 0) {
+      console.log(`[PhoneRental Kiosk] Rejected: additional_minutes=${additional_minutes} is not positive`);
+      return res.status(400).json({ error: 'additional_minutes is required and must be positive' });
+    }
+
+    const session = await db.get('SELECT * FROM rental_sessions WHERE id = ?', [id]);
+    if (!session) {
+      console.log(`[PhoneRental Kiosk] Rejected: session ${id} not found`);
+      return res.status(404).json({ error: 'Session not found' });
+    }
+    if (session.status !== 'active') {
+      console.log(`[PhoneRental Kiosk] Rejected: session ${id} status=${session.status} is not active`);
+      return res.status(400).json({ error: 'Session is not active' });
+    }
+
+    const currentEnd = new Date(session.end_time);
+    const newEnd = new Date(currentEnd.getTime() + additional_minutes * 60000);
+    const newDuration = session.duration_minutes + additional_minutes;
+    const newAmount = parseFloat(session.amount_paid || 0) + (amount_paid || 0);
+
+    console.log(`[PhoneRental Kiosk] Extending session ${id}: end_time ${session.end_time} -> ${newEnd.toISOString()}, duration ${session.duration_minutes} -> ${newDuration}, amount ${session.amount_paid} -> ${newAmount}`);
+
+    await db.run(
+      `UPDATE rental_sessions SET end_time = ?, duration_minutes = ?, amount_paid = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      [newEnd.toISOString(), newDuration, newAmount, id]
+    );
+
+    // Update device total revenue
+    if (amount_paid > 0) {
+      await db.run(
+        'UPDATE rental_devices SET total_revenue = total_revenue + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [amount_paid, session.device_id]
+      );
+      await db.run(
+        'INSERT INTO rental_payments (session_id, amount, payment_method, notes) VALUES (?, ?, ?, ?)',
+        [id, amount_paid, payment_method || 'coinslot', 'Kiosk extension']
+      );
+    }
+
+    const updatedSession = await db.get('SELECT * FROM rental_sessions WHERE id = ?', [id]);
+    
+    console.log(`[PhoneRental Kiosk] Session extended: #${id}, +₱${amount_paid} for +${additional_minutes} mins, new_end=${updatedSession.end_time}`);
+    res.json({ success: true, session: updatedSession });
+    
+    // Cloud sync (fire-and-forget)
+    const extDev = await db.get('SELECT cloud_device_id FROM rental_devices WHERE id = ?', [session.device_id]);
+    if (extDev && extDev.cloud_device_id) {
+      rentalActivation.syncSessionToCloud(updatedSession, extDev.cloud_device_id).catch(() => {});
+    }
+    rentalActivation.syncDeviceRevenue(session.device_id).catch(() => {});
+  } catch (err) {
+    console.error('[PhoneRental Kiosk] Extend session error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
+// PHONE RENTAL - WALLPAPER MANAGEMENT
+// ============================================
+
+// Upload wallpaper for a device
+app.post('/api/phone-rental/devices/:deviceId/wallpaper', async (req, res) => {
+  try {
+    const { deviceId } = req.params;
+    
+    // Verify device exists
+    const device = await db.get('SELECT * FROM rental_devices WHERE id = ?', [deviceId]);
+    if (!device) {
+      return res.status(404).json({ error: 'Device not found' });
+    }
+
+    if (!req.files || !req.files.wallpaper) {
+      return res.status(400).json({ error: 'Wallpaper file is required' });
+    }
+
+    const wallpaper = req.files.wallpaper;
+    
+    // Validate file type (all image formats)
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/bmp', 'image/tiff'];
+    if (!allowedTypes.includes(wallpaper.mimetype)) {
+      return res.status(400).json({ error: 'Invalid file type. Supported: JPG, PNG, WEBP, GIF, BMP, TIFF' });
+    }
+
+    // Validate file size (GIF: 30MB, others: 10MB)
+    const maxGifSize = 30 * 1024 * 1024; // 30MB for GIF
+    const maxOtherSize = 10 * 1024 * 1024; // 10MB for other formats
+    const isGif = wallpaper.mimetype === 'image/gif';
+    const maxSize = isGif ? maxGifSize : maxOtherSize;
+    
+    if (wallpaper.size > maxSize) {
+      const sizeLimit = isGif ? '30MB' : '10MB';
+      return res.status(400).json({ error: `File too large. Maximum size for ${isGif ? 'GIF' : 'this format'}: ${sizeLimit}` });
+    }
+
+    // Create uploads directory if not exists
+    const uploadDir = path.join(__dirname, 'uploads', 'wallpapers');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+
+    // Generate unique filename
+    const ext = path.extname(wallpaper.name);
+    const filename = `wallpaper_${deviceId}_${Date.now()}${ext}`;
+    const filepath = path.join(uploadDir, filename);
+
+    // Save file
+    await wallpaper.mv(filepath);
+
+    // Delete old wallpaper if exists
+    if (device.wallpaper_path) {
+      const oldPath = path.join(__dirname, device.wallpaper_path);
+      if (fs.existsSync(oldPath)) {
+        fs.unlinkSync(oldPath);
+      }
+    }
+
+    // Update device with new wallpaper path
+    const wallpaperUrl = `/uploads/wallpapers/${filename}`;
+    await db.run(
+      'UPDATE rental_devices SET wallpaper_path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [wallpaperUrl, deviceId]
+    );
+
+    console.log(`[PhoneRental] Wallpaper uploaded for device ${deviceId}: ${filename}`);
+    res.json({ 
+      success: true, 
+      message: 'Wallpaper uploaded successfully',
+      wallpaper_url: wallpaperUrl 
+    });
+  } catch (err) {
+    console.error('[PhoneRental] Upload wallpaper error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get wallpaper for a device
+app.get('/api/phone-rental/devices/:deviceId/wallpaper', async (req, res) => {
+  try {
+    const { deviceId } = req.params;
+    
+    const device = await db.get('SELECT wallpaper_path FROM rental_devices WHERE id = ?', [deviceId]);
+    if (!device || !device.wallpaper_path) {
+      return res.status(404).json({ error: 'No wallpaper found for this device' });
+    }
+
+    const wallpaperPath = path.join(__dirname, device.wallpaper_path);
+    if (!fs.existsSync(wallpaperPath)) {
+      return res.status(404).json({ error: 'Wallpaper file not found' });
+    }
+
+    res.sendFile(wallpaperPath);
+  } catch (err) {
+    console.error('[PhoneRental] Get wallpaper error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete wallpaper for a device
+app.delete('/api/phone-rental/devices/:deviceId/wallpaper', async (req, res) => {
+  try {
+    const { deviceId } = req.params;
+    
+    const device = await db.get('SELECT wallpaper_path FROM rental_devices WHERE id = ?', [deviceId]);
+    if (!device) {
+      return res.status(404).json({ error: 'Device not found' });
+    }
+
+    // Delete file if exists
+    if (device.wallpaper_path) {
+      const wallpaperPath = path.join(__dirname, device.wallpaper_path);
+      if (fs.existsSync(wallpaperPath)) {
+        fs.unlinkSync(wallpaperPath);
+      }
+    }
+
+    // Clear wallpaper path from database
+    await db.run(
+      'UPDATE rental_devices SET wallpaper_path = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [deviceId]
+    );
+
+    console.log(`[PhoneRental] Wallpaper deleted for device ${deviceId}`);
+    res.json({ success: true, message: 'Wallpaper deleted successfully' });
+  } catch (err) {
+    console.error('[PhoneRental] Delete wallpaper error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Serve wallpaper files (static-like route)
+app.get('/uploads/wallpapers/:filename', (req, res) => {
+  const filename = req.params.filename;
+  const filepath = path.join(__dirname, 'uploads', 'wallpapers', filename);
+  
+  if (!fs.existsSync(filepath)) {
+    return res.status(404).send('Wallpaper not found');
+  }
+
+  res.sendFile(filepath);
 });
 
 // Catch-all route for frontend (must be last)

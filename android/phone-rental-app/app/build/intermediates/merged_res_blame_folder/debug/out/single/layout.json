@@ -1,22 +1,30 @@
 [
     {
-        "merged": "com.ajcpisowifi.phonerental.app-mergeDebugResources-41:/layout/activity_setup.xml",
-        "source": "com.ajcpisowifi.phonerental.app-main-44:/layout/activity_setup.xml"
+        "merged": "/home/nexifi/.gradle/daemon/8.5/com.ajcpisowifi.phonerental.app-mergeDebugResources-42:/layout/activity_admin.xml",
+        "source": "/home/nexifi/.gradle/daemon/8.5/com.ajcpisowifi.phonerental.app-main-45:/layout/activity_admin.xml"
     },
     {
-        "merged": "com.ajcpisowifi.phonerental.app-mergeDebugResources-41:/layout/item_launcher_app.xml",
-        "source": "com.ajcpisowifi.phonerental.app-main-44:/layout/item_launcher_app.xml"
+        "merged": "/home/nexifi/.gradle/daemon/8.5/com.ajcpisowifi.phonerental.app-mergeDebugResources-42:/layout/activity_main.xml",
+        "source": "/home/nexifi/.gradle/daemon/8.5/com.ajcpisowifi.phonerental.app-main-45:/layout/activity_main.xml"
     },
     {
-        "merged": "com.ajcpisowifi.phonerental.app-mergeDebugResources-41:/layout/activity_main.xml",
-        "source": "com.ajcpisowifi.phonerental.app-main-44:/layout/activity_main.xml"
+        "merged": "com.ajcpisowifi.phonerental.app-mergeDebugResources-42:/layout/insert_coin_modal.xml",
+        "source": "com.ajcpisowifi.phonerental.app-main-45:/layout/insert_coin_modal.xml"
     },
     {
-        "merged": "com.ajcpisowifi.phonerental.app-mergeDebugResources-41:/layout/activity_admin.xml",
-        "source": "com.ajcpisowifi.phonerental.app-main-44:/layout/activity_admin.xml"
+        "merged": "/home/nexifi/.gradle/daemon/8.5/com.ajcpisowifi.phonerental.app-mergeDebugResources-42:/layout/add_time_modal.xml",
+        "source": "/home/nexifi/.gradle/daemon/8.5/com.ajcpisowifi.phonerental.app-main-45:/layout/add_time_modal.xml"
     },
     {
-        "merged": "com.ajcpisowifi.phonerental.app-mergeDebugResources-41:/layout/item_app.xml",
-        "source": "com.ajcpisowifi.phonerental.app-main-44:/layout/item_app.xml"
+        "merged": "/home/nexifi/.gradle/daemon/8.5/com.ajcpisowifi.phonerental.app-mergeDebugResources-42:/layout/activity_setup.xml",
+        "source": "/home/nexifi/.gradle/daemon/8.5/com.ajcpisowifi.phonerental.app-main-45:/layout/activity_setup.xml"
+    },
+    {
+        "merged": "/home/nexifi/.gradle/daemon/8.5/com.ajcpisowifi.phonerental.app-mergeDebugResources-42:/layout/item_app.xml",
+        "source": "/home/nexifi/.gradle/daemon/8.5/com.ajcpisowifi.phonerental.app-main-45:/layout/item_app.xml"
+    },
+    {
+        "merged": "/home/nexifi/.gradle/daemon/8.5/com.ajcpisowifi.phonerental.app-mergeDebugResources-42:/layout/item_launcher_app.xml",
+        "source": "/home/nexifi/.gradle/daemon/8.5/com.ajcpisowifi.phonerental.app-main-45:/layout/item_launcher_app.xml"
     }
 ]

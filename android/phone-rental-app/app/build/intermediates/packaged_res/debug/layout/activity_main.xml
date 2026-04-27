@@ -1,10 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="#1a1a2e"
-    android:fitsSystemWindows="false"
-    android:orientation="vertical">
+    android:layout_height="match_parent">
+
+    <!-- Wallpaper Background ImageView -->
+    <ImageView
+        android:id="@+id/wallpaperImage"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:adjustViewBounds="true"
+        android:visibility="gone" />
+
+    <!-- Main Content (on top of wallpaper) -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@android:color/transparent"
+        android:fitsSystemWindows="false"
+        android:orientation="vertical">
 
     <!-- Connection Status Bar -->
     <TextView
@@ -175,6 +189,18 @@
                 android:textSize="32sp"
                 android:textStyle="bold" />
 
+            <!-- Add Time Button -->
+            <Button
+                android:id="@+id/addTimeButton"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:layout_marginEnd="8dp"
+                android:backgroundTint="#FF9800"
+                android:text="➕ TIME"
+                android:textColor="#ffffff"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
             <!-- Customer + Rate info -->
             <LinearLayout
                 android:layout_width="wrap_content"
@@ -278,14 +304,39 @@
             android:textColor="#e0e0e0"
             android:textSize="16sp" />
 
+        <Button
+            android:id="@+id/refreshStatusBtn"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:backgroundTint="#4CAF50"
+            android:text="🔄 Check Availability"
+            android:textColor="#ffffff"
+            android:textSize="14sp" />
+
     </LinearLayout>
+
+    </LinearLayout>
+
+    <!-- Admin Button (visible always for easy access) -->
+    <Button
+        android:id="@+id/adminButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="start|bottom"
+        android:layout_margin="12dp"
+        android:backgroundTint="#9C27B0"
+        android:text="🔐 Admin"
+        android:textColor="#ffffff"
+        android:textSize="11sp"
+        android:visibility="visible" />
 
     <!-- Setup Button -->
     <Button
         android:id="@+id/setupButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_gravity="end"
+        android:layout_gravity="end|bottom"
         android:layout_margin="12dp"
         android:backgroundTint="#0f3460"
         android:text="Setup"
@@ -293,4 +344,4 @@
         android:textSize="11sp"
         android:visibility="gone" />
 
-</LinearLayout>
+</FrameLayout>

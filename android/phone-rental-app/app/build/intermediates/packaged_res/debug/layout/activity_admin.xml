@@ -263,6 +263,44 @@
                 android:textColor="#ffffff"
                 android:textSize="13sp" />
 
+            <!-- Wallpaper Section -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:text="Wallpaper"
+                android:textColor="#ffffff"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Set a custom wallpaper for this rental device"
+                android:textColor="#808080"
+                android:textSize="11sp" />
+
+            <Button
+                android:id="@+id/setWallpaperBtn"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginTop="8dp"
+                android:backgroundTint="#E91E63"
+                android:text="🖼️ Set Wallpaper"
+                android:textColor="#ffffff"
+                android:textSize="13sp" />
+
+            <Button
+                android:id="@+id/refreshWallpaperBtn"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginTop="8dp"
+                android:backgroundTint="#FF9800"
+                android:text="🔄 Refresh Wallpaper"
+                android:textColor="#ffffff"
+                android:textSize="13sp" />
+
             <!-- App Update Section -->
             <TextView
                 android:layout_width="wrap_content"

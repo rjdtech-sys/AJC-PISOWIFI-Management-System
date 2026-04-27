@@ -30,7 +30,6 @@ import com.ajcpisowifi.phonerental.network.RentalSessionInfo
 import com.ajcpisowifi.phonerental.network.RentalRate
 import com.ajcpisowifi.phonerental.network.CoinslotDevice
 import com.ajcpisowifi.phonerental.service.HeartbeatWorker
-import com.ajcpisowifi.phonerental.service.KioskKeeperService
 import com.ajcpisowifi.phonerental.service.StatusBarBlockerService
 import com.ajcpisowifi.phonerental.service.TimerService
 import com.ajcpisowifi.phonerental.util.AppUpdater
@@ -69,10 +68,18 @@ class MainActivity : AppCompatActivity() {
     private lateinit var donePayingButton: Button
     private lateinit var coinAccumulatedLabel: TextView
     private lateinit var coinTimeLabel: TextView
+    private lateinit var wallpaperImage: ImageView
+    private lateinit var adminButton: Button
+    private lateinit var refreshStatusBtn: Button
+    private lateinit var addTimeButton: Button
+
+    private var wallpaperManager: com.ajcpisowifi.phonerental.util.WallpaperManager? = null
 
     private var activeSession: RentalSessionInfo? = null
     private var timerHandler: Handler? = null
     private var timerRunnable: Runnable? = null
+    private var expiredRefreshHandler: Handler? = null
+    private var expiredRefreshRunnable: Runnable? = null
 
     private var isLaunchingAllowedApp = false
     private var isOpeningAdminPanel = false
@@ -87,6 +94,30 @@ class MainActivity : AppCompatActivity() {
     private var rentalRates: List<RentalRate> = emptyList()
     private var selectedCoinslot: CoinslotDevice? = null
     private var isListeningForPulse: Boolean = false
+
+    // Add Time modal
+    private var addTimeDialog: android.app.AlertDialog? = null
+    private var modalCountdownHandler: Handler? = null
+    private var modalCountdownRunnable: Runnable? = null
+    private var modalCountdownSeconds: Int = 60
+    private var modalPesosView: TextView? = null
+    private var modalMinutesView: TextView? = null
+    private var modalCountdownView: TextView? = null
+    private var modalCoinslotView: TextView? = null
+    private var modalConnectionDot: View? = null
+    private var modalConnectionStatus: TextView? = null
+    private var modalDonePayingBtn: Button? = null
+
+    // Insert Coin modal
+    private var insertCoinDialog: android.app.AlertDialog? = null
+    private var insertCountdownHandler: Handler? = null
+    private var insertCountdownRunnable: Runnable? = null
+    private var insertCountdownSeconds: Int = 60
+    private var insertModalPesosView: TextView? = null
+    private var insertModalMinutesView: TextView? = null
+    private var insertModalCountdownView: TextView? = null
+    private var insertModalCoinslotView: TextView? = null
+    private var insertModalDonePayingBtn: Button? = null
 
     // Session expired receiver
     private val expiredReceiver = object : BroadcastReceiver() {
@@ -118,6 +149,15 @@ class MainActivity : AppCompatActivity() {
 
             setContentView(R.layout.activity_main)
 
+            // Initialize WallpaperManager
+            wallpaperManager = com.ajcpisowifi.phonerental.util.WallpaperManager(this)
+            wallpaperImage = findViewById(R.id.wallpaperImage)
+            
+            // Load wallpaper in background
+            scope.launch {
+                loadAndDisplayWallpaper()
+            }
+
             apiClient = RentalApiClient(this)
 
             // Bind views
@@ -137,6 +177,25 @@ class MainActivity : AppCompatActivity() {
             donePayingButton = findViewById(R.id.donePayingButton)
             coinAccumulatedLabel = findViewById(R.id.coinAccumulatedLabel)
             coinTimeLabel = findViewById(R.id.coinTimeLabel)
+            adminButton = findViewById(R.id.adminButton)
+            refreshStatusBtn = findViewById(R.id.refreshStatusBtn)
+            addTimeButton = findViewById(R.id.addTimeButton)
+
+            // Admin button click (easy access)
+            adminButton.setOnClickListener {
+                showAdminLoginDialog()
+            }
+
+            // Refresh status button (on expired screen)
+            refreshStatusBtn.setOnClickListener {
+                Toast.makeText(this, "Checking availability...", Toast.LENGTH_SHORT).show()
+                checkDeviceStatus()
+            }
+
+            // Add Time button (top-up during active session)
+            addTimeButton.setOnClickListener {
+                showCoinInsertionModalForTopUp()
+            }
 
             setupButton.setOnClickListener {
                 startActivity(Intent(this, SetupActivity::class.java))
@@ -149,7 +208,11 @@ class MainActivity : AppCompatActivity() {
 
             // Done Paying button click
             donePayingButton.setOnClickListener {
-                startRentalSessionWithCoins()
+                if (activeSession != null) {
+                    extendRentalSessionWithCoins()
+                } else {
+                    startRentalSessionWithCoins()
+                }
             }
 
             // Admin access: Long press on status label opens Admin panel
@@ -201,6 +264,15 @@ class MainActivity : AppCompatActivity() {
             checkDeviceStatus()
         } catch (e: Exception) {
             Log.e(TAG, "Error checking device status", e)
+        }
+        
+        // Refresh wallpaper on resume
+        scope.launch {
+            try {
+                loadAndDisplayWallpaper()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading wallpaper in onResume", e)
+            }
         }
 
         // Start heartbeat
@@ -414,20 +486,46 @@ class MainActivity : AppCompatActivity() {
             val allowedPackages = appManager.getAllowedAppPackages().toMutableSet()
             allowedPackages.add(packageName)
             dpm.setLockTaskPackages(componentName, allowedPackages.toTypedArray())
+
+            // Force rental app as the ONLY home launcher - HOME always comes back here
+            try {
+                val homeFilter = android.content.IntentFilter(android.content.Intent.ACTION_MAIN)
+                homeFilter.addCategory(android.content.Intent.CATEGORY_HOME)
+                homeFilter.addCategory(android.content.Intent.CATEGORY_DEFAULT)
+                dpm.addPersistentPreferredActivity(componentName, homeFilter, launcherAlias)
+                Log.d(TAG, "Persistent HOME activity set to rental app")
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not set persistent HOME: ${e.message}")
+            }
+
+            // Disable status bar (notification shade) and keyguard
+            try {
+                dpm.setStatusBarDisabled(componentName, true)
+                Log.d(TAG, "Status bar disabled")
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not disable status bar: ${e.message}")
+            }
+
+            // Disable system settings access
+            try {
+                dpm.setApplicationHidden(componentName, "com.android.settings", true)
+                Log.d(TAG, "Settings app hidden")
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not hide settings: ${e.message}")
+            }
+
             startLockTask()
             Log.d(TAG, "Kiosk mode: Device Owner with lock task, ${allowedPackages.size} apps")
         } else if (dpm.isAdminActive(componentName)) {
-            // Device Admin only: Use Kiosk Keeper Service (constantly monitors & brings app back)
-            Log.d(TAG, "Kiosk mode: Device Admin with Kiosk Keeper Service")
-            KioskKeeperService.start(this)
+            // Device Admin only: Use overlay mode
+            Log.d(TAG, "Kiosk mode: Device Admin with overlay")
             StatusBarBlockerService.start(this)
             
             if (isMIUIDevice()) {
                 Toast.makeText(this, "MIUI kiosk mode active", Toast.LENGTH_SHORT).show()
             }
         } else {
-            // No Device Admin: Use Kiosk Keeper Service as fallback
-            KioskKeeperService.start(this)
+            // No Device Admin: Use overlay mode as fallback
             StatusBarBlockerService.start(this)
         }
     }
@@ -521,6 +619,30 @@ class MainActivity : AppCompatActivity() {
                 dpm.setLockTaskPackages(componentName, emptyArray())
             } catch (e: Exception) {
                 Log.w(TAG, "Could not clear lock task packages: ${e.message}")
+            }
+
+            // Restore system settings access
+            try {
+                dpm.setApplicationHidden(componentName, "com.android.settings", false)
+                Log.d(TAG, "Settings app restored")
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not restore settings: ${e.message}")
+            }
+
+            // Re-enable status bar
+            try {
+                dpm.setStatusBarDisabled(componentName, false)
+                Log.d(TAG, "Status bar re-enabled")
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not re-enable status bar: ${e.message}")
+            }
+
+            // Clear persistent preferred HOME activity
+            try {
+                dpm.clearPackagePersistentPreferredActivities(componentName, packageName)
+                Log.d(TAG, "Persistent HOME activity cleared")
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not clear persistent HOME: ${e.message}")
             }
 
             Log.d(TAG, "Kiosk mode stopped - device owner")
@@ -622,6 +744,13 @@ class MainActivity : AppCompatActivity() {
                         showIdleState(status.device?.device_name ?: "Phone")
                     }
                 }
+                
+                // Load wallpaper after successful status check
+                if (apiClient.deviceId > 0) {
+                    scope.launch {
+                        loadAndDisplayWallpaper()
+                    }
+                }
             } catch (e: Exception) {
                 connectionStatus.text = "Error: ${e.message}"
             }
@@ -654,6 +783,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showIdleState(deviceName: String) {
+        stopExpiredRefresh()
         idleContainer.visibility = View.VISIBLE
         activeContainer.visibility = View.GONE
         expiredContainer.visibility = View.GONE
@@ -667,6 +797,7 @@ class MainActivity : AppCompatActivity() {
         donePayingButton.visibility = View.GONE
         coinAccumulatedLabel.visibility = View.GONE
         coinTimeLabel.visibility = View.GONE
+        addTimeButton.visibility = View.GONE
         
         // Reset accumulated coins
         accumulatedPesos = 0
@@ -704,6 +835,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showActiveState(session: RentalSessionInfo) {
+        stopExpiredRefresh()
         idleContainer.visibility = View.GONE
         activeContainer.visibility = View.VISIBLE
         expiredContainer.visibility = View.GONE
@@ -713,6 +845,11 @@ class MainActivity : AppCompatActivity() {
 
         customerNameLabel.text = session.customer_name ?: "Walk-in Customer"
         rateLabel.text = String.format("₱%.2f / %d min", session.amount_paid, session.duration_minutes)
+        addTimeButton.visibility = View.VISIBLE
+        insertCoinButton.visibility = View.GONE
+        donePayingButton.visibility = View.GONE
+        coinAccumulatedLabel.visibility = View.GONE
+        coinTimeLabel.visibility = View.GONE
 
         // Start kiosk mode (lock task / screen pinning)
         startKioskMode()
@@ -751,6 +888,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showPausedState(session: RentalSessionInfo) {
+        stopExpiredRefresh()
         idleContainer.visibility = View.GONE
         activeContainer.visibility = View.VISIBLE
         expiredContainer.visibility = View.GONE
@@ -760,6 +898,11 @@ class MainActivity : AppCompatActivity() {
 
         customerNameLabel.text = session.customer_name ?: "Walk-in Customer"
         rateLabel.text = String.format("₱%.2f / %d min (PAUSED)", session.amount_paid, session.duration_minutes)
+        addTimeButton.visibility = View.VISIBLE
+        insertCoinButton.visibility = View.GONE
+        donePayingButton.visibility = View.GONE
+        coinAccumulatedLabel.visibility = View.GONE
+        coinTimeLabel.visibility = View.GONE
 
         // Stop persistent immersive mode to allow status bar and recent button
         stopPersistentImmersiveMode()
@@ -800,6 +943,7 @@ class MainActivity : AppCompatActivity() {
         statusLabel.text = "SESSION EXPIRED"
         statusLabel.setTextColor(getColor(android.R.color.holo_red_dark))
         setupButton.visibility = View.GONE
+        addTimeButton.visibility = View.GONE
 
         // Stop countdown
         stopCountdown()
@@ -847,8 +991,17 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Re-check status after 10 seconds
-        timerHandler?.postDelayed({ checkDeviceStatus() }, 10000)
+        // Re-check status every 10 seconds until no longer expired
+        stopExpiredRefresh() // Clear any existing
+        expiredRefreshHandler = Handler(Looper.getMainLooper())
+        expiredRefreshRunnable = object : Runnable {
+            override fun run() {
+                Log.d(TAG, "Auto-refreshing from expired state...")
+                checkDeviceStatus()
+                expiredRefreshHandler?.postDelayed(this, 10000)
+            }
+        }
+        expiredRefreshHandler?.postDelayed(expiredRefreshRunnable!!, 10000)
     }
 
     private fun startCountdown(endTimeStr: String) {
@@ -861,6 +1014,9 @@ class MainActivity : AppCompatActivity() {
 
         timerRunnable = object : Runnable {
             override fun run() {
+                // Prevent old runnables from interfering after stopCountdown + startCountdown
+                if (this !== timerRunnable) return
+
                 val now = System.currentTimeMillis()
                 val diffMs = endTimeMs - now
 
@@ -903,6 +1059,12 @@ class MainActivity : AppCompatActivity() {
         timerRunnable?.let { timerHandler?.removeCallbacks(it) }
         timerRunnable = null
         timerHandler = null
+    }
+
+    private fun stopExpiredRefresh() {
+        expiredRefreshRunnable?.let { expiredRefreshHandler?.removeCallbacks(it) }
+        expiredRefreshRunnable = null
+        expiredRefreshHandler = null
     }
 
     private fun parseEndTime(endTimeStr: String): Long {
@@ -1142,7 +1304,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Start listening for coin pulses from selected NodeMCU
+     * Start listening for coin pulses from selected NodeMCU - shows modal dialog
      */
     private fun startListeningForCoins() {
         if (selectedCoinslot == null) {
@@ -1154,18 +1316,9 @@ class MainActivity : AppCompatActivity() {
         accumulatedPesos = 0
         accumulatedMinutes = 0
         isListeningForPulse = true
+        insertCountdownSeconds = 60
 
-        // Update UI
-        updateCoinDisplay()
-        insertCoinButton.isEnabled = false
-        insertCoinButton.text = "LISTENING..."
-        donePayingButton.visibility = View.VISIBLE
-
-        Toast.makeText(
-            this,
-            "Listening to ${selectedCoinslot?.name}... Insert coins now",
-            Toast.LENGTH_LONG
-        ).show()
+        showInsertCoinModal()
 
         // Connect to Socket.IO for real-time pulse detection
         val socketResult = apiClient.connectSocketIO { denomination ->
@@ -1177,8 +1330,96 @@ class MainActivity : AppCompatActivity() {
 
         if (socketResult.isFailure) {
             Toast.makeText(this, "Failed to connect to pulse listener: ${socketResult.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+            dismissInsertCoinModal()
             stopListeningForCoins()
         }
+    }
+
+    /**
+     * Show the Insert Coin modal dialog with countdown and coin display
+     */
+    private fun showInsertCoinModal() {
+        val dialogView = layoutInflater.inflate(R.layout.insert_coin_modal, null)
+
+        insertModalPesosView = dialogView.findViewById(R.id.insertModalPesos)
+        insertModalMinutesView = dialogView.findViewById(R.id.insertModalMinutes)
+        insertModalCountdownView = dialogView.findViewById(R.id.insertCountdownTimer)
+        insertModalCoinslotView = dialogView.findViewById(R.id.insertModalCoinslotName)
+        insertModalDonePayingBtn = dialogView.findViewById(R.id.insertModalDonePaying)
+        val cancelBtn = dialogView.findViewById<Button>(R.id.insertModalCancel)
+
+        insertModalCoinslotView?.text = selectedCoinslot?.name ?: ""
+        updateInsertModalDisplay()
+
+        val builder = android.app.AlertDialog.Builder(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
+        builder.setView(dialogView)
+        builder.setCancelable(false)
+
+        insertCoinDialog = builder.create()
+        insertCoinDialog?.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        insertCoinDialog?.show()
+
+        // Start countdown
+        startInsertCountdown()
+
+        insertModalDonePayingBtn?.setOnClickListener {
+            startRentalSessionWithCoins()
+        }
+
+        cancelBtn.setOnClickListener {
+            dismissInsertCoinModal()
+            stopListeningForCoins()
+        }
+    }
+
+    /**
+     * Start the insert coin modal countdown timer (60s, resets on coin pulse)
+     */
+    private fun startInsertCountdown() {
+        insertCountdownHandler = Handler(Looper.getMainLooper())
+        insertCountdownRunnable = object : Runnable {
+            override fun run() {
+                insertCountdownSeconds--
+                insertModalCountdownView?.text = "${insertCountdownSeconds}s"
+                if (insertCountdownSeconds <= 0) {
+                    dismissInsertCoinModal()
+                    stopListeningForCoins()
+                    Toast.makeText(this@MainActivity, "Coin insertion timed out", Toast.LENGTH_SHORT).show()
+                } else {
+                    insertCountdownHandler?.postDelayed(this, 1000)
+                }
+            }
+        }
+        insertCountdownHandler?.postDelayed(insertCountdownRunnable!!, 1000)
+    }
+
+    /**
+     * Reset the insert coin modal countdown on coin pulse
+     */
+    private fun resetInsertCountdown() {
+        insertCountdownSeconds = 60
+        insertModalCountdownView?.text = "${insertCountdownSeconds}s"
+    }
+
+    /**
+     * Update insert coin modal display with current accumulated values
+     */
+    private fun updateInsertModalDisplay() {
+        insertModalPesosView?.text = "₱$accumulatedPesos"
+        insertModalMinutesView?.text = "$accumulatedMinutes"
+        insertModalDonePayingBtn?.isEnabled = accumulatedPesos > 0
+        insertModalDonePayingBtn?.text = if (accumulatedPesos > 0) "DONE PAYING - START SESSION" else "INSERT COINS FIRST"
+    }
+
+    /**
+     * Dismiss the Insert Coin modal dialog
+     */
+    private fun dismissInsertCoinModal() {
+        insertCountdownRunnable?.let { insertCountdownHandler?.removeCallbacks(it) }
+        insertCountdownRunnable = null
+        insertCountdownHandler = null
+        insertCoinDialog?.dismiss()
+        insertCoinDialog = null
     }
 
     /**
@@ -1196,11 +1437,17 @@ class MainActivity : AppCompatActivity() {
 
         // Update UI
         updateCoinDisplay()
+        
+        // Update modals if showing
+        updateModalDisplay()
+        resetModalCountdown()
+        updateInsertModalDisplay()
+        resetInsertCountdown()
 
         // Play beep sound or show feedback
         Toast.makeText(this, "₱$denomination inserted! Total: ₱$accumulatedPesos", Toast.LENGTH_SHORT).show()
 
-        Log.d(TAG, "Coin pulse: +₱$denomination | Total: ₱$accumulatedPesos | Minutes: $accumulatedMinutes")
+        Log.d(TAG, "Coin pulse: +₱$denomination | Total: ₱$accumulatedPesos | Minutes: $accumulatedMinutes | activeSession=${activeSession?.id}")
     }
 
     /**
@@ -1272,18 +1519,16 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        // Stop listening for pulses
+        dismissInsertCoinModal()
         stopListeningForCoins()
 
         scope.launch {
             try {
-                // Show loading
                 withContext(Dispatchers.Main) {
-                    donePayingButton.isEnabled = false
-                    donePayingButton.text = "Starting Session..."
+                    insertCoinButton.isEnabled = false
+                    insertCoinButton.text = "Starting Session..."
                 }
 
-                // Call API to start session
                 val result = apiClient.startRentalSessionWithPayment(
                     deviceId = apiClient.deviceId,
                     amountPaid = accumulatedPesos,
@@ -1293,19 +1538,16 @@ class MainActivity : AppCompatActivity() {
 
                 withContext(Dispatchers.Main) {
                     if (result.isSuccess) {
-                        // Session started successfully
                         Toast.makeText(
                             this@MainActivity,
                             "Session started! ₱$accumulatedPesos for $accumulatedMinutes mins",
                             Toast.LENGTH_LONG
                         ).show()
 
-                        // Reset accumulated coins
                         accumulatedPesos = 0
                         accumulatedMinutes = 0
                         selectedCoinslot = null
 
-                        // Refresh status to show active session
                         checkDeviceStatus()
                     } else {
                         Toast.makeText(
@@ -1314,12 +1556,8 @@ class MainActivity : AppCompatActivity() {
                             Toast.LENGTH_LONG
                         ).show()
                         
-                        // Re-enable button
-                        donePayingButton.isEnabled = true
-                        donePayingButton.text = "DONE PAYING - START SESSION"
-                        
-                        // Restart listening
-                        startListeningForCoins()
+                        insertCoinButton.isEnabled = true
+                        insertCoinButton.text = "INSERT COIN"
                     }
                 }
             } catch (e: Exception) {
@@ -1330,14 +1568,346 @@ class MainActivity : AppCompatActivity() {
                         Toast.LENGTH_LONG
                     ).show()
                     
-                    // Re-enable button
-                    donePayingButton.isEnabled = true
-                    donePayingButton.text = "DONE PAYING - START SESSION"
-                    
-                    // Restart listening
-                    startListeningForCoins()
+                    insertCoinButton.isEnabled = true
+                    insertCoinButton.text = "INSERT COIN"
                 }
             }
+        }
+    }
+
+    /**
+     * Show coin insertion modal for topping up an active session
+     */
+    private fun showCoinInsertionModalForTopUp() {
+        if (activeSession == null) {
+            Toast.makeText(this, "No active session to extend", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        scope.launch {
+            try {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "Loading coinslots...", Toast.LENGTH_SHORT).show()
+                }
+
+                val response = apiClient.getAvailableCoinslots()
+                
+                withContext(Dispatchers.Main) {
+                    if (response.isSuccess) {
+                        val coinslots = response.getOrNull()!!
+                        
+                        if (coinslots.isEmpty()) {
+                            Toast.makeText(this@MainActivity, "No coinslot devices available", Toast.LENGTH_LONG).show()
+                            return@withContext
+                        }
+
+                        val builder = android.app.AlertDialog.Builder(this@MainActivity)
+                        builder.setTitle("➕ Add Time - Select Coinslot")
+
+                        val coinslotOptions = coinslots.map { 
+                            "${it.name} (${it.macAddress.takeLast(5)})"
+                        }.toTypedArray()
+
+                        builder.setItems(coinslotOptions) { _, which ->
+                            selectedCoinslot = coinslots[which]
+                            startListeningForCoinsForTopUp()
+                        }
+
+                        builder.setNegativeButton("Cancel", null)
+                        builder.show()
+                    } else {
+                        Toast.makeText(
+                            this@MainActivity,
+                            "Failed to load coinslots: ${response.exceptionOrNull()?.message}",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    /**
+     * Start listening for coins to add time to active session - shows modal dialog
+     */
+    private fun startListeningForCoinsForTopUp() {
+        if (selectedCoinslot == null) {
+            Toast.makeText(this, "No coinslot selected", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        accumulatedPesos = 0
+        accumulatedMinutes = 0
+        isListeningForPulse = true
+        modalCountdownSeconds = 60
+
+        showAddTimeModal()
+
+        val socketResult = apiClient.connectSocketIO { denomination ->
+            runOnUiThread {
+                onCoinPulseDetected(denomination)
+            }
+        }
+
+        if (socketResult.isFailure) {
+            Toast.makeText(this, "Failed to connect: ${socketResult.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+            dismissAddTimeModal()
+            stopListeningForCoinsForTopUp()
+        }
+    }
+
+    /**
+     * Show the Add Time modal dialog with countdown and coin display
+     */
+    private fun showAddTimeModal() {
+        val dialogView = layoutInflater.inflate(R.layout.add_time_modal, null)
+
+        modalPesosView = dialogView.findViewById(R.id.modalPesos)
+        modalMinutesView = dialogView.findViewById(R.id.modalMinutes)
+        modalCountdownView = dialogView.findViewById(R.id.countdownTimer)
+        modalCoinslotView = dialogView.findViewById(R.id.modalCoinslotName)
+        modalConnectionDot = dialogView.findViewById(R.id.connectionDot)
+        modalConnectionStatus = dialogView.findViewById(R.id.connectionStatus)
+        modalDonePayingBtn = dialogView.findViewById(R.id.modalDonePaying)
+        val cancelBtn = dialogView.findViewById<Button>(R.id.modalCancel)
+
+        modalCoinslotView?.text = selectedCoinslot?.name ?: ""
+        updateModalDisplay()
+
+        val builder = android.app.AlertDialog.Builder(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
+        builder.setView(dialogView)
+        builder.setCancelable(false)
+
+        addTimeDialog = builder.create()
+        addTimeDialog?.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        addTimeDialog?.show()
+
+        // Start countdown
+        startModalCountdown()
+
+        modalDonePayingBtn?.setOnClickListener {
+            extendRentalSessionWithCoins()
+        }
+
+        cancelBtn.setOnClickListener {
+            dismissAddTimeModal()
+            stopListeningForCoinsForTopUp()
+        }
+    }
+
+    /**
+     * Start the modal countdown timer (60s, resets on coin pulse)
+     */
+    private fun startModalCountdown() {
+        modalCountdownHandler = Handler(Looper.getMainLooper())
+        modalCountdownRunnable = object : Runnable {
+            override fun run() {
+                modalCountdownSeconds--
+                modalCountdownView?.text = "${modalCountdownSeconds}s"
+                if (modalCountdownSeconds <= 0) {
+                    dismissAddTimeModal()
+                    stopListeningForCoinsForTopUp()
+                    Toast.makeText(this@MainActivity, "Coin insertion timed out", Toast.LENGTH_SHORT).show()
+                } else {
+                    modalCountdownHandler?.postDelayed(this, 1000)
+                }
+            }
+        }
+        modalCountdownHandler?.postDelayed(modalCountdownRunnable!!, 1000)
+    }
+
+    /**
+     * Reset the modal countdown on coin pulse
+     */
+    private fun resetModalCountdown() {
+        modalCountdownSeconds = 60
+        modalCountdownView?.text = "${modalCountdownSeconds}s"
+    }
+
+    /**
+     * Update modal display with current accumulated values
+     */
+    private fun updateModalDisplay() {
+        modalPesosView?.text = "₱$accumulatedPesos"
+        modalMinutesView?.text = "$accumulatedMinutes"
+        modalDonePayingBtn?.isEnabled = accumulatedPesos > 0
+        modalDonePayingBtn?.text = if (accumulatedPesos > 0) "DONE PAYING - ADD TIME" else "INSERT COINS FIRST"
+    }
+
+    /**
+     * Dismiss the Add Time modal dialog
+     */
+    private fun dismissAddTimeModal() {
+        modalCountdownRunnable?.let { modalCountdownHandler?.removeCallbacks(it) }
+        modalCountdownRunnable = null
+        modalCountdownHandler = null
+        addTimeDialog?.dismiss()
+        addTimeDialog = null
+    }
+
+    /**
+     * Stop listening for top-up coins
+     */
+    private fun stopListeningForCoinsForTopUp() {
+        isListeningForPulse = false
+        apiClient.disconnectSocketIO()
+        
+        addTimeButton.isEnabled = true
+        addTimeButton.text = "➕ TIME"
+        donePayingButton.visibility = View.GONE
+    }
+
+    /**
+     * Extend rental session with accumulated coins
+     */
+    private fun extendRentalSessionWithCoins() {
+        if (accumulatedPesos <= 0 || accumulatedMinutes <= 0) {
+            Toast.makeText(this, "Please insert coins first", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val session = activeSession
+        if (session == null) {
+            Toast.makeText(this, "No active session found", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        dismissAddTimeModal()
+        stopListeningForCoinsForTopUp()
+
+        scope.launch {
+            try {
+                withContext(Dispatchers.Main) {
+                    addTimeButton.isEnabled = false
+                    addTimeButton.text = "Adding Time..."
+                }
+
+                val result = apiClient.extendRentalSession(
+                    sessionId = session.id,
+                    additionalMinutes = accumulatedMinutes,
+                    amountPaid = accumulatedPesos,
+                    paymentMethod = "coinslot"
+                )
+
+                withContext(Dispatchers.Main) {
+                    if (result.isSuccess) {
+                        val updatedSession = result.getOrNull()!!
+                        Log.d(TAG, "Extend API success: new end_time=${updatedSession.end_time}, duration=${updatedSession.duration_minutes}")
+
+                        Toast.makeText(
+                            this@MainActivity,
+                            "✅ Time added! +₱$accumulatedPesos for +$accumulatedMinutes mins",
+                            Toast.LENGTH_LONG
+                        ).show()
+
+                        accumulatedPesos = 0
+                        accumulatedMinutes = 0
+                        selectedCoinslot = null
+
+                        // Use returned session directly - do NOT rely on checkDeviceStatus
+                        activeSession = updatedSession
+                        showActiveState(updatedSession)
+                        Log.d(TAG, "UI updated directly with extended session")
+                    } else {
+                        val errorMsg = result.exceptionOrNull()?.message ?: "Unknown error"
+                        Log.e(TAG, "Extend API failed: $errorMsg")
+                        Toast.makeText(
+                            this@MainActivity,
+                            "Failed to add time: $errorMsg",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        
+                        addTimeButton.isEnabled = true
+                        addTimeButton.text = "➕ TIME"
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                    addTimeButton.isEnabled = true
+                    addTimeButton.text = "➕ TIME"
+                }
+            }
+        }
+    }
+
+    /**
+     * Show admin login dialog with PIN entry
+     */
+    private fun showAdminLoginDialog() {
+        val editText = android.widget.EditText(this)
+        editText.inputType = android.text.InputType.TYPE_CLASS_NUMBER
+        editText.hint = "Enter PIN"
+        editText.setPadding(50, 40, 50, 20)
+
+        android.app.AlertDialog.Builder(this)
+            .setTitle("🔐 Admin Access")
+            .setMessage("Enter admin PIN to continue:")
+            .setView(editText)
+            .setPositiveButton("Login") { _, _ ->
+                val pin = editText.text.toString()
+                val savedPin = getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+                    .getString("admin_pin", "1234") ?: "1234"
+
+                if (pin == savedPin) {
+                    // Correct PIN - open admin panel
+                    isOpeningAdminPanel = true
+                    startActivity(Intent(this, AdminActivity::class.java))
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        isOpeningAdminPanel = false
+                    }, 1000)
+                } else {
+                    Toast.makeText(this, "❌ Incorrect PIN", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /**
+     * Load and display wallpaper from server
+     */
+    private suspend fun loadAndDisplayWallpaper() {
+        try {
+            val wm = wallpaperManager ?: return
+            
+            // Try to load cached wallpaper first
+            if (wm.hasWallpaper()) {
+                Log.d(TAG, "Loading cached wallpaper")
+                withContext(Dispatchers.Main) {
+                    wm.displayWallpaper(wallpaperImage)
+                }
+            }
+
+            // Get device ID from RentalApiClient (uses phone_rental_prefs)
+            val deviceId = apiClient.deviceId
+            
+            if (deviceId <= 0) {
+                Log.d(TAG, "No device ID set (value: $deviceId), skipping wallpaper download")
+                return
+            }
+
+            // Get server URL from RentalApiClient
+            val serverUrl = apiClient.serverUrl
+            
+            // Download wallpaper from server
+            Log.d(TAG, "Downloading wallpaper for device: $deviceId from $serverUrl")
+            val downloaded = wm.downloadWallpaper(deviceId.toString(), serverUrl)
+            
+            if (downloaded) {
+                Log.d(TAG, "Wallpaper downloaded successfully")
+                withContext(Dispatchers.Main) {
+                    wm.displayWallpaper(wallpaperImage)
+                }
+            } else {
+                Log.d(TAG, "No wallpaper available on server for device $deviceId")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading wallpaper: ${e.message}", e)
         }
     }
 

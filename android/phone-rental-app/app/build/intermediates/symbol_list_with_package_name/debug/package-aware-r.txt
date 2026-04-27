@@ -2980,11 +2980,13 @@ drawable btn_radio_off_mtrl
 drawable btn_radio_off_to_on_mtrl_animation
 drawable btn_radio_on_mtrl
 drawable btn_radio_on_to_off_mtrl_animation
+drawable countdown_bg
 drawable design_fab_background
 drawable design_ic_visibility
 drawable design_ic_visibility_off
 drawable design_password_eye
 drawable design_snackbar_background
+drawable green_dot
 drawable ic_arrow_back_black_24
 drawable ic_call_answer
 drawable ic_call_answer_low
@@ -3006,6 +3008,7 @@ drawable ic_mtrl_chip_checked_circle
 drawable ic_mtrl_chip_close_circle
 drawable ic_search_black_24
 drawable ic_timer
+drawable insert_countdown_bg
 drawable m3_avd_hide_password
 drawable m3_avd_show_password
 drawable m3_bottom_sheet_drag_handle
@@ -3027,6 +3030,7 @@ drawable material_ic_keyboard_arrow_previous_black_24dp
 drawable material_ic_keyboard_arrow_right_black_24dp
 drawable material_ic_menu_arrow_down_black_24dp
 drawable material_ic_menu_arrow_up_black_24dp
+drawable modal_background
 drawable mtrl_bottomsheet_drag_handle
 drawable mtrl_checkbox_button
 drawable mtrl_checkbox_button_checked_unchecked
@@ -3154,6 +3158,8 @@ id actions
 id activeContainer
 id activity_chooser_view_content
 id add
+id addTimeButton
+id adminButton
 id alertTitle
 id aligned
 id all
@@ -3219,6 +3225,7 @@ id coinTimeLabel
 id collapseActionView
 id compress
 id confirm_button
+id connectionDot
 id connectionStatus
 id constraint
 id container
@@ -3228,6 +3235,7 @@ id contiguous
 id continuousVelocity
 id coordinator
 id cos
+id countdownTimer
 id counterclockwise
 id cradle
 id currentState
@@ -3304,6 +3312,7 @@ id frost
 id fullscreen_header
 id ghost_view
 id ghost_view_holder
+id glide_custom_view_target_tag
 id gone
 id graph
 id graph_wrap
@@ -3329,6 +3338,14 @@ id included
 id indeterminate
 id info
 id insertCoinButton
+id insertConnectionDot
+id insertConnectionStatus
+id insertCountdownTimer
+id insertModalCancel
+id insertModalCoinslotName
+id insertModalDonePaying
+id insertModalMinutes
+id insertModalPesos
 id invisible
 id inward
 id is_pooling_container_tag
@@ -3379,6 +3396,11 @@ id matrix
 id message
 id middle
 id mini
+id modalCancel
+id modalCoinslotName
+id modalDonePaying
+id modalMinutes
+id modalPesos
 id month_grid
 id month_navigation_bar
 id month_navigation_fragment_toggle
@@ -3472,6 +3494,8 @@ id radio
 id rateLabel
 id ratio
 id rectangles
+id refreshStatusBtn
+id refreshWallpaperBtn
 id registerButton
 id removeRestrictionsBtn
 id report_drawn
@@ -3508,6 +3532,7 @@ id select_dialog_listview
 id selected
 id selection_type
 id serverUrlInput
+id setWallpaperBtn
 id settingsContainer
 id setupBtn
 id setupButton
@@ -3617,6 +3642,7 @@ id view_tree_saved_state_registry_owner
 id view_tree_view_model_store_owner
 id visible
 id visible_removing_fragment_view_tag
+id wallpaperImage
 id west
 id withText
 id with_icon
@@ -3743,6 +3769,7 @@ layout abc_tooltip
 layout activity_admin
 layout activity_main
 layout activity_setup
+layout add_time_modal
 layout custom_dialog
 layout design_bottom_navigation_item
 layout design_bottom_sheet_dialog
@@ -3761,6 +3788,7 @@ layout design_text_input_end_icon
 layout design_text_input_start_icon
 layout ime_base_split_test_activity
 layout ime_secondary_split_test_activity
+layout insert_coin_modal
 layout item_app
 layout item_launcher_app
 layout m3_alert_dialog

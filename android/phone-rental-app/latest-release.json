@@ -1,7 +1,7 @@
 {
-  "version_code": 21,
-  "version_name": "2.6.0",
-  "filename": "AJC-Phone-Rental-v2.6.0-KioskKeeper.apk",
-  "release_notes": "- NEW: KioskKeeperService - Foreground service that constantly monitors app state\n- NEW: Automatically brings rental app back when HOME button is pressed\n- NEW: Works every 1 second to check if our app is in foreground\n- NEW: If another app is foreground, brings rental app back immediately\n- IMPROVED: Specifically designed for MIUI/Redmi devices\n- IMPROVED: Apps like Chrome stay alive in background (not killed)\n- IMPROVED: No 'unpin' dialogs, no blocked app launching\n- IMPROVED: Uses FLAG_ACTIVITY_REORDER_TO_FRONT (doesn't restart app)\n- FIXED: HOME button no longer kills rental app on MIUI\n- FIXED: Rental app always returns within 1 second of HOME press\n- NOTE: Runs as foreground service with silent notification\n- NOTE: Requires SYSTEM_ALERT_WINDOW permission for overlay",
-  "published_at": "2026-04-25T09:45:00.000Z"
+  "version_code": 42,
+  "version_name": "3.3.6",
+  "filename": "AJC-Phone-Rental-v3.3.6-KioskHomeFix.apk",
+  "release_notes": "- KIOSK: HOME button now forces back to rental app main screen via persistent preferred activity\n- KIOSK: RECENTS restricted to whitelisted apps only - no system desktop access\n- KIOSK: Status bar disabled during active session\n- KIOSK: System Settings hidden during active session\n- KIOSK: All restrictions properly restored when session ends or pauses",
+  "published_at": "2026-04-25T12:00:00.000Z"
 }

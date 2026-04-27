@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.ajcpisowifi.phonerental.app-mergeDebugResources-40:/values-v31/values-v31.xml",
+            "outputFile": "com.ajcpisowifi.phonerental.app-mergeDebugResources-41:/values-v31/values-v31.xml",
             "map": [
                 {
                     "source": "/home/nexifi/.gradle/caches/transforms-3/84114cdc67145947aeae5617e585aba8/transformed/material-1.11.0/res/values-v31/values-v31.xml",
