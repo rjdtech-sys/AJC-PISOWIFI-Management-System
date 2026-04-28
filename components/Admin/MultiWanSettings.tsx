@@ -81,7 +81,10 @@ const MultiWanSettings: React.FC = () => {
 
   const fetchInterfaces = async () => {
     try {
-      const res = await fetch('/api/interfaces');
+      const token = localStorage.getItem('ajc_admin_token');
+      const res = await fetch('/api/interfaces', {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+      });
       const data = await res.json();
       if (Array.isArray(data)) {
         setAvailableInterfaces(data.map((i: any) => ({ name: i.name, type: i.type, status: i.status, ip: i.ip || null })));
