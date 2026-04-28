@@ -111,9 +111,13 @@ const MultiWanSettings: React.FC = () => {
   const handleSaveConfig = async () => {
     setSaving(true);
     try {
+      const token = localStorage.getItem('ajc_admin_token');
       const res = await fetch('/api/multiwan/config', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
         body: JSON.stringify({ ...config, interfaces: wans.map(w => ({ interface: w.name, gateway: w.gateway, weight: w.weight })) })
       });
       const data = await res.json();
