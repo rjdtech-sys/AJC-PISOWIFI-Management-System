@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# AJC PISOWIFI - Automated Installation Script v3.6.0-ONLINE-BETA
+# AJC PISOWIFI - Automated Installation Script v3.6.0-ONLINE-STABLE
 # Hardware Support: Raspberry Pi, Orange Pi, x86_64
 # Process Manager: PM2
 

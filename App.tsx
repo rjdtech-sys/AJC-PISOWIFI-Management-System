@@ -438,7 +438,7 @@ const App: React.FC = () => {
                  <div className="flex flex-col gap-3">
                    <div className="flex items-center gap-2">
                       <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                      {sidebarOpen && <span className="text-slate-500 text-[9px] font-bold uppercase tracking-wider">v3.6.0-ONLINE-BETA</span>}
+                      {sidebarOpen && <span className="text-slate-500 text-[9px] font-bold uppercase tracking-wider">v3.6.0-ONLINE-STABLE</span>}
                    </div>
                    
                   {/* Mobile Exit Button */}
