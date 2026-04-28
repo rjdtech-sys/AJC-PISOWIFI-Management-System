@@ -5381,8 +5381,16 @@ app.post('/api/network/vlans/bulk', requireAdmin, async (req, res) => {
 
 app.delete('/api/network/vlan/:name', requireAdmin, async (req, res) => {
   try {
-    await network.deleteVlan(req.params.name);
-    await db.run('DELETE FROM vlans WHERE name = ?', [req.params.name]);
+    const vlanName = req.params.name;
+    // Delete the VLAN interface from OS
+    await network.deleteVlan(vlanName);
+    // Delete associated hotspot config
+    await db.run('DELETE FROM hotspots WHERE interface = ?', [vlanName]).catch(() => {});
+    // Delete VLAN record from DB
+    await db.run('DELETE FROM vlans WHERE name = ?', [vlanName]);
+    // Clean up dnsmasq config if exists
+    const dnsmasqConf = `/etc/dnsmasq.d/ajc_${vlanName}.conf`;
+    try { const fs = require('fs'); if (fs.existsSync(dnsmasqConf)) fs.unlinkSync(dnsmasqConf); } catch (e) {}
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -6955,10 +6963,24 @@ async function bootupRestore(isRestricted = false) {
 
   await network.initFirewall();
   
-  // 0. Restore VLANs
+  // 0. Restore VLANs (skip and cleanup orphans whose parent doesn't exist)
   try {
     const vlans = await db.all('SELECT * FROM vlans');
+    const availableIfaces = await network.getInterfaces();
+    const ifaceNames = new Set(availableIfaces.map(i => i.name));
+    
     for (const v of vlans) {
+      // If parent interface doesn't exist, this is an orphaned VLAN from a cloned system
+      if (!ifaceNames.has(v.parent)) {
+        console.warn(`[AJC] Orphaned VLAN: ${v.name} (parent '${v.parent}' not found). Auto-deleting...`);
+        // Delete from OS
+        await network.deleteVlan(v.name).catch(() => {});
+        // Delete associated hotspot
+        await db.run('DELETE FROM hotspots WHERE interface = ?', [v.name]).catch(() => {});
+        // Delete from DB
+        await db.run('DELETE FROM vlans WHERE name = ?', [v.name]).catch(() => {});
+        continue;
+      }
       console.log(`[AJC] Restoring VLAN ${v.name} on ${v.parent} ID ${v.id}...`);
       await network.createVlan(v).catch(e => console.error(`[AJC] VLAN Restore Failed: ${e.message}`));
     }
