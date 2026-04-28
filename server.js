@@ -6944,6 +6944,15 @@ async function bootupRestore(isRestricted = false) {
   // Auto-Provision Interfaces & Bridge if needed
   await network.autoProvisionNetwork();
 
+  // WAN DHCP Recovery — ensures WAN gets IP on boot (fixes Chromebox/x64 Debian issue)
+  // Run BEFORE initFirewall so masquerade rules target a WAN with a valid IP
+  const wanDhcpResult = await network.ensureWanDhcp();
+  if (wanDhcpResult.success) {
+    console.log(`[AJC] WAN DHCP recovery: OK (${wanDhcpResult.wan} → ${wanDhcpResult.ip})`);
+  } else {
+    console.warn(`[AJC] WAN DHCP recovery: FAILED (${wanDhcpResult.error}). Will retry in background.`);
+  }
+
   await network.initFirewall();
   
   // 0. Restore VLANs
@@ -7721,6 +7730,30 @@ function startBackgroundTimers() {
   const isRevokedNow = verificationStatus.isRevoked || trialStatusInfo.isRevoked;
   const canOperateNow = (isLicensedNow || trialStatusInfo.isTrialActive) && !isRevokedNow;
   await bootupRestore(!canOperateNow);
+
+  // Background WAN DHCP watchdog — re-checks every 60s, retries if WAN has no IP
+  // Fixes Chromebox/x64 Debian where DHCP lease is lost or not obtained on boot
+  let wanDhcpWatchdogCount = 0;
+  const WAN_DHCP_WATCHDOG_MAX = 10; // Stop retrying after 10 minutes
+  setInterval(async () => {
+    if (wanDhcpWatchdogCount >= WAN_DHCP_WATCHDOG_MAX) return;
+    wanDhcpWatchdogCount++;
+    try {
+      const defaultWan = await network.getDefaultRouteInterface?.() || null;
+      // If we have a default route, WAN is fine
+      if (defaultWan) return;
+      // No default route — try DHCP recovery
+      console.warn(`[WAN-WATCHDOG] No default route detected (check ${wanDhcpWatchdogCount}/${WAN_DHCP_WATCHDOG_MAX}). Running DHCP recovery...`);
+      const result = await network.ensureWanDhcp();
+      if (result.success) {
+        console.log(`[WAN-WATCHDOG] Recovery successful: ${result.wan} → ${result.ip}. Re-applying firewall...`);
+        await network.initFirewall();
+        wanDhcpWatchdogCount = WAN_DHCP_WATCHDOG_MAX; // Stop watchdog
+      }
+    } catch (e) {
+      console.error('[WAN-WATCHDOG] Error:', e.message);
+    }
+  }, 60000).unref?.(); // unref so it doesn't keep the process alive
 
   // Sync all local rental devices to Supabase cloud (delayed 10s to let EdgeSync finish init)
   setTimeout(() => {

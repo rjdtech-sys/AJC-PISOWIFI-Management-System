@@ -200,6 +200,18 @@ echo -e "${GREEN}[8/8] Setting Kernel Capabilities...${NC}"
 # cap_net_admin/raw needed for raw socket access (some networking tools)
 setcap 'cap_net_bind_service,cap_net_admin,cap_net_raw+ep' $(eval readlink -f $(which node))
 
+# Install WAN DHCP wait service (fixes Chromebox/x64 Debian boot issue)
+echo -e "${GREEN}Installing WAN DHCP boot recovery service...${NC}"
+if [ -f "scripts/ajc-wan-dhcp-wait.sh" ]; then
+    chmod +x scripts/ajc-wan-dhcp-wait.sh
+    if [ -f "scripts/ajc-wan-dhcp-wait.service" ]; then
+        cp scripts/ajc-wan-dhcp-wait.service /etc/systemd/system/ajc-wan-dhcp-wait.service
+        systemctl daemon-reload
+        systemctl enable ajc-wan-dhcp-wait.service 2>/dev/null || true
+        echo -e "  WAN DHCP boot recovery service installed."
+    fi
+fi
+
 echo -e "${BLUE}==============================================${NC}"
 echo -e "${GREEN} INSTALLATION COMPLETE! ${NC}"
 echo -e "${BLUE}==============================================${NC}"
