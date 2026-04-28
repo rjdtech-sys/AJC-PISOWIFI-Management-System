@@ -12,6 +12,7 @@ interface NetworkIface {
   name: string;
   type: string;
   status: string;
+  ip: string | null;
 }
 
 const MultiWanSettings: React.FC = () => {
@@ -24,7 +25,6 @@ const MultiWanSettings: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [availableInterfaces, setAvailableInterfaces] = useState<NetworkIface[]>([]);
-  const [availableVlans, setAvailableVlans] = useState<{ name: string; parent: string; id: number }[]>([]);
   const [defaultWan, setDefaultWan] = useState<string | null>(null);
 
   // Modals
@@ -46,7 +46,6 @@ const MultiWanSettings: React.FC = () => {
     fetchConfig();
     fetchWans();
     fetchInterfaces();
-    fetchVlans();
     fetchDefaultWan();
   }, []);
 
@@ -85,19 +84,7 @@ const MultiWanSettings: React.FC = () => {
       const res = await fetch('/api/interfaces');
       const data = await res.json();
       if (Array.isArray(data)) {
-        setAvailableInterfaces(data.map((i: any) => ({ name: i.name, type: i.type, status: i.status })));
-      }
-    } catch (e) {
-      // Fallback
-    }
-  };
-
-  const fetchVlans = async () => {
-    try {
-      const res = await fetch('/api/network/vlans');
-      const data = await res.json();
-      if (Array.isArray(data)) {
-        setAvailableVlans(data.map((v: any) => ({ name: v.name, parent: v.parent, id: v.id })));
+        setAvailableInterfaces(data.map((i: any) => ({ name: i.name, type: i.type, status: i.status, ip: i.ip || null })));
       }
     } catch (e) {
       // Fallback
@@ -149,7 +136,7 @@ const MultiWanSettings: React.FC = () => {
         gateway: addForm.gateway || null,
         weight: addForm.weight || 1,
         enabled: addForm.enabled ?? 1,
-        is_vlan: availableVlans.some(v => v.name === addForm.name) ? 1 : 0
+        is_vlan: availableInterfaces.find(i => i.name === addForm.name)?.type === 'vlan' ? 1 : 0
       };
       await apiClient.createWanInterface(payload);
       setShowAddModal(false);
@@ -552,18 +539,16 @@ const MultiWanSettings: React.FC = () => {
                   onChange={e => setAddForm({ ...addForm, name: e.target.value })}
                 >
                   <option value="">Select interface...</option>
-                  <optgroup label="Physical Interfaces">
-                    {availableInterfaces.filter(i => i.type === 'ethernet').map(iface => (
-                      <option key={iface.name} value={iface.name}>{iface.name} ({iface.status})</option>
-                    ))}
-                  </optgroup>
-                  {availableVlans.length > 0 && (
-                    <optgroup label="VLAN Interfaces">
-                      {availableVlans.map(vlan => (
-                        <option key={vlan.name} value={vlan.name}>{vlan.name} (VLAN {vlan.id} on {vlan.parent})</option>
-                      ))}
-                    </optgroup>
-                  )}
+                  {availableInterfaces.filter(i => !i.ip).map(iface => (
+                    <option key={iface.name} value={iface.name}>
+                      {iface.name} ({iface.type}) — NO IP
+                    </option>
+                  ))}
+                  {availableInterfaces.filter(i => !!i.ip).map(iface => (
+                    <option key={iface.name} value={iface.name}>
+                      {iface.name} ({iface.type}) — IP: {iface.ip}
+                    </option>
+                  ))}
                   <option value="custom">Custom (Type manually)</option>
                 </select>
               </div>
