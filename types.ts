@@ -495,12 +495,31 @@ export interface Voucher {
   used_by_ip: string | null;
   is_used: 0 | 1;
   created_by: string;
+  voucher_type: 'time_based' | 'monthly';
+  duration_days: number | null;
+  expires_at: string | null;
+  status: 'unused' | 'active' | 'expired' | 'consumed';
+  activated_at: string | null;
+  // Computed fields from API
+  remaining_days?: number;
+  remaining_hours?: number;
+  remaining_minutes?: number;
 }
 
 export interface VoucherGenerationRequest {
   amount: number;
   time_minutes: number;
   count: number;
+  voucher_type?: 'time_based' | 'monthly';
+  duration_days?: number;
+}
+
+export interface VoucherManualCreateRequest {
+  code: string;
+  amount: number;
+  time_minutes: number;
+  voucher_type?: 'time_based' | 'monthly';
+  duration_days?: number;
 }
 
 export interface VoucherActivationRequest {

@@ -617,22 +617,6 @@ app.post('/api/admin/custom-themes', requireAdmin, async (req, res) => {
 });
 
 // COMPANY SETTINGS API
-const brandingStorage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const dir = 'uploads/branding/';
-    if (!fs.existsSync(dir)){
-        fs.mkdirSync(dir, { recursive: true });
-    }
-    cb(null, dir);
-  },
-  filename: function (req, file, cb) {
-    const ext = path.extname(file.originalname);
-    cb(null, 'logo-' + Date.now() + ext);
-  }
-});
-
-const uploadBranding = multer({ storage: brandingStorage });
-
 app.get('/api/settings/company', async (req, res) => {
   try {
     const data = await settings.getCompanySettings();
@@ -642,15 +626,24 @@ app.get('/api/settings/company', async (req, res) => {
   }
 });
 
-app.post('/api/settings/company', requireAdmin, uploadBranding.single('logo'), async (req, res) => {
+app.post('/api/settings/company', requireAdmin, async (req, res) => {
   try {
     const { companyName } = req.body;
     let logoPath = null;
-    
-    if (req.file) {
-      logoPath = '/uploads/branding/' + req.file.filename;
+
+    if (req.files && req.files.logo) {
+      const logo = req.files.logo;
+      const dir = path.join(__dirname, 'uploads', 'branding');
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      const ext = path.extname(logo.name);
+      const filename = 'logo-' + Date.now() + ext;
+      const filepath = path.join(dir, filename);
+      await logo.mv(filepath);
+      logoPath = '/uploads/branding/' + filename;
     }
-    
+
     const data = await settings.updateCompanySettings(companyName, logoPath);
     res.json(data);
   } catch (err) {
@@ -7174,60 +7167,67 @@ async function bootupRestore(isRestricted = false) {
 // Generate new vouchers (admin only)
 app.post('/api/vouchers/generate', requireAdmin, async (req, res) => {
   try {
-    const { amount, time_minutes, count = 1 } = req.body;
-    
+    const { amount, time_minutes, count = 1, voucher_type = 'time_based', duration_days } = req.body;
+
     // Validation
     if (!amount || amount <= 0) {
       return res.status(400).json({ error: 'Amount must be a positive number' });
     }
-    
+
     if (!time_minutes || time_minutes <= 0) {
       return res.status(400).json({ error: 'Time minutes must be a positive number' });
     }
-    
+
     if (!count || count <= 0 || count > 100) {
       return res.status(400).json({ error: 'Count must be between 1 and 100' });
     }
-    
+
+    if (voucher_type === 'monthly' && (!duration_days || duration_days <= 0)) {
+      return res.status(400).json({ error: 'Duration days is required for monthly vouchers' });
+    }
+
     const vouchers = [];
     const adminUser = req.adminUser || 'admin';
-    
+
     // Generate unique voucher codes
     const generatedCodes = new Set();
-    
+
     for (let i = 0; i < count; i++) {
       let code;
       let attempts = 0;
       const maxAttempts = 10;
-      
+
       // Ensure unique code generation
       do {
         code = `V${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
         attempts++;
-        
+
         if (attempts > maxAttempts) {
           throw new Error('Failed to generate unique voucher codes after maximum attempts');
         }
       } while (generatedCodes.has(code));
-      
+
       generatedCodes.add(code);
-      
+
       await db.run(
-        'INSERT INTO vouchers (code, amount, time_minutes, created_by) VALUES (?, ?, ?, ?)',
-        [code, amount, time_minutes, adminUser]
+        'INSERT INTO vouchers (code, amount, time_minutes, created_by, voucher_type, duration_days, status) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [code, amount, time_minutes, adminUser, voucher_type, duration_days || null, 'unused']
       );
-      
+
       vouchers.push({
         code,
         amount,
         time_minutes,
+        voucher_type,
+        duration_days: duration_days || null,
+        status: 'unused',
         created_at: new Date().toISOString()
       });
     }
-    
-    res.status(201).json({ 
-      success: true, 
-      vouchers, 
+
+    res.status(201).json({
+      success: true,
+      vouchers,
       message: `Successfully generated ${count} voucher(s)`,
       count: vouchers.length
     });
@@ -7240,12 +7240,100 @@ app.post('/api/vouchers/generate', requireAdmin, async (req, res) => {
   }
 });
 
+// Create manual voucher (admin only)
+app.post('/api/vouchers', requireAdmin, async (req, res) => {
+  try {
+    const { code, amount, time_minutes, voucher_type = 'time_based', duration_days } = req.body;
+
+    if (!code || typeof code !== 'string' || code.trim().length < 3) {
+      return res.status(400).json({ error: 'Voucher code must be at least 3 characters' });
+    }
+
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ error: 'Amount must be a positive number' });
+    }
+
+    if (!time_minutes || time_minutes <= 0) {
+      return res.status(400).json({ error: 'Time minutes must be a positive number' });
+    }
+
+    if (voucher_type === 'monthly' && (!duration_days || duration_days <= 0)) {
+      return res.status(400).json({ error: 'Duration days is required for monthly vouchers' });
+    }
+
+    const adminUser = req.adminUser || 'admin';
+    const cleanCode = code.trim().toUpperCase();
+
+    // Check if code already exists
+    const existing = await db.get('SELECT id FROM vouchers WHERE code = ?', [cleanCode]);
+    if (existing) {
+      return res.status(409).json({ error: 'Voucher code already exists' });
+    }
+
+    const result = await db.run(
+      'INSERT INTO vouchers (code, amount, time_minutes, created_by, voucher_type, duration_days, status) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [cleanCode, amount, time_minutes, adminUser, voucher_type, duration_days || null, 'unused']
+    );
+
+    res.status(201).json({
+      success: true,
+      voucher: {
+        id: result.lastID,
+        code: cleanCode,
+        amount,
+        time_minutes,
+        voucher_type,
+        duration_days: duration_days || null,
+        status: 'unused',
+        created_by: adminUser,
+        created_at: new Date().toISOString()
+      },
+      message: 'Voucher created successfully'
+    });
+  } catch (err) {
+    console.error('[VOUCHER] Manual create error:', err);
+    res.status(500).json({
+      error: 'Failed to create voucher',
+      message: err.message
+    });
+  }
+});
+
 // Get all vouchers (admin only)
 app.get('/api/vouchers', async (req, res) => {
   try {
     const vouchers = await db.all(
-      'SELECT id, code, amount, time_minutes, created_at, used_at, used_by_mac, used_by_ip, is_used, created_by FROM vouchers ORDER BY created_at DESC'
+      `SELECT id, code, amount, time_minutes, created_at, used_at, used_by_mac, used_by_ip, is_used, created_by,
+              voucher_type, duration_days, expires_at, status, activated_at
+       FROM vouchers ORDER BY created_at DESC`
     );
+
+    // Compute dynamic status for monthly vouchers
+    const now = new Date();
+    for (const v of vouchers) {
+      if (v.voucher_type === 'monthly' && v.status === 'active' && v.expires_at) {
+        const expires = new Date(v.expires_at);
+        if (expires <= now) {
+          v.status = 'expired';
+        }
+      }
+      // Calculate remaining time/days
+      if (v.voucher_type === 'monthly' && v.expires_at) {
+        const expires = new Date(v.expires_at);
+        const diffMs = expires.getTime() - now.getTime();
+        v.remaining_days = diffMs > 0 ? Math.ceil(diffMs / (1000 * 60 * 60 * 24)) : 0;
+        v.remaining_hours = diffMs > 0 ? Math.ceil(diffMs / (1000 * 60 * 60)) : 0;
+      } else if (v.voucher_type === 'time_based' && v.is_used === 1) {
+        // For time-based, try to get current session remaining time for the MAC
+        if (v.used_by_mac) {
+          const session = await db.get('SELECT remaining_seconds FROM sessions WHERE mac = ?', [v.used_by_mac]);
+          v.remaining_minutes = session && session.remaining_seconds > 0 ? Math.floor(session.remaining_seconds / 60) : 0;
+        } else {
+          v.remaining_minutes = 0;
+        }
+      }
+    }
+
     res.json(vouchers);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -7302,7 +7390,10 @@ app.post('/api/vouchers/activate', async (req, res) => {
       });
     }
     
-    const seconds = voucher.time_minutes * 60;
+    const isMonthly = voucher.voucher_type === 'monthly';
+    const seconds = isMonthly
+      ? (voucher.duration_days || 30) * 86400
+      : voucher.time_minutes * 60;
     const amount = voucher.amount;
     
     const existingSessionForMac = await db.get('SELECT * FROM sessions WHERE mac = ?', [mac]);
@@ -7382,10 +7473,23 @@ app.post('/api/vouchers/activate', async (req, res) => {
     }
     
     // Mark voucher as used
-    await db.run(
-      'UPDATE vouchers SET is_used = 1, used_at = CURRENT_TIMESTAMP, used_by_mac = ?, used_by_ip = ? WHERE id = ?',
-      [mac, clientIp, voucher.id]
-    );
+    if (isMonthly) {
+      const durationDays = voucher.duration_days || 30;
+      await db.run(
+        `UPDATE vouchers SET is_used = 1, used_at = CURRENT_TIMESTAMP, used_by_mac = ?, used_by_ip = ?,
+                status = 'active', activated_at = CURRENT_TIMESTAMP,
+                expires_at = datetime('now', '+${durationDays} days')
+         WHERE id = ?`,
+        [mac, clientIp, voucher.id]
+      );
+    } else {
+      await db.run(
+        `UPDATE vouchers SET is_used = 1, used_at = CURRENT_TIMESTAMP, used_by_mac = ?, used_by_ip = ?,
+                status = 'consumed', activated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [mac, clientIp, voucher.id]
+      );
+    }
     
     console.log(`[VOUCHER] Voucher ${code} activated for ${mac} (${clientIp}) - ${seconds}s, ₱${amount}`);
     

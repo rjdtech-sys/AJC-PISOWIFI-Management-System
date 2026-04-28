@@ -1087,7 +1087,7 @@ export const apiClient = {
 
   async getCompanySettings(): Promise<{ companyName: string, companyLogo: string | null }> {
     const res = await fetch(`${API_BASE}/settings/company`);
-    return res.json();
+    return handleResponse(res);
   },
 
   async updateCompanySettings(formData: FormData): Promise<{ companyName: string, companyLogo: string | null }> {
@@ -1100,7 +1100,7 @@ export const apiClient = {
       headers: headers,
       body: formData
     });
-    return res.json();
+    return handleResponse(res);
   }
   ,
   async getMikrotikRouters(): Promise<MikrotikRouter[]> {
@@ -1305,6 +1305,16 @@ export const apiClient = {
     const res = await fetch(`${API_BASE}/admin/audio-files`, { headers: getHeaders() });
     const data = await handleResponse(res);
     return data.files || [];
+  },
+
+  // Voucher APIs
+  async createVoucher(payload: { code: string; amount: number; time_minutes: number; voucher_type?: 'time_based' | 'monthly'; duration_days?: number }): Promise<{ success: boolean; voucher: any; message: string }> {
+    const res = await fetch(`${API_BASE}/vouchers`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(payload)
+    });
+    return handleResponse(res);
   },
 
   // Employee Management APIs
