@@ -387,6 +387,39 @@ const MultiWanSettings: React.FC = () => {
                 </div>
               ) : (
                 <div className="space-y-3">
+                  {/* Current System WAN */}
+                  {defaultWan && !wans.find(w => w.name === defaultWan) && (
+                    <div className="flex items-center justify-between p-4 bg-amber-50 border border-amber-200 rounded-xl shadow-sm">
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 bg-amber-100 rounded-lg flex items-center justify-center font-black text-xs uppercase text-amber-700">
+                          UP
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-black text-sm text-slate-800 uppercase">{defaultWan}</span>
+                            <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">
+                              CURRENT WAN
+                            </span>
+                            <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">
+                              SYSTEM
+                            </span>
+                          </div>
+                          <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                            IP: {availableInterfaces.find(i => i.name === defaultWan)?.ip || 'Detecting...'}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={handleConfigureDefaultWan}
+                          className="text-[10px] font-black uppercase tracking-widest bg-amber-500 text-white px-4 py-1.5 rounded-lg hover:bg-amber-600 transition-colors"
+                        >
+                          Configure
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {wans.map((wan) => (
                     <div key={wan.id} className={`flex items-center justify-between p-4 bg-white border rounded-xl shadow-sm hover:border-blue-200 transition-colors ${defaultWan === wan.name ? 'border-amber-300 bg-amber-50/30' : 'border-slate-200'}`}>
                       <div className="flex items-center gap-4">
