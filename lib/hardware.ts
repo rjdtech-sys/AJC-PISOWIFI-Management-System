@@ -12,7 +12,7 @@ import * as fs from 'fs';
  */
 export function getHardwareSerial(): string | null {
   try {
-    // First, try to read /proc/cpuinfo directly
+    // ======= Source 1: /proc/cpuinfo Serial field (Raspberry Pi) =======
     if (fs.existsSync('/proc/cpuinfo')) {
       const cpuInfo = fs.readFileSync('/proc/cpuinfo', 'utf-8');
       
@@ -31,17 +31,77 @@ export function getHardwareSerial(): string | null {
       }
     }
     
-    // Fallback: Try using command line
-    const output = execSync('cat /proc/cpuinfo 2>/dev/null || echo "N/A"', { 
-      encoding: 'utf-8' 
-    });
-    
-    const serialMatch = output.match(/^Serial\s*:\s*([0-9a-fA-F]+)$/m);
-    if (serialMatch && serialMatch[1]) {
-      return serialMatch[1].trim();
+    // ======= Source 2: Device tree serial number (ARM boards) =======
+    const dtPaths = [
+      '/sys/firmware/devicetree/base/serial-number',
+      '/proc/device-tree/serial-number'
+    ];
+    for (const dtPath of dtPaths) {
+      if (fs.existsSync(dtPath)) {
+        try {
+          const serial = fs.readFileSync(dtPath, 'utf-8').replace(/\0/g, '').trim();
+          if (serial && /^[0-9a-fA-F]+$/.test(serial)) {
+            return serial;
+          }
+        } catch (e) {}
+      }
+    }
+
+    // ======= Source 3: DMI product UUID (x86 / Chromebox) =======
+    const dmiPath = '/sys/class/dmi/id/product_uuid';
+    if (fs.existsSync(dmiPath)) {
+      try {
+        const uuid = fs.readFileSync(dmiPath, 'utf-8').trim();
+        if (uuid && uuid !== 'None' && uuid !== 'To Be Filled By O.E.M.') {
+          return uuid.replace(/-/g, '');
+        }
+      } catch (e) {
+        // DMI product_uuid requires root — try board serial instead
+      }
+    }
+    // Try DMI board serial as alternative
+    const dmiBoardPath = '/sys/class/dmi/id/board_serial';
+    if (fs.existsSync(dmiBoardPath)) {
+      try {
+        const serial = fs.readFileSync(dmiBoardPath, 'utf-8').trim();
+        if (serial && serial !== 'None' && serial !== 'To Be Filled By O.E.M.' && serial !== 'Default string') {
+          return serial.replace(/-/g, '');
+        }
+      } catch (e) {}
+    }
+
+    // ======= Source 4: Sunxi SID (Orange Pi Allwinner boards) =======
+    const sunxiPaths = [
+      '/sys/bus/sunxi_info/devices/sunxi_info/serial',
+      '/sys/class/sunxi_info/sys_info'
+    ];
+    for (const sunxiPath of sunxiPaths) {
+      if (fs.existsSync(sunxiPath)) {
+        try {
+          const content = fs.readFileSync(sunxiPath, 'utf-8').trim();
+          const sidMatch = content.match(/([0-9a-fA-F]{16,})/);
+          if (sidMatch) return sidMatch[1];
+        } catch (e) {}
+      }
+    }
+
+    // ======= Source 5: machine-id (universal Linux fallback) =======
+    const machineIdPaths = [
+      '/etc/machine-id',
+      '/var/lib/dbus/machine-id'
+    ];
+    for (const mIdPath of machineIdPaths) {
+      if (fs.existsSync(mIdPath)) {
+        try {
+          const mId = fs.readFileSync(mIdPath, 'utf-8').trim();
+          if (mId && mId.length >= 32) {
+            return mId;
+          }
+        } catch (e) {}
+      }
     }
     
-    console.warn('[Hardware] Could not extract serial from /proc/cpuinfo');
+    console.warn('[Hardware] Could not extract serial from any source');
     return null;
   } catch (error) {
     console.error('[Hardware] Error extracting hardware serial:', error);

@@ -6873,8 +6873,31 @@ async function applyMultiWanConfig(config) {
         await run('iptables -t mangle -F AJC_MULTIWAN');
         await run('iptables -t mangle -D PREROUTING -j AJC_MULTIWAN');
 
-        // If disabled or single topology, stop here after cleanup
-        if (!config.enabled || config.topology === 'single') return;
+        // Also cleanup any PCC ip rules and routing tables
+        for (let mark = 1; mark <= 10; mark++) {
+          const tableId = 100 + mark;
+          while (true) {
+            try { await execPromise(`ip rule del fwmark ${mark} table ${tableId}`); } catch(e) { break; }
+          }
+          await run(`ip route flush table ${tableId}`);
+        }
+
+        // If disabled or single topology, restore simple default route and stop
+        if (!config.enabled || config.topology === 'single') {
+          // Restore default route through the single active WAN
+          try {
+            const activeWan = await db.get('SELECT * FROM wan_interfaces WHERE enabled = 1 LIMIT 1');
+            if (activeWan) {
+              const gw = activeWan.gateway || await network.getWanGateway(activeWan.name);
+              if (gw) {
+                await run(`ip route replace default via ${gw} dev ${activeWan.name}`);
+                await run('ip route flush cache');
+                console.log(`[MultiWAN] Restored single default route via ${gw} dev ${activeWan.name}`);
+              }
+            }
+          } catch (e) {}
+          return;
+        }
 
         // Pull from wan_interfaces table if available, otherwise fallback to config.interfaces
         let ifaces = config.interfaces || [];
