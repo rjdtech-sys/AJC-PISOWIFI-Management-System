@@ -4890,11 +4890,41 @@ app.post('/api/portal/config', requireAdmin, async (req, res) => {
 
 app.post('/api/system/reset', requireAdmin, async (req, res) => {
   try {
-    // Reset database to default empty state only
-    await db.factoryResetDB();
+    console.log('[System] Factory Reset initiated - wiping all data, network, and settings...');
 
-    res.json({ success: true, message: 'Database reset complete. All tables restored to default empty state.' });
+    // 1. Reset database to default empty state
+    await db.factoryResetDB();
+    console.log('[System] Database reset complete.');
+
+    // 2. Cleanup all network settings (stop services, remove configs, flush firewall, clear leases)
+    await network.cleanupAllNetworkSettings();
+    console.log('[System] Network settings cleanup complete.');
+
+    // 3. Remove uploaded files (wallpapers, audio, branding)
+    const uploadsDir = path.join(__dirname, 'uploads');
+    for (const subdir of ['wallpapers', 'audio', 'branding']) {
+      const dir = path.join(uploadsDir, subdir);
+      if (fs.existsSync(dir)) {
+        const files = fs.readdirSync(dir);
+        for (const file of files) {
+          const filePath = path.join(dir, file);
+          try {
+            if (fs.statSync(filePath).isFile()) fs.unlinkSync(filePath);
+          } catch (e) { console.warn(`[System] Failed to delete ${filePath}:`, e.message); }
+        }
+      }
+    }
+    console.log('[System] Uploaded files cleanup complete.');
+
+    // 4. Clear sync queue
+    const syncQueuePath = path.join(__dirname, 'data', 'sync-queue.json');
+    try {
+      if (fs.existsSync(syncQueuePath)) fs.writeFileSync(syncQueuePath, '[]');
+    } catch (e) { console.warn('[System] Failed to clear sync queue:', e.message); }
+
+    res.json({ success: true, message: 'Factory reset complete. All databases, network settings, and configurations have been wiped. A system reboot is recommended.' });
   } catch (err) {
+    console.error('[System] Factory Reset Error:', err);
     res.status(500).json({ error: err.message });
   }
 });

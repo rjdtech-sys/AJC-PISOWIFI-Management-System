@@ -85,7 +85,15 @@ const SystemSettings: React.FC = () => {
     
     try {
       await apiClient.factoryReset();
-      alert('Database reset complete. All tables restored to default empty state. The page will now reload.');
+      alert('Factory reset complete. All databases, network settings, and configurations have been wiped. The system will now reboot.');
+      // Trigger a hard reboot after factory reset
+      try {
+        await fetch('/api/system/restart', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('ajc_admin_token')}` },
+          body: JSON.stringify({ type: 'hard' })
+        });
+      } catch (e) {}
       window.location.reload();
     } catch (e: any) {
       console.error('Reset fetch error:', e);
@@ -273,7 +281,7 @@ const SystemSettings: React.FC = () => {
             <div className="flex-1">
               <h4 className="text-xs font-black text-red-900 uppercase">Factory Reset System</h4>
               <p className="text-[9px] text-red-700/70 font-bold mt-1 uppercase tracking-tight">
-                Wipe all configurations and user sessions. This action is irreversible.
+                Wipe all databases, network settings, uploaded files, and configurations. This action is irreversible. System will reboot.
               </p>
             </div>
             <button 
@@ -372,7 +380,7 @@ const SystemSettings: React.FC = () => {
       {isResetting && (
         <div className="fixed inset-0 z-[300] bg-slate-900 flex flex-col items-center justify-center p-8 text-center">
           <div className="w-12 h-12 border-4 border-white/20 border-t-white rounded-full animate-spin mb-4"></div>
-          <p className="text-white font-black text-[10px] uppercase tracking-widest">Restoring Kernel State...</p>
+          <p className="text-white font-black text-[10px] uppercase tracking-widest">Factory Reset in Progress...</p>
         </div>
       )}
     </div>
