@@ -4,6 +4,7 @@ import { WanInterface } from '../../types';
 
 interface MultiWanConfig {
   enabled: boolean;
+  topology: 'single' | 'multi';
   mode: 'pcc' | 'ecmp';
   pcc_method: 'both_addresses' | 'both_addresses_ports';
 }
@@ -18,6 +19,7 @@ interface NetworkIface {
 const MultiWanSettings: React.FC = () => {
   const [config, setConfig] = useState<MultiWanConfig>({
     enabled: false,
+    topology: 'single',
     mode: 'pcc',
     pcc_method: 'both_addresses'
   });
@@ -26,6 +28,10 @@ const MultiWanSettings: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [availableInterfaces, setAvailableInterfaces] = useState<NetworkIface[]>([]);
   const [defaultWan, setDefaultWan] = useState<string | null>(null);
+  const [speedResults, setSpeedResults] = useState<Record<number, { ping_ms: number | null; speed_mbps: number | null }>>({});
+  const [testingSpeed, setTestingSpeed] = useState<number | null>(null);
+  const [defaultWanSpeed, setDefaultWanSpeed] = useState<{ ping_ms: number | null; speed_mbps: number | null } | null>(null);
+  const [testingDefaultSpeed, setTestingDefaultSpeed] = useState(false);
 
   // Modals
   const [showAddModal, setShowAddModal] = useState(false);
@@ -59,6 +65,7 @@ const MultiWanSettings: React.FC = () => {
       if (data.success && data.config) {
         setConfig({
           enabled: data.config.enabled,
+          topology: data.config.topology || 'single',
           mode: data.config.mode,
           pcc_method: data.config.pcc_method
         });
@@ -139,6 +146,17 @@ const MultiWanSettings: React.FC = () => {
       return;
     }
     try {
+      const selectedIface = availableInterfaces.find(i => i.name === addForm.name);
+      const isVlan = selectedIface?.type === 'vlan' ? 1 : 0;
+      let vlan_parent = null;
+      let vlan_id = null;
+      if (isVlan && addForm.name) {
+        const lastDot = addForm.name.lastIndexOf('.');
+        if (lastDot > 0) {
+          vlan_parent = addForm.name.substring(0, lastDot);
+          vlan_id = parseInt(addForm.name.substring(lastDot + 1), 10);
+        }
+      }
       const payload = {
         name: addForm.name!,
         type: addForm.type!,
@@ -146,7 +164,9 @@ const MultiWanSettings: React.FC = () => {
         gateway: addForm.gateway || null,
         weight: addForm.weight || 1,
         enabled: addForm.enabled ?? 1,
-        is_vlan: availableInterfaces.find(i => i.name === addForm.name)?.type === 'vlan' ? 1 : 0
+        is_vlan: isVlan,
+        vlan_parent,
+        vlan_id
       };
       await apiClient.createWanInterface(payload);
       setShowAddModal(false);
@@ -210,6 +230,34 @@ const MultiWanSettings: React.FC = () => {
       fetchWans();
     } catch (e: any) {
       alert('Failed to apply: ' + e.message);
+    }
+  };
+
+  const testWanSpeed = async (id: number) => {
+    setTestingSpeed(id);
+    try {
+      const data = await apiClient.getWanInterfaceSpeed(id);
+      if (data.success && data.speed) {
+        setSpeedResults(prev => ({ ...prev, [id]: data.speed }));
+      }
+    } catch (e: any) {
+      console.error('Speed test failed:', e);
+    } finally {
+      setTestingSpeed(null);
+    }
+  };
+
+  const testDefaultWanSpeed = async (iface: string) => {
+    setTestingDefaultSpeed(true);
+    try {
+      const data = await apiClient.getInterfaceSpeedByName(iface);
+      if (data.success && data.speed) {
+        setDefaultWanSpeed(data.speed);
+      }
+    } catch (e: any) {
+      console.error('Default WAN speed test failed:', e);
+    } finally {
+      setTestingDefaultSpeed(false);
     }
   };
 
@@ -339,8 +387,8 @@ const MultiWanSettings: React.FC = () => {
           <p className="text-slate-500 font-bold text-xs uppercase tracking-widest mt-1">ISP Interfaces, Load Balancing & Failover</p>
         </div>
         <div className="flex items-center gap-3">
-          <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${config.enabled ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
-            {config.enabled ? 'Load Balancing Active' : 'Disabled'}
+          <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${config.topology === 'multi' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
+            {config.topology === 'multi' ? 'Multi-WAN Mode' : 'Single WAN Mode'}
           </div>
         </div>
       </div>
@@ -367,6 +415,40 @@ const MultiWanSettings: React.FC = () => {
               </button>
             </div>
           )}
+
+          {/* WAN Mode Selector */}
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+            <div className="p-6 border-b border-slate-100 bg-slate-50/50">
+              <h3 className="font-black text-slate-800 uppercase tracking-widest text-sm">WAN Topology</h3>
+            </div>
+            <div className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <button
+                  onClick={() => setConfig({ ...config, topology: 'single', enabled: false })}
+                  className={`p-4 rounded-xl border-2 text-left transition-all ${config.topology === 'single' ? 'border-blue-600 bg-blue-50' : 'border-slate-100 hover:border-slate-300'}`}
+                >
+                  <div className={`font-black text-sm uppercase ${config.topology === 'single' ? 'text-blue-700' : 'text-slate-700'}`}>Single WAN</div>
+                  <div className="text-[9px] font-bold text-slate-400 uppercase mt-1">Only one active WAN at a time. New WANs replace the current one.</div>
+                </button>
+                <button
+                  onClick={() => setConfig({ ...config, topology: 'multi', enabled: true, mode: 'ecmp' })}
+                  className={`p-4 rounded-xl border-2 text-left transition-all ${config.topology === 'multi' ? 'border-blue-600 bg-blue-50' : 'border-slate-100 hover:border-slate-300'}`}
+                >
+                  <div className={`font-black text-sm uppercase ${config.topology === 'multi' ? 'text-blue-700' : 'text-slate-700'}`}>Multi-WAN</div>
+                  <div className="text-[9px] font-bold text-slate-400 uppercase mt-1">Multiple active WANs with automatic ECMP load balancing.</div>
+                </button>
+              </div>
+              <div className="flex justify-end mt-4">
+                <button
+                  onClick={handleSaveConfig}
+                  disabled={saving}
+                  className="bg-blue-600 text-white px-6 py-2 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {saving ? 'Saving...' : 'Save Mode'}
+                </button>
+              </div>
+            </div>
+          </div>
 
           {/* WAN Interface Cards */}
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
@@ -407,9 +489,35 @@ const MultiWanSettings: React.FC = () => {
                           <div className="text-[10px] text-slate-500 font-mono mt-0.5">
                             IP: {availableInterfaces.find(i => i.name === defaultWan)?.ip || 'Detecting...'}
                           </div>
+                          {defaultWanSpeed && (
+                            <div className="flex items-center gap-2 mt-1">
+                              {defaultWanSpeed.ping_ms !== null && (
+                                <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">
+                                  {defaultWanSpeed.ping_ms}ms
+                                </span>
+                              )}
+                              {defaultWanSpeed.speed_mbps !== null && (
+                                <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-cyan-100 text-cyan-700">
+                                  {defaultWanSpeed.speed_mbps} Mbps
+                                </span>
+                              )}
+                              {defaultWanSpeed.ping_ms === null && defaultWanSpeed.speed_mbps === null && (
+                                <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">
+                                  No Internet
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => testDefaultWanSpeed(defaultWan!)}
+                          disabled={testingDefaultSpeed}
+                          className="text-[10px] font-black uppercase tracking-widest bg-purple-50 text-purple-600 px-3 py-1.5 rounded-lg hover:bg-purple-100 transition-colors disabled:opacity-50"
+                        >
+                          {testingDefaultSpeed ? '...' : 'Test'}
+                        </button>
                         <button
                           onClick={handleConfigureDefaultWan}
                           className="text-[10px] font-black uppercase tracking-widest bg-amber-500 text-white px-4 py-1.5 rounded-lg hover:bg-amber-600 transition-colors"
@@ -446,9 +554,35 @@ const MultiWanSettings: React.FC = () => {
                           <div className="text-[10px] text-slate-500 font-mono mt-0.5">
                             {wan.ip_address ? `IP: ${wan.ip_address}` : 'No IP'} &bull; GW: {wan.gateway || 'Auto'} &bull; Weight: {wan.weight}
                           </div>
+                          {speedResults[wan.id!] && (
+                            <div className="flex items-center gap-2 mt-1">
+                              {speedResults[wan.id!].ping_ms !== null && (
+                                <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">
+                                  {speedResults[wan.id!].ping_ms}ms
+                                </span>
+                              )}
+                              {speedResults[wan.id!].speed_mbps !== null && (
+                                <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-cyan-100 text-cyan-700">
+                                  {speedResults[wan.id!].speed_mbps} Mbps
+                                </span>
+                              )}
+                              {speedResults[wan.id!].ping_ms === null && speedResults[wan.id!].speed_mbps === null && (
+                                <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">
+                                  No Internet
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => testWanSpeed(wan.id!)}
+                          disabled={testingSpeed === wan.id}
+                          className="text-[10px] font-black uppercase tracking-widest bg-purple-50 text-purple-600 px-3 py-1.5 rounded-lg hover:bg-purple-100 transition-colors disabled:opacity-50"
+                        >
+                          {testingSpeed === wan.id ? '...' : 'Test'}
+                        </button>
                         <button
                           onClick={() => handleApplyWan(wan.id!)}
                           className="text-[10px] font-black uppercase tracking-widest bg-green-50 text-green-600 px-3 py-1.5 rounded-lg hover:bg-green-100 transition-colors"
@@ -475,69 +609,70 @@ const MultiWanSettings: React.FC = () => {
             </div>
           </div>
 
-          {/* Load Balancing Config */}
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-            <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-              <h3 className="font-black text-slate-800 uppercase tracking-widest text-sm">Load Balancing</h3>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input type="checkbox" checked={config.enabled} onChange={e => setConfig({...config, enabled: e.target.checked})} className="sr-only peer" />
-                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-              </label>
-            </div>
-            <div className="p-6 space-y-6">
-              <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Mode</label>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <button
-                    onClick={() => setConfig({...config, mode: 'pcc'})}
-                    className={`p-4 rounded-xl border-2 text-left transition-all ${config.mode === 'pcc' ? 'border-blue-600 bg-blue-50' : 'border-slate-100 hover:border-slate-300'}`}
-                  >
-                    <div className={`font-black text-sm uppercase ${config.mode === 'pcc' ? 'text-blue-700' : 'text-slate-700'}`}>PCC</div>
-                    <div className="text-[9px] font-bold text-slate-400 uppercase mt-1">Per Connection Classifier</div>
-                  </button>
-                  <button
-                    onClick={() => setConfig({...config, mode: 'ecmp'})}
-                    className={`p-4 rounded-xl border-2 text-left transition-all ${config.mode === 'ecmp' ? 'border-blue-600 bg-blue-50' : 'border-slate-100 hover:border-slate-300'}`}
-                  >
-                    <div className={`font-black text-sm uppercase ${config.mode === 'ecmp' ? 'text-blue-700' : 'text-slate-700'}`}>ECMP</div>
-                    <div className="text-[9px] font-bold text-slate-400 uppercase mt-1">Equal Cost Multi-Path</div>
-                  </button>
-                </div>
+          {config.topology === 'multi' && (
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+              <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+                <h3 className="font-black text-slate-800 uppercase tracking-widest text-sm">Load Balancing</h3>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input type="checkbox" checked={config.enabled} onChange={e => setConfig({...config, enabled: e.target.checked})} className="sr-only peer" />
+                  <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                </label>
               </div>
-
-              {config.mode === 'pcc' && (
-                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 animate-in fade-in">
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">PCC Classifier</label>
-                  <div className="space-y-2">
-                    <label className="flex items-center gap-3 p-3 bg-white rounded-lg border border-slate-200 cursor-pointer hover:border-blue-300 transition-colors">
-                      <input type="radio" name="pcc_method" checked={config.pcc_method === 'both_addresses'} onChange={() => setConfig({...config, pcc_method: 'both_addresses'})} className="text-blue-600 focus:ring-blue-500" />
-                      <div>
-                        <div className="font-bold text-xs text-slate-700 uppercase">Both Addresses</div>
-                        <div className="text-[9px] text-slate-400 font-medium">Src Address & Dst Address Hashing</div>
-                      </div>
-                    </label>
-                    <label className="flex items-center gap-3 p-3 bg-white rounded-lg border border-slate-200 cursor-pointer hover:border-blue-300 transition-colors">
-                      <input type="radio" name="pcc_method" checked={config.pcc_method === 'both_addresses_ports'} onChange={() => setConfig({...config, pcc_method: 'both_addresses_ports'})} className="text-blue-600 focus:ring-blue-500" />
-                      <div>
-                        <div className="font-bold text-xs text-slate-700 uppercase">Both Addresses and Ports</div>
-                        <div className="text-[9px] text-slate-400 font-medium">Src/Dst Address & Port Hashing</div>
-                      </div>
-                    </label>
+              <div className="p-6 space-y-6">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Mode</label>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <button
+                      onClick={() => setConfig({...config, mode: 'pcc'})}
+                      className={`p-4 rounded-xl border-2 text-left transition-all ${config.mode === 'pcc' ? 'border-blue-600 bg-blue-50' : 'border-slate-100 hover:border-slate-300'}`}
+                    >
+                      <div className={`font-black text-sm uppercase ${config.mode === 'pcc' ? 'text-blue-700' : 'text-slate-700'}`}>PCC</div>
+                      <div className="text-[9px] font-bold text-slate-400 uppercase mt-1">Per Connection Classifier</div>
+                    </button>
+                    <button
+                      onClick={() => setConfig({...config, mode: 'ecmp'})}
+                      className={`p-4 rounded-xl border-2 text-left transition-all ${config.mode === 'ecmp' ? 'border-blue-600 bg-blue-50' : 'border-slate-100 hover:border-slate-300'}`}
+                    >
+                      <div className={`font-black text-sm uppercase ${config.mode === 'ecmp' ? 'text-blue-700' : 'text-slate-700'}`}>ECMP</div>
+                      <div className="text-[9px] font-bold text-slate-400 uppercase mt-1">Equal Cost Multi-Path</div>
+                    </button>
                   </div>
                 </div>
-              )}
 
-              <div className="flex justify-end">
-                <button
-                  onClick={handleSaveConfig}
-                  disabled={saving}
-                  className="bg-blue-600 text-white px-8 py-3 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {saving ? 'Saving...' : 'Save Load Balancing'}
-                </button>
+                {config.mode === 'pcc' && (
+                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 animate-in fade-in">
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">PCC Classifier</label>
+                    <div className="space-y-2">
+                      <label className="flex items-center gap-3 p-3 bg-white rounded-lg border border-slate-200 cursor-pointer hover:border-blue-300 transition-colors">
+                        <input type="radio" name="pcc_method" checked={config.pcc_method === 'both_addresses'} onChange={() => setConfig({...config, pcc_method: 'both_addresses'})} className="text-blue-600 focus:ring-blue-500" />
+                        <div>
+                          <div className="font-bold text-xs text-slate-700 uppercase">Both Addresses</div>
+                          <div className="text-[9px] text-slate-400 font-medium">Src Address & Dst Address Hashing</div>
+                        </div>
+                      </label>
+                      <label className="flex items-center gap-3 p-3 bg-white rounded-lg border border-slate-200 cursor-pointer hover:border-blue-300 transition-colors">
+                        <input type="radio" name="pcc_method" checked={config.pcc_method === 'both_addresses_ports'} onChange={() => setConfig({...config, pcc_method: 'both_addresses_ports'})} className="text-blue-600 focus:ring-blue-500" />
+                        <div>
+                          <div className="font-bold text-xs text-slate-700 uppercase">Both Addresses and Ports</div>
+                          <div className="text-[9px] text-slate-400 font-medium">Src/Dst Address & Port Hashing</div>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex justify-end">
+                  <button
+                    onClick={handleSaveConfig}
+                    disabled={saving}
+                    className="bg-blue-600 text-white px-8 py-3 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {saving ? 'Saving...' : 'Save Load Balancing'}
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* Sidebar */}
@@ -556,6 +691,10 @@ const MultiWanSettings: React.FC = () => {
               <p>
                 <strong className="block text-indigo-200 mb-1 uppercase text-[10px]">VLAN Interfaces</strong>
                 Existing VLANs appear in the Add WAN dropdown so you can use them as WAN.
+              </p>
+              <p>
+                <strong className="block text-indigo-200 mb-1 uppercase text-[10px]">Single vs Multi-WAN</strong>
+                Single WAN uses one active interface at a time. Multi-WAN enables load balancing across all active interfaces.
               </p>
               <p>
                 <strong className="block text-indigo-200 mb-1 uppercase text-[10px]">Load Balancing</strong>

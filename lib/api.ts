@@ -398,6 +398,16 @@ export const apiClient = {
     return handleResponse(res);
   },
 
+  async getWanInterfaceSpeed(id: number): Promise<{ success: boolean; speed: { ping_ms: number | null; speed_mbps: number | null } }> {
+    const res = await fetch(`${API_BASE}/multiwan/wans/${id}/speed`, { headers: getHeaders() });
+    return handleResponse(res);
+  },
+
+  async getInterfaceSpeedByName(name: string): Promise<{ success: boolean; speed: { ping_ms: number | null; speed_mbps: number | null } }> {
+    const res = await fetch(`${API_BASE}/network/interface/${encodeURIComponent(name)}/speed`, { headers: getHeaders() });
+    return handleResponse(res);
+  },
+
   async getDefaultWan(): Promise<{ success: boolean; interface: string | null }> {
     const res = await fetch(`${API_BASE}/network/default-wan`, { headers: getHeaders() });
     return handleResponse(res);

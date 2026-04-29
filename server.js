@@ -4890,61 +4890,10 @@ app.post('/api/portal/config', requireAdmin, async (req, res) => {
 
 app.post('/api/system/reset', requireAdmin, async (req, res) => {
   try {
+    // Reset database to default empty state only
     await db.factoryResetDB();
-    await network.cleanupAllNetworkSettings();
-    
-    // Clear uploads directory
-    const uploadsDir = path.join(__dirname, 'uploads');
-    if (fs.existsSync(uploadsDir)) {
-        console.log('[System] Cleaning uploads directory...');
-        try {
-            fs.rmSync(uploadsDir, { recursive: true, force: true });
-            fs.mkdirSync(path.join(uploadsDir, 'audio'), { recursive: true });
-        } catch (e) {
-            console.error('[System] Failed to clean uploads:', e.message);
-        }
-    }
 
-    // Additional System Cleanup for Image Preparation
-    try {
-        console.log('[System] Performing deep system cleanup...');
-        
-        // 1. PM2 and Logs
-        await execPromise('pm2 flush').catch(() => {});
-        await execPromise('journalctl --vacuum-time=1s').catch(() => {});
-        await execPromise('rm -rf ~/.pm2/logs/*').catch(() => {});
-        
-        // 2. Shell History (for all users)
-        await execPromise('rm -f /root/.bash_history').catch(() => {});
-        await execPromise('rm -f /home/*/.bash_history').catch(() => {});
-        
-        // 3. ZeroTier Identity (so cloned images get new IDs)
-        if (fs.existsSync('/var/lib/zerotier-one')) {
-             await execPromise('rm -f /var/lib/zerotier-one/identity.secret').catch(() => {});
-             await execPromise('rm -f /var/lib/zerotier-one/identity.public').catch(() => {});
-             await execPromise('rm -rf /var/lib/zerotier-one/networks.d/*').catch(() => {});
-        }
-
-        // 4. DHCP Client Leases (if any)
-        await execPromise('rm -f /var/lib/dhcp/*').catch(() => {});
-        await execPromise('rm -f /var/lib/dhcpcd/*').catch(() => {});
-        
-    } catch (e) {
-        console.error('[System] Cleanup warning:', e.message);
-    }
-
-    // Send success response first
-    res.json({ success: true, message: 'System reset complete. Rebooting now...' });
-    
-    // Trigger reboot to ensure fresh state
-    console.log('[System] Factory reset completed. Initiating reboot...');
-    setTimeout(() => {
-        exec('sudo reboot', (error) => {
-            if (error) {
-                console.error(`[System] Reboot failed: ${error.message}`);
-            }
-        });
-    }, 3000);
+    res.json({ success: true, message: 'Database reset complete. All tables restored to default empty state.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -5227,6 +5176,15 @@ app.get('/api/network/default-wan', requireAdmin, async (req, res) => {
   try {
     const defaultWan = await network.getDefaultRouteInterface();
     res.json({ success: true, interface: defaultWan });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/network/interface/:name/speed', requireAdmin, async (req, res) => {
+  try {
+    const name = req.params.name;
+    if (!name) return res.status(400).json({ error: 'Interface name required' });
+    const speed = await network.getWanSpeed(name);
+    res.json({ success: true, speed });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -6850,6 +6808,7 @@ app.get('/api/multiwan/config', requireAdmin, async (req, res) => {
   try {
     const config = await db.get('SELECT * FROM multi_wan_config WHERE id = 1');
     if (config) {
+      config.topology = config.topology || 'single';
       config.interfaces = JSON.parse(config.interfaces || '[]');
       config.enabled = !!config.enabled;
     }
@@ -6859,14 +6818,14 @@ app.get('/api/multiwan/config', requireAdmin, async (req, res) => {
 
 app.post('/api/multiwan/config', requireAdmin, async (req, res) => {
   try {
-    const { enabled, mode, pcc_method, interfaces } = req.body;
+    const { enabled, mode, pcc_method, interfaces, topology } = req.body;
     await db.run(
-      'UPDATE multi_wan_config SET enabled = ?, mode = ?, pcc_method = ?, interfaces = ? WHERE id = 1',
-      [enabled ? 1 : 0, mode, pcc_method, JSON.stringify(interfaces)]
+      'UPDATE multi_wan_config SET enabled = ?, topology = ?, mode = ?, pcc_method = ?, interfaces = ? WHERE id = 1',
+      [enabled ? 1 : 0, topology || 'single', mode, pcc_method, JSON.stringify(interfaces)]
     );
     
     // Apply changes
-    await applyMultiWanConfig({ enabled, mode, pcc_method, interfaces });
+    await applyMultiWanConfig({ enabled, mode, pcc_method, interfaces, topology });
     
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -6874,7 +6833,7 @@ app.post('/api/multiwan/config', requireAdmin, async (req, res) => {
 
 async function applyMultiWanConfig(config) {
     try {
-        console.log('[MultiWAN] Applying configuration...', config.mode);
+        console.log('[MultiWAN] Applying configuration...', config.mode, 'topology:', config.topology);
 
         const run = async (cmd) => {
             try { await execPromise(cmd); } catch (e) { /* ignore */ }
@@ -6884,8 +6843,8 @@ async function applyMultiWanConfig(config) {
         await run('iptables -t mangle -F AJC_MULTIWAN');
         await run('iptables -t mangle -D PREROUTING -j AJC_MULTIWAN');
 
-        // If disabled, stop here
-        if (!config.enabled) return;
+        // If disabled or single topology, stop here after cleanup
+        if (!config.enabled || config.topology === 'single') return;
 
         // Pull from wan_interfaces table if available, otherwise fallback to config.interfaces
         let ifaces = config.interfaces || [];
@@ -6913,10 +6872,10 @@ async function applyMultiWanConfig(config) {
             await run('iptables -t mangle -A AJC_MULTIWAN -j CONNMARK --restore-mark');
             await run('iptables -t mangle -A AJC_MULTIWAN -m mark ! --mark 0 -j RETURN');
             
-            ifaces.forEach(async (iface, idx) => {
+            for (let idx = 0; idx < ifaces.length; idx++) {
+                 const iface = ifaces[idx];
                  const mark = idx + 1;
                  const every = ifaces.length;
-                 const packet = idx;
                  
                  // Apply Mark using Nth statistic (Simulating Load Balancing)
                  // This covers "Both Addresses" intent by balancing connections
@@ -6935,14 +6894,14 @@ async function applyMultiWanConfig(config) {
                  }
                  await run(`ip rule add fwmark ${mark} table ${tableId}`);
                  await run(`ip route add default via ${iface.gateway} dev ${iface.interface} table ${tableId}`);
-            });
+            }
             
         } else {
             // ECMP Logic
             let routeCmd = 'ip route replace default scope global';
-            ifaces.forEach(iface => {
+            for (const iface of ifaces) {
                 routeCmd += ` nexthop via ${iface.gateway} dev ${iface.interface} weight ${iface.weight}`;
-            });
+            }
             await run(routeCmd);
         }
         
@@ -6988,6 +6947,28 @@ app.post('/api/multiwan/wans', requireAdmin, async (req, res) => {
 
     // Apply config to OS if enabled
     if (newWan.enabled) {
+      const mwConfig = await db.get('SELECT topology FROM multi_wan_config WHERE id = 1');
+      const topology = mwConfig?.topology || 'single';
+
+      if (topology === 'single') {
+        // Disable all other WANs and remove their OS config
+        const otherWans = await db.all('SELECT * FROM wan_interfaces WHERE id != ?', [newWan.id]);
+        for (const ow of otherWans) {
+          await db.run('UPDATE wan_interfaces SET enabled = 0 WHERE id = ?', [ow.id]);
+          await network.removeWanConfig(ow.name);
+        }
+      } else if (topology === 'multi') {
+        // Auto-enable load balancing with ECMP if 2+ WANs are now enabled
+        const enabledWans = await db.all('SELECT * FROM wan_interfaces WHERE enabled = 1');
+        if (enabledWans.length >= 2) {
+          await db.run(
+            'UPDATE multi_wan_config SET enabled = 1, mode = ?, topology = ? WHERE id = 1',
+            ['ecmp', 'multi']
+          );
+          await applyMultiWanConfig({ enabled: true, mode: 'ecmp', pcc_method: 'both_addresses', interfaces: [], topology: 'multi' });
+        }
+      }
+
       await network.applyWanConfig(newWan);
     }
 
@@ -7043,6 +7024,20 @@ app.post('/api/multiwan/wans/:id/apply', requireAdmin, async (req, res) => {
     if (!wan) return res.status(404).json({ error: 'WAN interface not found' });
 
     wan.config = JSON.parse(wan.config || '{}');
+
+    const mwConfig = await db.get('SELECT topology FROM multi_wan_config WHERE id = 1');
+    const topology = mwConfig?.topology || 'single';
+
+    if (topology === 'single') {
+      // Ensure this WAN is enabled and disable all others
+      await db.run('UPDATE wan_interfaces SET enabled = 1 WHERE id = ?', [id]);
+      const otherWans = await db.all('SELECT * FROM wan_interfaces WHERE id != ?', [id]);
+      for (const ow of otherWans) {
+        await db.run('UPDATE wan_interfaces SET enabled = 0 WHERE id = ?', [ow.id]);
+        await network.removeWanConfig(ow.name);
+      }
+    }
+
     const result = await network.applyWanConfig(wan);
 
     // Update live status
@@ -7067,6 +7062,19 @@ app.get('/api/multiwan/wans/:id/status', requireAdmin, async (req, res) => {
       [status.status, status.ip, id]);
 
     res.json({ success: true, status });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/multiwan/wans/:id/speed', requireAdmin, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id || Number.isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+
+    const wan = await db.get('SELECT name FROM wan_interfaces WHERE id = ?', [id]);
+    if (!wan) return res.status(404).json({ error: 'WAN interface not found' });
+
+    const speed = await network.getWanSpeed(wan.name);
+    res.json({ success: true, speed });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -7211,6 +7219,7 @@ async function bootupRestore(isRestricted = false) {
     if (mwConfig && mwConfig.enabled) {
       mwConfig.interfaces = JSON.parse(mwConfig.interfaces || '[]');
       mwConfig.enabled = !!mwConfig.enabled;
+      mwConfig.topology = mwConfig.topology || 'single';
       console.log('[AJC] Restoring Multi-WAN Configuration...');
       await applyMultiWanConfig(mwConfig);
     }

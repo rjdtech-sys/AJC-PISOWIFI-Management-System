@@ -85,8 +85,8 @@ const SystemSettings: React.FC = () => {
     
     try {
       await apiClient.factoryReset();
-      alert('System successfully reset. The device will now reboot to restore fresh settings. Please wait about a minute before reconnecting.');
-      window.location.href = '/';
+      alert('Database reset complete. All tables restored to default empty state. The page will now reload.');
+      window.location.reload();
     } catch (e: any) {
       console.error('Reset fetch error:', e);
       alert('Reset failed: ' + (e.message || 'Unknown server error'));
