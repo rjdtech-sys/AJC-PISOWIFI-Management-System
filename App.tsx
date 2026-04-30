@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { AdminTab, UserSession, Rate, WifiDevice, NodeMCUDevice } from './types';
 import LandingPage from './components/Portal/LandingPage';
 import Analytics from './components/Admin/Analytics';
@@ -66,6 +66,26 @@ const App: React.FC = () => {
     companyName: 'AJC PISOWIFI',
     companyLogo: null
   });
+
+  const [systemVersion, setSystemVersion] = useState<string>('');
+
+  // Fetch system version on mount
+  useEffect(() => {
+    const fetchVersion = async () => {
+      try {
+        const token = localStorage.getItem('ajc_admin_token');
+        const headers: HeadersInit = {};
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const res = await fetch('/api/system/current-version', { headers });
+        if (res.ok) {
+          const data = await res.json();
+          const tag = data.version_name ? `v${data.version_name}-ONLINE-STABLE` : '';
+          setSystemVersion(tag);
+        }
+      } catch {}
+    };
+    fetchVersion();
+  }, []);
 
   useEffect(() => {
     if (isAdmin) {
@@ -458,7 +478,7 @@ const App: React.FC = () => {
                  <div className="flex flex-col gap-3">
                    <div className="flex items-center gap-2">
                       <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                      {sidebarOpen && <span className="text-slate-500 text-[9px] font-bold uppercase tracking-wider">v3.6.0-ONLINE-STABLE</span>}
+                      {sidebarOpen && <span className="text-slate-500 text-[9px] font-bold uppercase tracking-wider">{systemVersion || 'v3.6.0-ONLINE-STABLE'}</span>}
                    </div>
                    
                   {/* Mobile Exit Button */}
