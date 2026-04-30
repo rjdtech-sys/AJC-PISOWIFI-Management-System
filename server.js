@@ -5021,12 +5021,53 @@ async function applyUpdate(filePath, res) {
     const zip = new AdmZip(filePath);
     const zipEntries = zip.getEntries();
     
-    // Extract each entry unless it's the database
+    // Files and folders to exclude during update (database + data folder)
+    const updateExcludes = [
+        '.sqlite', '.sqlite-shm', '.sqlite-wal',  // All SQLite files
+        'data/',                                    // Data folder (local runtime data)
+    ];
+    
+    // Read UPDATE_MANIFEST.json before extraction to get version info
+    let manifestVersion = null;
+    let manifestVersionCode = null;
+    const manifestEntry = zipEntries.find(e => e.entryName === 'UPDATE_MANIFEST.json');
+    if (manifestEntry) {
+        try {
+            const manifestData = JSON.parse(manifestEntry.getData().toString());
+            manifestVersion = manifestData.version;
+            manifestVersionCode = manifestData.version_code;
+            console.log(`[System Update] Update manifest: v${manifestVersion} (code ${manifestVersionCode})`);
+        } catch (e) {
+            console.warn('[System Update] Could not parse UPDATE_MANIFEST.json:', e.message);
+        }
+    }
+
+    // Extract each entry unless it matches exclusion patterns
     zipEntries.forEach((entry) => {
-        if (entry.entryName !== 'pisowifi.sqlite' && !entry.entryName.includes('pisowifi.sqlite')) {
+        const entryPath = entry.entryName;
+        // Skip manifest file itself (not needed on target)
+        if (entryPath === 'UPDATE_MANIFEST.json') return;
+        const shouldExclude = updateExcludes.some(pattern => entryPath.includes(pattern));
+        if (!shouldExclude) {
             zip.extractEntryTo(entry, __dirname, true, true);
+        } else {
+            console.log(`[System Update] Skipping (protected): ${entryPath}`);
         }
     });
+
+    // Update metadata.json with new version from manifest
+    if (manifestVersion || manifestVersionCode) {
+        try {
+            const metaPath = path.join(__dirname, 'metadata.json');
+            const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+            if (manifestVersion) meta.version_name = manifestVersion;
+            if (manifestVersionCode) meta.version_code = manifestVersionCode;
+            fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+            console.log(`[System Update] Updated metadata.json → v${meta.version_name} (code ${meta.version_code})`);
+        } catch (e) {
+            console.warn('[System Update] Could not update metadata.json:', e.message);
+        }
+    }
     
     // Cleanup uploaded update package
     fs.unlinkSync(filePath);
@@ -5075,7 +5116,208 @@ app.post('/api/system/update', requireAdmin, uploadBackup.single('file'), async 
   await applyUpdate(req.file.path, res);
 });
 
+// Build update package from current system files
+app.post('/api/system/build-update', requireAdmin, async (req, res) => {
+  try {
+    const { version_name, version_code, mode = 'all', files: specificFiles, since_ref } = req.body;
+    if (!version_name) {
+      return res.status(400).json({ error: 'version_name is required' });
+    }
+
+    const zip = new AdmZip();
+    const projectRoot = __dirname;
+
+    // Exclusion rules - same as build-update.js
+    const excludePatterns = [
+      /\.sqlite$/, /\.sqlite-shm$/, /\.sqlite-wal$/,
+      /^data\//,
+      /^node_modules\//, /^dist\//, /^\.git\//,
+      /^uploads\//,
+      'package-lock.json',
+      '.env', '.env.local', '.env.production',
+      /^\.trae\//, /^\.qoder\//,
+      /\.apk$/,
+      /^firmware\//,
+      /\.log$/, /\.tmp$/,
+      /\.md$/,
+      /\.nxs$/,
+      'latest_release.json', 'update_release.json',
+    ];
+
+    // Inclusion rules
+    const includePatterns = [
+      'server.js', 'index.tsx', 'App.tsx', 'types.ts',
+      'metadata.json', 'package.json', 'tsconfig.json',
+      'vite.config.ts', 'index.html',
+      'lib/', 'components/', 'migrations/', 'supabase/',
+    ];
+
+    function isExcluded(fp) {
+      return excludePatterns.some(p => p instanceof RegExp ? p.test(fp) : fp === p || fp.startsWith(p + '/'));
+    }
+
+    function isIncluded(fp) {
+      return includePatterns.some(p => p.endsWith('/') ? fp.startsWith(p) || fp === p.slice(0, -1) : fp === p || fp.startsWith(p + '/'));
+    }
+
+    let filesToPackage = [];
+
+    if (mode === 'files' && specificFiles && Array.isArray(specificFiles)) {
+      filesToPackage = specificFiles;
+    } else if (mode === 'since' && since_ref) {
+      try {
+        const output = require('child_process').execSync(
+          `git diff --name-only ${since_ref}`,
+          { cwd: projectRoot, encoding: 'utf8' }
+        );
+        filesToPackage = output.trim().split('\n').filter(f => f.trim());
+      } catch (e) {
+        return res.status(400).json({ error: 'Git diff failed: ' + e.message });
+      }
+    } else {
+      // mode === 'all' — collect all eligible files
+      function walkDir(dir, base = '') {
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          const rel = base ? `${base}/${entry.name}` : entry.name;
+          const full = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            walkDir(full, rel);
+          } else if (isIncluded(rel) && !isExcluded(rel)) {
+            filesToPackage.push(rel);
+          }
+        }
+      }
+      walkDir(projectRoot);
+    }
+
+    // Add files to ZIP
+    let addedCount = 0;
+    for (const file of filesToPackage) {
+      if (isExcluded(file)) continue;
+      const fullPath = path.join(projectRoot, file);
+      if (!fs.existsSync(fullPath) || fs.statSync(fullPath).isDirectory()) continue;
+      zip.addLocalFile(fullPath, path.dirname(file));
+      addedCount++;
+    }
+
+    // Add manifest
+    const manifest = {
+      type: 'ajc-pisowifi-update',
+      version: version_name,
+      version_code: version_code || null,
+      created_at: new Date().toISOString(),
+      files_count: addedCount,
+      excludes: ['*.sqlite', '*.sqlite-shm', '*.sqlite-wal', 'data/*'],
+    };
+    zip.addFile('UPDATE_MANIFEST.json', Buffer.from(JSON.stringify(manifest, null, 2)));
+
+    // Send as download
+    const buffer = zip.toBuffer();
+    const filename = `AJC-PisoWiFi-v${version_name}-Update.nxs`;
+
+    res.set('Content-Type', 'application/octet-stream');
+    res.set('Content-Disposition', `attachment; filename=${filename}`);
+    res.set('Content-Length', buffer.length);
+    res.send(buffer);
+
+    console.log(`[Build Update] Created ${filename} with ${addedCount} files (${(buffer.length / 1024 / 1024).toFixed(2)} MB)`);
+  } catch (err) {
+    console.error('[Build Update] Failed:', err);
+    res.status(500).json({ error: 'Build update failed: ' + err.message });
+  }
+});
+
 // CLOUD UPDATE API
+// Get current system version from metadata.json
+app.get('/api/system/current-version', requireAdmin, async (req, res) => {
+    try {
+        const metaPath = path.join(__dirname, 'metadata.json');
+        const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+        res.json({
+            version_code: meta.version_code || 0,
+            version_name: meta.version_name || '0.0.0'
+        });
+    } catch (err) {
+        res.json({ version_code: 0, version_name: '0.0.0' });
+    }
+});
+
+// Check for update by fetching update_release.json from Supabase Storage
+app.get('/api/system/check-update', requireAdmin, async (req, res) => {
+    try {
+        if (!edgeSync.supabase) {
+            return res.status(503).json({ error: 'Cloud sync not configured' });
+        }
+
+        // Get current local version
+        const metaPath = path.join(__dirname, 'metadata.json');
+        const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+        const currentVersionCode = meta.version_code || 0;
+
+        // Try fetching update_release.json from Supabase Storage buckets
+        const buckets = ['UPDATE FILE', 'updates', 'firmware'];
+        const paths = ['system/update_release.json', 'update_release.json'];
+        let updateInfo = null;
+        let foundBucket = null;
+
+        for (const bucket of buckets) {
+            for (const filePath of paths) {
+                try {
+                    const { data, error } = await edgeSync.supabase.storage
+                        .from(bucket)
+                        .download(filePath);
+
+                    if (!error && data) {
+                        const text = await data.text();
+                        updateInfo = JSON.parse(text);
+                        foundBucket = bucket;
+                        break;
+                    }
+                } catch (e) {
+                    // Try next path
+                }
+            }
+            if (updateInfo) break;
+        }
+
+        if (!updateInfo) {
+            return res.json({ has_update: false, current_version: currentVersionCode, message: 'No update information found in cloud.' });
+        }
+
+        // Strip internal fields
+        const cleanInfo = { ...updateInfo };
+        delete cleanInfo._instructions;
+        delete cleanInfo._example;
+
+        const updateVersionCode = parseInt(cleanInfo.version_code, 10) || 0;
+
+        if (updateVersionCode > currentVersionCode) {
+            res.json({
+                has_update: true,
+                current_version: currentVersionCode,
+                update: {
+                    ...cleanInfo,
+                    bucket: cleanInfo.bucket || foundBucket
+                }
+            });
+        } else {
+            res.json({
+                has_update: false,
+                current_version: currentVersionCode,
+                update: {
+                    ...cleanInfo,
+                    bucket: cleanInfo.bucket || foundBucket
+                },
+                message: 'System is already up to date.'
+            });
+        }
+    } catch (err) {
+        console.error('[System Update] Check update failed:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.get('/api/system/available-updates', requireAdmin, async (req, res) => {
     try {
         if (!edgeSync.supabase) {
@@ -5143,11 +5385,24 @@ app.post('/api/system/download-and-update', requireAdmin, async (req, res) => {
 
         console.log(`[System Update] Downloading ${filename} from bucket ${bucketName}...`);
         
-        const { data, error } = await edgeSync.supabase.storage
-            .from(bucketName)
-            .download(filename);
+        // Try multiple paths: system/ folder first, then root
+        const tryPaths = [`system/${filename}`, filename];
+        let downloadData = null;
+        let downloadError = null;
+        
+        for (const tryPath of tryPaths) {
+            const { data, error } = await edgeSync.supabase.storage
+                .from(bucketName)
+                .download(tryPath);
+            if (!error && data) {
+                downloadData = data;
+                downloadError = null;
+                break;
+            }
+            downloadError = error;
+        }
 
-        if (error) throw error;
+        if (downloadError || !downloadData) throw downloadError || new Error('File not found');
         
         // Save to temp file
         const tempPath = path.join(__dirname, 'uploads/backups', `cloud_update_${Date.now()}.nxs`);
@@ -5157,7 +5412,7 @@ app.post('/api/system/download-and-update', requireAdmin, async (req, res) => {
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
         // Convert Blob/File to Buffer
-        const arrayBuffer = await data.arrayBuffer();
+        const arrayBuffer = await downloadData.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
         
         fs.writeFileSync(tempPath, buffer);

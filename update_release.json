@@ -1,0 +1,17 @@
+{
+  "version_code": 0,
+  "version_name": "",
+  "filename": "",
+  "release_notes": "",
+  "published_at": "",
+  "bucket": "UPDATE FILE",
+  "_instructions": "This file is used by the system updater. When you have a new update, fill in the fields below and upload this file alongside the .nxs update file to the same Supabase Storage bucket. Set version_code higher than the current version to trigger the update notification.",
+  "_example": {
+    "version_code": 2,
+    "version_name": "3.7.0",
+    "filename": "AJC-PisoWiFi-v3.7.0-Update.nxs",
+    "release_notes": "What's new in v3.7.0:\n- Feature A\n- Feature B\n- Bug fix C",
+    "published_at": "2026-05-01T00:00:00.000Z",
+    "bucket": "UPDATE FILE"
+  }
+}
