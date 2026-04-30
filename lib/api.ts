@@ -215,7 +215,7 @@ export const apiClient = {
     return handleResponse(res);
   },
 
-  async whoAmI(): Promise<{ ip: string; mac: string; vlanId?: number; recommendedNodeMCU?: { id: string; macAddress: string; name?: string }; canInsertCoin?: boolean; isRevoked?: boolean; creditPesos?: number; creditMinutes?: number }> {
+  async whoAmI(): Promise<{ ip: string; mac: string; vlanId?: number; recommendedNodeMCU?: { id: string; macAddress: string; name?: string }; canInsertCoin?: boolean; isRevoked?: boolean; creditPesos?: number; creditMinutes?: number; localRestored?: boolean; roamingRestored?: boolean; restoredSession?: { remainingSeconds: number; token: string; isPaused: boolean } | null }> {
     const res = await fetch(`${API_BASE}/whoami`, { headers: getHeaders() });
     return handleResponse(res);
   },

@@ -149,6 +149,30 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
         setIsRevoked(data.isRevoked === true);
         setCreditPesos(typeof data.creditPesos === 'number' ? data.creditPesos : 0);
         setCreditMinutes(typeof data.creditMinutes === 'number' ? data.creditMinutes : 0);
+
+        // CRITICAL: Handle auto-restore from session transfer (different MAC, same token)
+        // When localRestored or roamingRestored is true, the session was just transferred
+        // to this device's MAC. We must immediately trigger connectivity probes so the
+        // OS closes the captive portal mini-browser and the UI shows the active session.
+        if (data.localRestored || data.roamingRestored) {
+          console.log(`[Portal] Session restored (local=${data.localRestored}, roaming=${data.roamingRestored}) — triggering connectivity probes`);
+          
+          // Save the session token immediately so client-side lookup works
+          if (data.restoredSession?.token) {
+            localStorage.setItem('ajc_session_token', data.restoredSession.token);
+            setCookie('ajc_session_token', data.restoredSession.token, 30);
+          }
+          
+          // Refresh session list so the UI shows the active session
+          if (refreshSessions) {
+            refreshSessions();
+          }
+          
+          // Trigger OS connectivity probes to close the captive portal mini-browser
+          // These fetch requests go through the iptables rules which are now set up
+          // for the new MAC, so they should succeed and cause the OS to detect internet
+          triggerConnectivityProbes();
+        }
       } catch (e) {
         console.error('Failed to identify client');
       }
@@ -646,6 +670,27 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
     } finally {
       setIsRefreshing(false);
     }
+  };
+
+  // Trigger OS connectivity probes to help close the captive portal mini-browser
+  // When a session is restored/transferred, the device's MAC is now whitelisted,
+  // but the OS hasn't re-checked internet connectivity. These probes force the
+  // OS to detect that internet is now available and close the mini-browser popup.
+  const triggerConnectivityProbes = () => {
+    // Android connectivity check
+    fetch('http://connectivitycheck.gstatic.com/generate_204', { mode: 'no-cors', cache: 'no-store' }).catch(() => {});
+    // Apple/iOS connectivity check
+    fetch('http://captive.apple.com/hotspot-detect.html', { mode: 'no-cors', cache: 'no-store' }).catch(() => {});
+    // Windows connectivity check
+    fetch('http://www.msftconnecttest.com/connecttest.txt', { mode: 'no-cors', cache: 'no-store' }).catch(() => {});
+    // Generic probe
+    fetch('http://1.1.1.1/', { mode: 'no-cors', cache: 'no-store' }).catch(() => {});
+    
+    // After a short delay, probe again to confirm connectivity is stable
+    setTimeout(() => {
+      fetch('http://connectivitycheck.gstatic.com/generate_204', { mode: 'no-cors', cache: 'no-store' }).catch(() => {});
+      fetch('http://captive.apple.com/hotspot-detect.html', { mode: 'no-cors', cache: 'no-store' }).catch(() => {});
+    }, 1500);
   };
 
   const formatSessionTime = (seconds: number) => {

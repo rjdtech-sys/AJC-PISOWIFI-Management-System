@@ -2709,6 +2709,23 @@ app.get('/api/whoami', async (req, res) => {
     }
   } catch (e) {}
 
+  // When session was restored/transferred, include session info so
+  // the frontend can immediately show the active session and trigger
+  // connectivity probes to close the captive portal mini-browser
+  let restoredSession = null;
+  if (localRestored || roamingRestored) {
+    try {
+      const rs = await db.get('SELECT remaining_seconds, token, is_paused FROM sessions WHERE mac = ?', [mac]);
+      if (rs) {
+        restoredSession = {
+          remainingSeconds: rs.remaining_seconds,
+          token: rs.token,
+          isPaused: rs.is_paused === 1
+        };
+      }
+    } catch (e) {}
+  }
+
   res.json({ 
     ip: clientIp, 
     mac: mac || 'unknown',
@@ -2720,7 +2737,8 @@ app.get('/api/whoami', async (req, res) => {
     vlanId,
     recommendedNodeMCU,
     roamingRestored,
-    localRestored
+    localRestored,
+    restoredSession
   });
 });
 
@@ -5713,6 +5731,36 @@ app.post('/api/bandwidth/settings', requireAdmin, async (req, res) => {
     await db.run("INSERT OR REPLACE INTO config (key, value) VALUES ('default_upload_limit', ?)", [defaultUploadLimit.toString()]);
     await db.run("INSERT OR REPLACE INTO config (key, value) VALUES ('auto_apply_bandwidth', ?)", [autoApplyToNew ? '1' : '0']);
     
+    // Re-apply QoS limits to all active devices when defaults change
+    // This ensures that devices currently using the default limits get the new limits immediately
+    try {
+      const activeDevices = await db.all('SELECT mac, ip FROM wifi_devices WHERE is_active = 1 AND ip IS NOT NULL');
+      const activeSessions = await db.all('SELECT mac, ip FROM sessions WHERE remaining_seconds > 0 AND ip IS NOT NULL');
+      
+      // Merge to avoid duplicates
+      const devicesToReapply = new Map();
+      activeDevices.forEach(d => { if(d.mac && d.ip) devicesToReapply.set(d.mac, d.ip); });
+      activeSessions.forEach(s => { if(s.mac && s.ip) devicesToReapply.set(s.mac, s.ip); });
+      
+      console.log(`[BANDWIDTH] Re-applying QoS for ${devicesToReapply.size} active devices after defaults changed to ${defaultDownloadLimit}M/${defaultUploadLimit}M`);
+      for (const [mac, ip] of devicesToReapply) {
+        // Only re-apply if the device doesn't have a custom limit set
+        // (devices with custom limits should keep their custom limits)
+        const device = await db.get('SELECT download_limit, upload_limit FROM wifi_devices WHERE mac = ?', [mac]);
+        if (device && (device.download_limit === 0 || device.download_limit === null) && (device.upload_limit === 0 || device.upload_limit === null)) {
+          // Device uses defaults — update its record and re-apply TC rules
+          await db.run('UPDATE wifi_devices SET download_limit = ?, upload_limit = ? WHERE mac = ?', [defaultDownloadLimit, defaultUploadLimit, mac]);
+          await network.whitelistMAC(mac, ip);
+        } else if (!device) {
+          // No device record yet — just re-apply TC rules (whitelistMAC will use defaults)
+          await network.whitelistMAC(mac, ip);
+        }
+        // If device has custom limits > 0, leave it alone — admin set those intentionally
+      }
+    } catch (e) {
+      console.error('[BANDWIDTH] Failed to re-apply QoS to active devices:', e.message);
+    }
+    
     res.json({ success: true }); 
   }
   catch (err) { 
@@ -6291,7 +6339,7 @@ app.get('/api/devices', requireAdmin, async (req, res) => {
     const devices = await db.all('SELECT * FROM wifi_devices ORDER BY connected_at DESC');
     
     // Get all active sessions
-    const sessions = await db.all('SELECT mac, ip, remaining_seconds as remainingSeconds, total_paid as totalPaid, connected_at as connectedAt, is_paused as isPaused FROM sessions WHERE remaining_seconds > 0');
+    const sessions = await db.all('SELECT mac, ip, remaining_seconds as remainingSeconds, total_paid as totalPaid, connected_at as connectedAt, is_paused as isPaused, download_limit as sessionDownloadLimit, upload_limit as sessionUploadLimit FROM sessions WHERE remaining_seconds > 0');
     
     // Create a map of sessions by MAC for quick lookup
     const sessionMap = new Map();
@@ -6299,12 +6347,39 @@ app.get('/api/devices', requireAdmin, async (req, res) => {
       sessionMap.set(session.mac.toUpperCase(), session);
     });
     
+    // Load default bandwidth settings (same logic as whitelistMAC)
+    const defaultDlRow = await db.get("SELECT value FROM config WHERE key = 'default_download_limit'");
+    const defaultUlRow = await db.get("SELECT value FROM config WHERE key = 'default_upload_limit'");
+    const defaultDl = defaultDlRow ? parseInt(defaultDlRow.value) : 5;
+    const defaultUl = defaultUlRow ? parseInt(defaultUlRow.value) : 5;
+    
     // Merge device data with session data
     const formattedDevices = devices
       .filter(device => allowedInterfaces.size === 0 || allowedInterfaces.has(device.interface))
       .map(device => {
       const deviceMac = device.mac.toUpperCase();
       const session = sessionMap.get(deviceMac);
+      
+      // Calculate effective bandwidth limits (same priority as whitelistMAC):
+      // Device limit > Session limit > Default bandwidth settings
+      let effectiveDl = 0;
+      let effectiveUl = 0;
+      
+      if (device.download_limit > 0) {
+        effectiveDl = device.download_limit;
+      } else if (session && session.sessionDownloadLimit > 0) {
+        effectiveDl = session.sessionDownloadLimit;
+      } else {
+        effectiveDl = defaultDl;
+      }
+      
+      if (device.upload_limit > 0) {
+        effectiveUl = device.upload_limit;
+      } else if (session && session.sessionUploadLimit > 0) {
+        effectiveUl = session.sessionUploadLimit;
+      } else {
+        effectiveUl = defaultUl;
+      }
       
       return {
         id: device.id || '',
@@ -6320,8 +6395,8 @@ app.get('/api/devices', requireAdmin, async (req, res) => {
         customName: device.custom_name || '',
         sessionTime: session ? session.remainingSeconds : 0, // Real remaining time from session
         totalPaid: session ? session.totalPaid : 0,
-        downloadLimit: device.download_limit || 0,
-        uploadLimit: device.upload_limit || 0
+        downloadLimit: effectiveDl,
+        uploadLimit: effectiveUl
       };
     });
 
@@ -6329,11 +6404,21 @@ app.get('/api/devices', requireAdmin, async (req, res) => {
     sessions.forEach(session => {
       const sessionMac = session.mac.toUpperCase();
       if (!formattedDevices.find(d => d.mac.toUpperCase() === sessionMac)) {
+        // Calculate effective limits for session-only devices
+        let effectiveDl = defaultDl;
+        let effectiveUl = defaultUl;
+        if (session.sessionDownloadLimit > 0) {
+          effectiveDl = session.sessionDownloadLimit;
+        }
+        if (session.sessionUploadLimit > 0) {
+          effectiveUl = session.sessionUploadLimit;
+        }
+        
         formattedDevices.push({
           id: `session_${sessionMac}`,
           mac: session.mac,
           ip: session.ip || 'Unknown',
-          hostname: 'Unknown', // Could try to lookup in wifi_devices history if needed, but 'Unknown' is safe
+          hostname: 'Unknown',
           interface: 'Unknown',
           ssid: 'Unknown',
           signal: 0,
@@ -6342,7 +6427,9 @@ app.get('/api/devices', requireAdmin, async (req, res) => {
           isActive: true,
           customName: '',
           sessionTime: session.remainingSeconds,
-          totalPaid: session.totalPaid
+          totalPaid: session.totalPaid,
+          downloadLimit: effectiveDl,
+          uploadLimit: effectiveUl
         });
       }
     });

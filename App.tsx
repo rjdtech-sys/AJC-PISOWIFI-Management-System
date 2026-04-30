@@ -276,6 +276,20 @@ const App: React.FC = () => {
   };
 
   // Check for existing session token and try to restore (Fix for randomized MACs/SSID switching)
+  // Trigger OS connectivity probes after session restore/transfer
+  // This forces the OS to re-check internet connectivity and close
+  // the captive portal mini-browser popup
+  const triggerConnectivityProbes = () => {
+    fetch('http://connectivitycheck.gstatic.com/generate_204', { mode: 'no-cors', cache: 'no-store' }).catch(() => {});
+    fetch('http://captive.apple.com/hotspot-detect.html', { mode: 'no-cors', cache: 'no-store' }).catch(() => {});
+    fetch('http://www.msftconnecttest.com/connecttest.txt', { mode: 'no-cors', cache: 'no-store' }).catch(() => {});
+    fetch('http://1.1.1.1/', { mode: 'no-cors', cache: 'no-store' }).catch(() => {});
+    setTimeout(() => {
+      fetch('http://connectivitycheck.gstatic.com/generate_204', { mode: 'no-cors', cache: 'no-store' }).catch(() => {});
+      fetch('http://captive.apple.com/hotspot-detect.html', { mode: 'no-cors', cache: 'no-store' }).catch(() => {});
+    }, 1500);
+  };
+
   const restoreSession = async (retries = 5) => {
     const sessionToken = localStorage.getItem('ajc_session_token');
     if (sessionToken) {
@@ -299,6 +313,12 @@ const App: React.FC = () => {
           if (data.migrated) {
             console.log('Session migrated to new network info');
             loadData(); // Reload to see active session
+            // Trigger connectivity probes so OS closes captive portal mini-browser
+            triggerConnectivityProbes();
+          } else {
+            // Even for non-migrated restores, probe connectivity
+            // to ensure the OS knows internet is available
+            triggerConnectivityProbes();
           }
         } else if (res.status === 404) {
           // Token invalid/expired - only remove if we are sure
