@@ -1047,7 +1047,7 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
         <CoinModal 
           onClose={handleCloseModal}
           onCancelWithCredit={(pesos, minutes) => {
-            apiClient.addCredit(pesos).catch(() => {});
+            apiClient.addCredit(pesos, minutes).catch(() => {});
             if (reservedSlot && coinSlotLockId) {
               apiClient.releaseCoinSlot(reservedSlot, coinSlotLockId).catch(() => {});
             }

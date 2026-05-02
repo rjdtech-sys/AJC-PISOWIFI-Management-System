@@ -295,6 +295,19 @@ const Analytics: React.FC<AnalyticsProps> = ({ sessions, salesHistory }) => {
                   : 'N/A'}
               </span>
             </div>
+            <div className="mt-3 pt-2 border-t border-slate-100">
+              <div className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Supported Boards</div>
+              <div className="flex flex-wrap gap-1">
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-orange-50 text-orange-700 border border-orange-100">Orange Pi 3 LTS</span>
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-orange-50 text-orange-700 border border-orange-100">Orange Pi Zero 3</span>
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-orange-50 text-orange-700 border border-orange-100">Orange Pi One</span>
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-orange-50 text-orange-700 border border-orange-100">Orange Pi PC</span>
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-orange-50 text-orange-700 border border-orange-100">Orange Pi 5</span>
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-green-50 text-green-700 border border-green-100">Raspberry Pi 4B</span>
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-green-50 text-green-700 border border-green-100">Raspberry Pi 5</span>
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-50 text-blue-700 border border-blue-100">NodeMCU ESP</span>
+              </div>
+            </div>
           </div>
         </div>
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">

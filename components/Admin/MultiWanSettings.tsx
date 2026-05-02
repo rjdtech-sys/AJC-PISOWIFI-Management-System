@@ -14,6 +14,7 @@ interface NetworkIface {
   type: string;
   status: string;
   ip: string | null;
+  speed?: number;
 }
 
 const MultiWanSettings: React.FC = () => {
@@ -98,7 +99,13 @@ const MultiWanSettings: React.FC = () => {
       });
       const data = await res.json();
       if (Array.isArray(data)) {
-        setAvailableInterfaces(data.map((i: any) => ({ name: i.name, type: i.type, status: i.status, ip: i.ip || null })));
+        setAvailableInterfaces(data.map((i: any) => ({ 
+          name: i.name, 
+          type: i.type, 
+          status: i.status, 
+          ip: i.ip || null,
+          speed: i.speed || 0
+        })));
       }
     } catch (e) {
       // Fallback
@@ -114,6 +121,22 @@ const MultiWanSettings: React.FC = () => {
     } catch (e) {
       // Fallback
     }
+  };
+
+  const formatSpeed = (speedMbps: number | undefined) => {
+    if (!speedMbps || speedMbps <= 0) return null;
+    if (speedMbps >= 10000) return '10G';
+    if (speedMbps >= 2500) return '2.5G';
+    if (speedMbps >= 1000) return '1G';
+    return `${speedMbps}M`;
+  };
+
+  const getSpeedBadgeColor = (speedMbps: number | undefined) => {
+    if (!speedMbps) return 'bg-slate-100 text-slate-500';
+    if (speedMbps >= 10000) return 'bg-indigo-100 text-indigo-700';
+    if (speedMbps >= 2500) return 'bg-purple-100 text-purple-700';
+    if (speedMbps >= 1000) return 'bg-blue-100 text-blue-700';
+    return 'bg-slate-100 text-slate-700';
   };
 
   const handleSaveConfig = async () => {
@@ -493,6 +516,11 @@ const MultiWanSettings: React.FC = () => {
                             <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">
                               SYSTEM
                             </span>
+                            {availableInterfaces.find(i => i.name === defaultWan)?.speed && (
+                              <span className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded ${getSpeedBadgeColor(availableInterfaces.find(i => i.name === defaultWan)?.speed)}`}>
+                                {formatSpeed(availableInterfaces.find(i => i.name === defaultWan)?.speed)}
+                              </span>
+                            )}
                           </div>
                           <div className="text-[10px] text-slate-500 font-mono mt-0.5">
                             IP: {availableInterfaces.find(i => i.name === defaultWan)?.ip || 'Detecting...'}
@@ -553,6 +581,11 @@ const MultiWanSettings: React.FC = () => {
                             <span className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded ${getTypeBadge(wan.type)}`}>
                               {wan.type}
                             </span>
+                            {availableInterfaces.find(i => i.name === wan.name)?.speed && (
+                              <span className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded ${getSpeedBadgeColor(availableInterfaces.find(i => i.name === wan.name)?.speed)}`}>
+                                {formatSpeed(availableInterfaces.find(i => i.name === wan.name)?.speed)}
+                              </span>
+                            )}
                             {wan.is_vlan ? (
                               <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-orange-100 text-orange-600">
                                 VLAN {wan.vlan_id}

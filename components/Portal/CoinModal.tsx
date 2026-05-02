@@ -33,6 +33,20 @@ const CoinModal: React.FC<Props> = ({
   const didAutoClose = useRef(false);
   const [mode, setMode] = useState<'internet' | 'credit'>('internet');
 
+  const formatHMS = (minutes: number) => {
+    const totalSeconds = minutes * 60;
+    const h = Math.floor(totalSeconds / 3600);
+    const m = Math.floor((totalSeconds % 3600) / 60);
+    const s = Math.floor(totalSeconds % 60);
+
+    const parts = [];
+    if (h > 0) parts.push(`${h}h`);
+    if (m > 0 || h > 0) parts.push(`${m}m`);
+    parts.push(`${s}s`);
+    
+    return parts.join(' ');
+  };
+
   // Handle Background Audio (Insert Coin Loop)
   useEffect(() => {
     let audio: HTMLAudioElement | null = null;
@@ -71,6 +85,39 @@ const CoinModal: React.FC<Props> = ({
       setIsConnected(false);
     });
 
+    const calculateTotalMinutes = (pesos: number) => {
+      if (!rates || rates.length === 0) return pesos * 10; // Fallback
+
+      let remaining = pesos;
+      let minutes = 0;
+
+      // Sort rates descending by pesos to use the most "efficient" or largest rates first
+      const sortedRates = [...rates].sort((a, b) => b.pesos - a.pesos);
+
+      for (const rate of sortedRates) {
+        if (rate.pesos <= 0) continue;
+        const count = Math.floor(remaining / rate.pesos);
+        if (count > 0) {
+          minutes += count * rate.minutes;
+          remaining -= count * rate.pesos;
+        }
+      }
+
+      // If there's still a remainder (e.g. no 1 peso rate but user inserted 1 peso)
+      // find the smallest rate to calculate a proportional value or use a baseline
+      if (remaining > 0) {
+        const smallestRate = sortedRates[sortedRates.length - 1];
+        if (smallestRate && smallestRate.pesos > 0) {
+          const proportional = Math.floor((remaining / smallestRate.pesos) * smallestRate.minutes);
+          minutes += proportional;
+        } else {
+          minutes += remaining * 10; // Last resort fallback
+        }
+      }
+
+      return minutes;
+    };
+
     const handlePulse = (pesos: number) => {
       console.log(`[COIN] Received Pulse: ₱${pesos}`);
       
@@ -82,15 +129,11 @@ const CoinModal: React.FC<Props> = ({
         } catch (e) { console.error(e); }
       }
 
-      setTotalPesos(prev => prev + pesos);
-      
-      const rate = rates.find(r => r.pesos === pesos);
-      if (rate) {
-        setTotalMinutes(prev => prev + rate.minutes);
-      } else {
-        // Linear fallback if specific rate not found
-        setTotalMinutes(prev => prev + (pesos * 10)); 
-      }
+      setTotalPesos(prev => {
+        const newTotal = prev + pesos;
+        setTotalMinutes(calculateTotalMinutes(newTotal));
+        return newTotal;
+      });
       
       setTimeLeft(60); // Reset timeout on drop
 
@@ -141,7 +184,7 @@ const CoinModal: React.FC<Props> = ({
 
   const handleCancel = () => {
     if (totalPesos > 0 && onCancelWithCredit) {
-      onCancelWithCredit(totalPesos, 0);
+      onCancelWithCredit(totalPesos, totalMinutes);
     } else {
       onClose();
     }
@@ -157,36 +200,27 @@ const CoinModal: React.FC<Props> = ({
 
   return (
     <div className="modal-overlay">
-      <div className="modal-content animate-in zoom-in duration-300 shadow-2xl border border-slate-200">
-        <div className="px-6 py-5 text-center bg-slate-50 border-b border-slate-100">
-          <div className="flex justify-center mb-4">
-            <div className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-[0.2em] flex items-center gap-1.5 ${
-              isConnected ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'
-            }`}>
-              <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></span>
-              {isConnected ? 'Hardware Active' : 'Waiting for link...'}
-            </div>
-          </div>
-          <h3 className="text-lg font-black text-slate-900 mb-1 uppercase tracking-tighter">Drop Coins Now</h3>
-          <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Listening for physical pulses</p>
+      <div className="modal-content animate-in zoom-in duration-300 shadow-2xl border border-slate-200 overflow-hidden">
+        <div className="bg-blue-600 p-6 text-center">
+          <h3 className="text-xl font-black text-white uppercase tracking-tight">
+            {mode === 'internet' ? 'Insert Coins' : 'Add Credit'}
+          </h3>
+          <p className="text-[9px] font-bold text-blue-100 uppercase tracking-[0.2em]">
+            {coinSlot === 'main' ? 'Main Machine' : 'Remote Vendo'}
+          </p>
         </div>
 
         <div className="p-6 space-y-6">
-          <div className="flex flex-col items-center justify-center py-6 rounded-[32px] bg-blue-600 text-white shadow-2xl shadow-blue-500/40 relative overflow-hidden">
-            <div className="absolute inset-0 bg-white/5 animate-pulse"></div>
-            <span className="text-[10px] font-black uppercase tracking-[0.3em] opacity-60 mb-2 relative z-10">Remaining Time</span>
-            <span className="text-5xl font-black font-mono relative z-10">{timeLeft}s</span>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
+          <div className="flex flex-col gap-4">
             <div className="bg-slate-50 p-4 rounded-3xl text-center border border-slate-100 shadow-inner">
-              <span className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Credits</span>
+              <span className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Total Amount</span>
               <span className="text-4xl font-black text-slate-900 tracking-tighter">₱{totalPesos}</span>
             </div>
+            
             {mode === 'internet' && (
               <div className="bg-slate-50 p-4 rounded-3xl text-center border border-slate-100 shadow-inner">
-                <span className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Minutes</span>
-                <span className="text-4xl font-black text-slate-900 tracking-tighter">{totalMinutes}</span>
+                <span className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Total Time</span>
+                <span className="text-3xl font-black text-slate-900 tracking-tighter whitespace-nowrap">{formatHMS(totalMinutes)}</span>
               </div>
             )}
           </div>
@@ -217,27 +251,24 @@ const CoinModal: React.FC<Props> = ({
           </div>
         </div>
 
-        <div className="px-6 pt-0 pb-6 flex flex-col gap-3">
-          <button
-            onClick={handleConfirm}
-            disabled={totalPesos === 0}
-            className={`w-full py-3 rounded-2xl font-black text-base transition-all shadow-xl tracking-tight uppercase ${
-              totalPesos > 0 
-                ? 'bg-blue-600 text-white shadow-blue-500/30 active:scale-95' 
-                : 'bg-slate-100 text-slate-300 shadow-none cursor-not-allowed'
-            }`}
-          >
-            {mode === 'internet' ? 'Start Surfing' : 'Save Credit'}
-          </button>
-          <button
-            onClick={handleCancel}
-            className="w-full py-2 text-slate-400 font-black text-[10px] uppercase tracking-[0.2em] hover:text-slate-600 transition-colors"
-          >
-            Cancel & Close
-          </button>
+          <div className="space-y-3">
+            <button
+              onClick={handleConfirm}
+              disabled={totalPesos <= 0}
+              className="admin-btn-primary w-full py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              <span>🚀</span> {mode === 'internet' ? 'Start Surfing' : 'Confirm Credit'}
+            </button>
+            
+            <button
+              onClick={handleCancel}
+              className="w-full py-3 rounded-2xl font-black text-xs uppercase tracking-widest text-slate-400 hover:text-slate-600 transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       </div>
-    </div>
   );
 };
 
