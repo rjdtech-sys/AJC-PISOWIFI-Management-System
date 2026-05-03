@@ -15,7 +15,7 @@ import NodeMCUManager from './NodeMCUManager';
 
 const opiPinoutModule: any = opiPinout as any;
 const opiMappings: Record<string, { name?: string; pins: Record<number, number> }> = opiPinoutModule?.mappings || {};
-const ORANGE_PI_MODELS = ['orange_pi_one', 'orange_pi_zero_3', 'orange_pi_pc', 'orange_pi_5'];
+const ORANGE_PI_MODELS = ['orange_pi_one', 'orange_pi_zero_3', 'orange_pi_pc', 'orange_pi_5', 'orange_pi_3_lts'];
 const ORANGE_PI_DEFAULT_MODEL = 'orange_pi_one';
 
 const rpiPinoutModule: any = rpiPinout as any;

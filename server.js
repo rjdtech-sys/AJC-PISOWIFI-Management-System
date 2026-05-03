@@ -70,6 +70,45 @@ function getPppoeExpiredPortalUrl() {
   return '/error.html';
 }
 
+/**
+ * Calculates total minutes for a given peso amount using a greedy algorithm.
+ * Breaks down the amount into available rate blocks (cumulative).
+ */
+async function calculateMinutesFromPesos(pesos) {
+  if (pesos <= 0) return 0;
+  
+  try {
+    const rates = await db.all('SELECT pesos, minutes FROM rates WHERE pesos > 0 ORDER BY pesos DESC');
+    if (!rates || rates.length === 0) return pesos * 10; // Fallback 1:10
+
+    let remaining = pesos;
+    let totalMinutes = 0;
+
+    for (const rate of rates) {
+      const count = Math.floor(remaining / rate.pesos);
+      if (count > 0) {
+        totalMinutes += count * rate.minutes;
+        remaining -= count * rate.pesos;
+      }
+    }
+
+    // Proportional calculation for any remaining amount based on smallest rate
+    if (remaining > 0) {
+      const smallestRate = rates[rates.length - 1];
+      if (smallestRate && smallestRate.pesos > 0) {
+        totalMinutes += Math.floor((remaining / smallestRate.pesos) * smallestRate.minutes);
+      } else {
+        totalMinutes += remaining * 10;
+      }
+    }
+
+    return totalMinutes;
+  } catch (e) {
+    console.error('[RATES] Calculation error:', e);
+    return pesos * 10;
+  }
+}
+
 async function refreshPPPoEExpiredSettings() {
   try {
     const poolIdRow = await db.get('SELECT value FROM config WHERE key = ?', ['pppoe_expired_pool_id']).catch(() => null);
@@ -2852,10 +2891,14 @@ app.post('/api/credits/add', async (req, res) => {
 
     const { pesos, minutes } = req.body || {};
     const safePesos = typeof pesos === 'number' && pesos > 0 ? Math.floor(pesos) : 0;
-    const safeMinutes = typeof minutes === 'number' && minutes > 0 ? Math.floor(minutes) : 0;
+    let safeMinutes = typeof minutes === 'number' && minutes > 0 ? Math.floor(minutes) : 0;
 
     if (!safePesos) {
       return res.status(400).json({ success: false, error: 'Invalid credit values.' });
+    }
+
+    if (safeMinutes <= 0) {
+      safeMinutes = await calculateMinutesFromPesos(safePesos);
     }
 
     const existing = await db.get('SELECT id, credit_pesos, credit_minutes FROM wifi_devices WHERE mac = ?', [mac]);
@@ -2950,34 +2993,7 @@ app.post('/api/credits/use', async (req, res) => {
     }
 
     if (minutes <= 0) {
-      const rateRows = await db.all('SELECT pesos, minutes FROM rates');
-      let derivedMinutes = 0;
-
-      if (rateRows && rateRows.length > 0) {
-        const exactRate = rateRows.find(r => r.pesos === requestedPesos);
-        if (exactRate && exactRate.minutes > 0) {
-          derivedMinutes = exactRate.minutes;
-        } else {
-          let bestMinutesPerPeso = 0;
-          for (const rate of rateRows) {
-            if (rate.pesos > 0 && rate.minutes > 0) {
-              const mpp = rate.minutes / rate.pesos;
-              if (mpp > bestMinutesPerPeso) {
-                bestMinutesPerPeso = mpp;
-              }
-            }
-          }
-          if (bestMinutesPerPeso > 0) {
-            derivedMinutes = Math.floor(bestMinutesPerPeso * requestedPesos);
-          }
-        }
-      }
-
-      if (!derivedMinutes) {
-        derivedMinutes = requestedPesos * 10;
-      }
-
-      minutes = derivedMinutes;
+      minutes = await calculateMinutesFromPesos(requestedPesos);
     }
 
     if (minutes <= 0) {
@@ -4012,9 +4028,91 @@ app.get('/api/system/info', requireAdmin, async (req, res) => {
       si.osInfo()
     ]);
     
+    let manufacturer = system.manufacturer || '';
+    let model = system.model || '';
+    
+    // Fallback for ARM boards (Orange Pi, Raspberry Pi, etc.) where DMI/ACPI is not available
+    if (!manufacturer || !model) {
+      try {
+        // Try /proc/device-tree/model first (most reliable for ARM SBCs)
+        if (fs.existsSync('/proc/device-tree/model')) {
+          const dtModel = fs.readFileSync('/proc/device-tree/model', 'utf8').replace(/\0/g, '').trim();
+          if (dtModel) {
+            // Parse "Manufacturer Model" format, e.g. "Xunlong Orange Pi 3 LTS" or "Raspberry Pi 4 Model B"
+            const parts = dtModel.split(/\s+/);
+            if (parts.length >= 2) {
+              // Common patterns: "Xunlong Orange Pi 3 LTS" -> manufacturer="Xunlong", model="Orange Pi 3 LTS"
+              // "Raspberry Pi 4 Model B" -> manufacturer="Raspberry", model="Pi 4 Model B"
+              if (parts[0].toLowerCase() === 'xunlong') {
+                manufacturer = 'Xunlong';
+                model = parts.slice(1).join(' ');
+              } else if (parts[0].toLowerCase() === 'raspberry') {
+                manufacturer = 'Raspberry Pi';
+                model = parts.slice(2).join(' ');
+              } else if (parts[0].toLowerCase() === 'orangepi' || parts[0].toLowerCase() === 'orange') {
+                manufacturer = 'Orange Pi';
+                model = parts.slice(1).join(' ');
+              } else {
+                manufacturer = parts[0];
+                model = parts.slice(1).join(' ');
+              }
+            } else {
+              model = dtModel;
+              manufacturer = 'ARM Board';
+            }
+          }
+        }
+      } catch (e) {}
+      
+      // Fallback 2: /proc/cpuinfo Hardware field
+      if (!model) {
+        try {
+          const cpuinfo = fs.readFileSync('/proc/cpuinfo', 'utf8');
+          const hardwareMatch = cpuinfo.match(/^Hardware\s*:\s*(.+)$/m);
+          if (hardwareMatch) {
+            const hw = hardwareMatch[1].trim();
+            if (hw.toLowerCase().includes('sun50i') || hw.toLowerCase().includes('allwinner')) {
+              manufacturer = manufacturer || 'Allwinner';
+            }
+            model = model || hw;
+          }
+          const modelMatch = cpuinfo.match(/^Model\s*:\s*(.+)$/m);
+          if (modelMatch && !model) {
+            model = modelMatch[1].trim();
+          }
+        } catch (e) {}
+      }
+      
+      // Fallback 3: /sys/firmware/devicetree/base/model
+      if (!model) {
+        try {
+          if (fs.existsSync('/sys/firmware/devicetree/base/model')) {
+            model = fs.readFileSync('/sys/firmware/devicetree/base/model', 'utf8').replace(/\0/g, '').trim();
+          }
+        } catch (e) {}
+      }
+      
+      // Fallback 4: armbian-release or os-release
+      if (!manufacturer || !model) {
+        try {
+          if (fs.existsSync('/etc/armbian-release')) {
+            const armbian = fs.readFileSync('/etc/armbian-release', 'utf8');
+            const boardMatch = armbian.match(/^BOARD\s*=\s*"?(.+?)"?$/m);
+            if (boardMatch) {
+              const boardName = boardMatch[1].trim();
+              if (boardName.includes('orangepi')) {
+                manufacturer = manufacturer || 'Orange Pi';
+                model = model || boardName.replace(/orangepi/i, '').replace(/-/g, ' ').trim();
+              }
+            }
+          }
+        } catch (e) {}
+      }
+    }
+    
     res.json({
-      manufacturer: system.manufacturer,
-      model: system.model,
+      manufacturer: manufacturer || 'Unknown',
+      model: model || 'ARM Device',
       distro: os.distro,
       arch: os.arch,
       platform: os.platform
@@ -7203,6 +7301,63 @@ app.post('/api/multiwan/config', requireAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+/**
+ * Improved Multi-WAN Monitoring and Auto-Repair
+ * Periodically checks the health of each enabled WAN and updates routing
+ */
+async function monitorMultiWanHealth() {
+    try {
+        const mwConfig = await db.get('SELECT * FROM multi_wan_config WHERE id = 1');
+        if (!mwConfig || !mwConfig.enabled || mwConfig.topology !== 'multi') return;
+
+        const dbWans = await db.all('SELECT * FROM wan_interfaces WHERE enabled = 1');
+        if (dbWans.length < 2) return;
+
+        let changed = false;
+        const activeWans = [];
+
+        for (const wan of dbWans) {
+            const status = await network.getWanStatus(wan.name);
+            const isActuallyOnline = status.status === 'up' && status.ip;
+            
+            // Check if status changed from DB
+            if (wan.status !== (isActuallyOnline ? 'up' : 'down') || wan.ip_address !== status.ip) {
+                await db.run('UPDATE wan_interfaces SET status = ?, ip_address = ?, updated_at = datetime("now") WHERE id = ?', 
+                    [isActuallyOnline ? 'up' : 'down', status.ip, wan.id]);
+                changed = true;
+            }
+
+            if (isActuallyOnline) {
+                let gw = wan.gateway || await network.getWanGateway(wan.name);
+                if (gw) {
+                    activeWans.push({
+                        interface: wan.name,
+                        gateway: gw,
+                        weight: wan.weight || 1
+                    });
+                }
+            }
+        }
+
+        // If active WANs changed, re-apply the routing configuration
+        if (changed || (activeWans.length > 0 && activeWans.length !== dbWans.length)) {
+            console.log(`[MultiWAN] Health Check: ${activeWans.length}/${dbWans.length} WANs online. Re-applying routing...`);
+            await applyMultiWanConfig({
+                enabled: true,
+                mode: mwConfig.mode || 'ecmp',
+                pcc_method: mwConfig.pcc_method || 'both_addresses',
+                topology: 'multi',
+                interfaces: activeWans
+            });
+        }
+    } catch (e) {
+        console.error('[MultiWAN] Health monitor error:', e.message);
+    }
+}
+
+// Run Multi-WAN health check every 30 seconds
+setInterval(monitorMultiWanHealth, 30000);
+
 async function applyMultiWanConfig(config) {
     try {
         console.log('[MultiWAN] Applying configuration...', config.mode, 'topology:', config.topology);
@@ -7214,8 +7369,15 @@ async function applyMultiWanConfig(config) {
         // 1. Cleanup existing rules
         await run('iptables -t mangle -F AJC_MULTIWAN');
         await run('iptables -t mangle -D PREROUTING -j AJC_MULTIWAN');
+        
+        // Clean up any individual WAN NAT rules to prevent conflicts before re-applying
+        const dbWansAll = await db.all('SELECT name FROM wan_interfaces');
+        for (const w of dbWansAll) {
+            await run(`iptables -t nat -D POSTROUTING -o ${w.name} -j MASQUERADE`);
+            await run(`iptables -t nat -D POSTROUTING -o ${w.name} -m conntrack --ctstate NEW -j MASQUERADE`);
+        }
 
-        // Also cleanup any PCC ip rules and routing tables
+        // Clean up any PCC ip rules and routing tables
         for (let mark = 1; mark <= 10; mark++) {
           const tableId = 100 + mark;
           while (true) {
@@ -7223,6 +7385,13 @@ async function applyMultiWanConfig(config) {
           }
           await run(`ip route flush table ${tableId}`);
         }
+
+        // 1.1 CRITICAL: Ensure local traffic to the machine itself ALWAYS uses the main routing table.
+        // This prevents portal traffic from being "leaked" to a WAN interface in Multi-WAN mode.
+        try {
+          await run('ip rule del pref 100 2>/dev/null || true');
+          await run('ip rule add pref 100 lookup main');
+        } catch (e) {}
 
         // If disabled or single topology, restore simple default route and stop
         if (!config.enabled || config.topology === 'single') {
@@ -7232,7 +7401,9 @@ async function applyMultiWanConfig(config) {
             if (activeWan) {
               const gw = activeWan.gateway || await network.getWanGateway(activeWan.name);
               if (gw) {
-                await run(`ip route replace default via ${gw} dev ${activeWan.name}`);
+                // Remove any lingering ECMP/PCC routes first
+                await run('ip route del default 2>/dev/null');
+                await run(`ip route add default via ${gw} dev ${activeWan.name} metric 100`);
                 await run('ip route flush cache');
                 console.log(`[MultiWAN] Restored single default route via ${gw} dev ${activeWan.name}`);
               }
@@ -7243,34 +7414,42 @@ async function applyMultiWanConfig(config) {
 
         // Pull from wan_interfaces table if available, otherwise fallback to config.interfaces
         let ifaces = config.interfaces || [];
-        try {
-          const dbWans = await db.all('SELECT * FROM wan_interfaces WHERE enabled = 1');
-          if (dbWans && dbWans.length > 0) {
-            ifaces = await Promise.all(dbWans.map(async (w) => {
-              let gw = w.gateway;
-              // For DHCP WANs with no stored gateway, resolve dynamically from OS
-              if (!gw && w.type === 'dhcp') {
-                gw = await network.getWanGateway(w.name);
-                if (gw) {
-                  // Store resolved gateway in DB for future use
-                  await db.run('UPDATE wan_interfaces SET gateway = ? WHERE id = ?', [gw, w.id]).catch(() => {});
-                }
+        if (!ifaces || ifaces.length === 0) {
+            try {
+              const dbWans = await db.all('SELECT * FROM wan_interfaces WHERE enabled = 1');
+              if (dbWans && dbWans.length > 0) {
+                ifaces = await Promise.all(dbWans.map(async (w) => {
+                  let gw = w.gateway;
+                  if (!gw && w.type === 'dhcp') {
+                    gw = await network.getWanGateway(w.name);
+                    if (gw) await db.run('UPDATE wan_interfaces SET gateway = ? WHERE id = ?', [gw, w.id]).catch(() => {});
+                  }
+                  return {
+                    interface: w.name,
+                    gateway: gw,
+                    weight: w.weight || 1,
+                    type: w.type,
+                    status: w.status
+                  };
+                }));
               }
-              return {
-                interface: w.name,
-                gateway: gw,
-                weight: w.weight || 1,
-                type: w.type
-              };
-            }));
-          }
-        } catch (e) {}
+            } catch (e) {}
+        }
 
-        // Filter out interfaces without a gateway — they can't participate in load balancing
-        const validIfaces = ifaces.filter(i => i.gateway);
-        if (validIfaces.length < 2) {
-          console.warn(`[MultiWAN] Only ${validIfaces.length} interface(s) have gateways. Need at least 2 for load balancing. Waiting for DHCP...`);
-          if (validIfaces.length < 2) return;
+        // Filter out interfaces without a gateway or that are down
+        const validIfaces = ifaces.filter(i => i.gateway && i.status !== 'down');
+        
+        if (validIfaces.length === 0) {
+          console.warn('[MultiWAN] No active WANs with gateways found. Cannot apply Multi-WAN routing.');
+          return;
+        }
+
+        if (validIfaces.length === 1) {
+          const single = validIfaces[0];
+          console.log(`[MultiWAN] Only 1 active WAN found (${single.interface}). Using as single default route.`);
+          await run('ip route del default 2>/dev/null');
+          await run(`ip route add default via ${single.gateway} dev ${single.interface} metric 100`);
+          return;
         }
 
         // 2. Initialize Chain
@@ -7312,8 +7491,15 @@ async function applyMultiWanConfig(config) {
             let routeCmd = 'ip route replace default scope global';
             for (const iface of validIfaces) {
                 routeCmd += ` nexthop via ${iface.gateway} dev ${iface.interface} weight ${iface.weight}`;
+                // Ensure NAT exists for this nexthop
+                await run(`iptables -t nat -C POSTROUTING -o ${iface.interface} -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -o ${iface.interface} -j MASQUERADE`);
             }
             await run(routeCmd);
+        }
+        
+        // Final sanity check: Ensure all enabled WANs have a NAT rule
+        for (const iface of validIfaces) {
+            await run(`iptables -t nat -C POSTROUTING -o ${iface.interface} -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -o ${iface.interface} -j MASQUERADE`);
         }
         
         await run('ip route flush cache');

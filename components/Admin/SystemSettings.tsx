@@ -185,7 +185,12 @@ const SystemSettings: React.FC = () => {
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-4 pb-10">
+    <div className="max-w-4xl mx-auto space-y-6 pb-12">
+      <div className="flex flex-col gap-1 mb-2">
+        <h2 className="admin-heading">System Management</h2>
+        <p className="admin-subheading">Control your machine performance and maintenance</p>
+      </div>
+
       {/* Pending Update Banner */}
       {pendingUpdate && (
         <section className="bg-indigo-600 rounded-xl border border-indigo-500 shadow-lg shadow-indigo-500/20 overflow-hidden text-white animate-pulse-slow">
@@ -221,18 +226,24 @@ const SystemSettings: React.FC = () => {
         </section>
       )}
 
-      {/* System Diagnostics Card */}
-      <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden transition-all">
-        <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-          <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">System Diagnostics</h3>
-          <span className="bg-green-100 text-green-600 text-[8px] font-bold px-1.5 py-0.5 rounded uppercase">Kernel: 5.15.0</span>
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-slate-100">
-          <DiagItem label="Uptime" value={systemStats.uptime} icon="⏱️" />
-          <DiagItem label="Memory" value={systemStats.memory} icon="🧠" />
-          <DiagItem label="CPU" value={systemStats.cpu} icon="📟" />
-          <DiagItem label="Storage" value={systemStats.disk} icon="💾" />
-        </div>
+      {/* Stats Grid */}
+      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {[
+          { label: 'Uptime', value: systemStats.uptime, icon: '⏱️', color: 'bg-blue-50 text-blue-600' },
+          { label: 'CPU Load', value: systemStats.cpu, icon: '🧠', color: 'bg-purple-50 text-purple-600' },
+          { label: 'Memory', value: systemStats.memory, icon: '💾', color: 'bg-amber-50 text-amber-600' },
+          { label: 'Storage', value: systemStats.disk, icon: '💿', color: 'bg-emerald-50 text-emerald-600' }
+        ].map((stat, idx) => (
+          <div key={idx} className="admin-card !p-5 flex flex-col gap-3">
+            <div className={`w-10 h-10 ${stat.color} rounded-xl flex items-center justify-center text-xl`}>
+              {stat.icon}
+            </div>
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.15em] text-slate-400 mb-1">{stat.label}</p>
+              <p className="text-sm font-bold text-slate-800 tracking-tight">{stat.value}</p>
+            </div>
+          </div>
+        ))}
       </section>
 
       <NodeMCUFlasher />
@@ -248,48 +259,63 @@ const SystemSettings: React.FC = () => {
         {/* Centralized Key Card */}
         <CentralizedKeyCard />
 
-        {/* Manual Controls Card */}
-        <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
-          <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Service Management</h3>
-          <div className="grid grid-cols-2 gap-2">
-             <ServiceButton label="Restart App" icon="🔄" onClick={() => setShowRestartModal(true)} />
-             <ServiceButton label="Clear Logs" icon="🧹" onClick={() => handleServiceAction('clear-logs')} />
-             <ServiceButton label="Export DB" icon="💾" onClick={() => handleServiceAction('export-db')} />
-             <ServiceButton label="Kernel Check" icon="🔬" onClick={() => handleServiceAction('kernel-check')} />
-             <div className="col-span-2 mt-2">
-                <button 
-                  onClick={() => handleServiceAction('sync')}
-                  className="w-full bg-indigo-600 text-white p-3 rounded-xl flex items-center justify-center gap-2 hover:bg-indigo-700 hover:shadow-lg transition-all active:scale-95 group shadow-indigo-200"
-                >
-                   <span className="text-lg group-hover:rotate-180 transition-transform duration-500">♻️</span>
-                   <span className="text-[10px] font-black uppercase tracking-widest">Sync & Save Settings</span>
-                </button>
-             </div>
-          </div>
-        </section>
       </div>
 
       <LogTerminal />
 
-      <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden transition-all">
-        <div className="px-4 py-2 border-b border-slate-100 bg-red-50/30">
-          <h3 className="text-[10px] font-black text-red-600 uppercase tracking-widest">Danger Zone</h3>
-        </div>
-        
-        <div className="p-4">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 bg-red-50 rounded-xl border border-red-100">
-            <div className="flex-1">
-              <h4 className="text-xs font-black text-red-900 uppercase">Factory Reset System</h4>
-              <p className="text-[9px] text-red-700/70 font-bold mt-1 uppercase tracking-tight">
-                Wipe all databases, network settings, uploaded files, and configurations. This action is irreversible. System will reboot.
-              </p>
-            </div>
-            <button 
-              onClick={() => setShowConfirm(true)}
-              disabled={isResetting}
-              className="bg-red-600 text-white px-6 py-2 rounded-lg font-black text-[10px] uppercase tracking-widest shadow-md shadow-red-600/10 hover:bg-red-700 transition-all disabled:opacity-50 whitespace-nowrap"
+      <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Machine Controls */}
+        <div className="admin-card">
+          <div className="flex items-center gap-2 mb-6">
+            <span className="text-xl">⚙️</span>
+            <h3 className="text-sm font-black uppercase tracking-widest text-slate-800">Machine Controls</h3>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <button
+              onClick={() => setShowRestartModal(true)}
+              className="admin-btn-primary flex items-center justify-center gap-3"
             >
-              {isResetting ? 'Wiping...' : 'Wipe System'}
+              <span>🔄</span> RESTART SYSTEM
+            </button>
+            <button
+              onClick={() => handleServiceAction('sync')}
+              className="bg-indigo-50 text-indigo-600 py-3 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-indigo-100 transition-all flex items-center justify-center gap-2"
+            >
+              <span>☁️</span> CLOUD SYNC
+            </button>
+            <button
+              onClick={() => handleServiceAction('clear-logs')}
+              className="bg-slate-50 text-slate-600 py-3 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-slate-100 transition-all flex items-center justify-center gap-2"
+            >
+              <span>🧹</span> CLEAR LOGS
+            </button>
+            <button
+              onClick={() => handleServiceAction('export-db')}
+              className="bg-emerald-50 text-emerald-600 py-3 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-emerald-100 transition-all flex items-center justify-center gap-2"
+            >
+              <span>💾</span> BACKUP DB
+            </button>
+          </div>
+        </div>
+
+        {/* Maintenance */}
+        <div className="admin-card">
+          <div className="flex items-center gap-2 mb-6">
+            <span className="text-xl">🛡️</span>
+            <h3 className="text-sm font-black uppercase tracking-widest text-slate-800">Maintenance</h3>
+          </div>
+          <div className="space-y-4">
+            <button
+              onClick={() => handleServiceAction('kernel-check')}
+              className="w-full bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-slate-200 transition-all flex items-center justify-center gap-2"
+            >
+              <span>🐧</span> CHECK KERNEL VERSION
+            </button>
+            <button
+              onClick={() => setShowConfirm(true)}
+              className="w-full bg-red-50 text-red-600 py-4 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-red-600 hover:text-white transition-all border border-red-100 flex items-center justify-center gap-2"
+            >
+              <span>⚠️</span> FACTORY RESET
             </button>
           </div>
         </div>

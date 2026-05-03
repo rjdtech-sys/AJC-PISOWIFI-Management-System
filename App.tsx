@@ -476,9 +476,9 @@ const App: React.FC = () => {
 
               <div className={`admin-sidebar-footer p-4 border-t border-white/5 bg-black/20 ${sidebarOpen ? 'block' : 'hidden md:block'}`}>
                  <div className="flex flex-col gap-3">
-                   <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                      {sidebarOpen && <span className="text-slate-500 text-[9px] font-bold uppercase tracking-wider">{systemVersion || 'v3.6.0-ONLINE-STABLE'}</span>}
+                   <div className="flex flex-col">
+                      <span className="text-white font-black text-sm tracking-tighter uppercase leading-none">AJC PISOWIFI</span>
+                      {sidebarOpen && <span className="text-slate-400 text-[10px] font-black uppercase tracking-widest mt-0.5">{systemVersion || 'v3.7.8-STABLE'}</span>}
                    </div>
                    
                   {/* Mobile Exit Button */}
@@ -584,16 +584,16 @@ const SidebarItem: React.FC<{ active: boolean; onClick: () => void; icon: string
     onClick={disabled ? undefined : onClick} 
     title={collapsed ? label : undefined}
     disabled={disabled}
-    className={`sidebar-item w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group ${
+    className={`sidebar-item w-full flex items-center gap-4 px-4 py-3.5 rounded-xl transition-all duration-200 group ${
       disabled 
         ? 'sidebar-item-disabled opacity-20 cursor-not-allowed grayscale' 
         : active 
-          ? 'sidebar-item-active bg-blue-600 text-white shadow-md shadow-blue-600/20' 
+          ? 'sidebar-item-active text-white' 
           : 'sidebar-item-default text-slate-400 hover:bg-white/5 hover:text-white'
     } ${collapsed ? 'sidebar-item-collapsed justify-center' : 'justify-start'}`}
   >
-    <span className={`sidebar-icon text-lg ${active ? 'scale-110' : 'group-hover:scale-110'} transition-transform`}>{icon}</span>
-    {!collapsed && <span className="sidebar-label uppercase tracking-wider text-[10px] font-bold">{label}</span>}
+    <span className={`sidebar-icon text-xl ${active ? 'scale-110' : 'group-hover:scale-110'} transition-transform`}>{icon}</span>
+    {!collapsed && <span className="sidebar-label uppercase tracking-widest text-[11px] font-black">{label}</span>}
   </button>
 );
 
