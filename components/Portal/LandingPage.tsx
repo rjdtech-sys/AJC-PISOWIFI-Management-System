@@ -385,11 +385,11 @@ const LandingPage: React.FC<Props> = ({ rates, sessions, onSessionStart, refresh
         // Silently fail - client-side lookup will keep trying
       }
     };
-    // Small delay to allow client-side lookup to resolve first
-    const timer = setTimeout(fetchMySession, 2000);
+    // Fetch immediately in parallel — no delay needed since this is a server-side lookup
+    // that doesn't depend on client-side state (cookies/localStorage)
+    fetchMySession();
     return () => {
       cancelled = true;
-      clearTimeout(timer);
     };
   }, [mySession, myMac, clientIp]);
 

@@ -4,6 +4,6 @@
   "requestFramePermissions": [
     "camera"
   ],
-  "version_code": 3,
-  "version_name": "3.7.1"
+  "version_code": 19,
+  "version_name": "3.8.7"
 }

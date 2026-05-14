@@ -8378,7 +8378,7 @@ function startBackgroundTimers() {
       }
 
       await db.run(
-        'UPDATE sessions SET remaining_seconds = remaining_seconds - 1 WHERE remaining_seconds > 0 AND (is_paused = 0 OR is_paused IS NULL)'
+        'UPDATE sessions SET remaining_seconds = remaining_seconds - 2 WHERE remaining_seconds > 0 AND (is_paused = 0 OR is_paused IS NULL)'
       );
 
       const expired = await db.all(
