@@ -593,7 +593,7 @@ const MultiWanSettings: React.FC = () => {
                             ) : null}
                           </div>
                           <div className="text-[10px] text-slate-500 font-mono mt-0.5">
-                            {wan.ip_address ? `IP: ${wan.ip_address}` : 'No IP'} &bull; GW: {wan.gateway || 'Auto'} &bull; Weight: {wan.weight}
+                            {wan.ip_address ? `IP: ${wan.ip_address}` : 'No IP'} • GW: {wan.gateway || 'Auto'} • Weight: {wan.weight}
                           </div>
                           {speedResults[wan.id!] && (
                             <div className="flex items-center gap-2 mt-1">
@@ -627,6 +627,33 @@ const MultiWanSettings: React.FC = () => {
                         <button
                           onClick={() => handleApplyWan(wan.id!)}
                           className="text-[10px] font-black uppercase tracking-widest bg-green-50 text-green-600 px-3 py-1.5 rounded-lg hover:bg-green-100 transition-colors"
+                        >
+                          Apply
+                        </button>
+                        <button
+                          onClick={() => { setEditingWan(wan); setShowEditModal(true); }}
+                          className="text-[10px] font-black uppercase tracking-widest bg-slate-50 text-slate-600 px-3 py-1.5 rounded-lg hover:bg-slate-100 transition-colors"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDeleteWan(wan.id!)}
+                          className="text-[10px] font-black uppercase tracking-widest bg-red-50 text-red-500 px-3 py-1.5 rounded-lg hover:bg-red-100 transition-colors"
+                        >
+                          Del
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* WAN Traffic Monitor - Only show when Multi-WAN is enabled */}
+          {config.topology === 'multi' && wans.filter(w => w.enabled).length > 0 && (
+            <WanTrafficMonitor wans={wans.filter(w => w.enabled)} />
+          )}
                         >
                           Apply
                         </button>

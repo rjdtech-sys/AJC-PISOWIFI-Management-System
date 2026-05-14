@@ -14,7 +14,8 @@ const DeviceManager: React.FC<Props> = ({ sessions = [], refreshSessions, refres
   const [error, setError] = useState<string | null>(null);
   const [showAddDevice, setShowAddDevice] = useState(false);
   const [refreshingDevices, setRefreshingDevices] = useState<Set<string>>(new Set());
-  
+  const [pausingDevices, setPausingDevices] = useState<Set<string>>(new Set());
+
   // Edit Modal State
   const [editingDevice, setEditingDevice] = useState<WifiDevice | null>(null);
   const [editForm, setEditForm] = useState({
@@ -38,12 +39,12 @@ const DeviceManager: React.FC<Props> = ({ sessions = [], refreshSessions, refres
 
   useEffect(() => {
     fetchDevices();
-    
+
     // Auto-refresh every 30 seconds
     const interval = setInterval(() => {
       fetchDevices();
     }, 30000);
-    
+
     return () => clearInterval(interval);
   }, []);
 
@@ -77,16 +78,10 @@ const DeviceManager: React.FC<Props> = ({ sessions = [], refreshSessions, refres
     setRefreshingDevices(prev => new Set(prev).add(deviceId));
     try {
       const updatedDevice = await apiClient.refreshDevice(deviceId);
-      
-      // Update the device in the list
-      setDevices(prev => prev.map(device => 
+      setDevices(prev => prev.map(device =>
         device.id === deviceId ? updatedDevice : device
       ));
-      
-      // Refresh device list if refreshDevices function is provided
-      if (refreshDevices) {
-        refreshDevices();
-      }
+      if (refreshDevices) refreshDevices();
     } catch (err) {
       alert(`Failed to refresh device: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
@@ -116,13 +111,45 @@ const DeviceManager: React.FC<Props> = ({ sessions = [], refreshSessions, refres
     }
   };
 
+  // Pause/Resume using the existing session token system — does NOT touch the token itself
+  const handlePauseResume = async (device: WifiDevice) => {
+    // Resolve token: prefer device.sessionToken, fall back to live sessions prop
+    const liveSession = sessions.find(s => s.mac.toUpperCase() === device.mac.toUpperCase());
+    const token = device.sessionToken || liveSession?.token;
+
+    if (!token) {
+      alert('No active session token found for this device.');
+      return;
+    }
+
+    setPausingDevices(prev => new Set(prev).add(device.id));
+    try {
+      if (device.isPaused) {
+        await apiClient.resumeSession(token);
+      } else {
+        await apiClient.pauseSession(token);
+      }
+      // Refresh both devices and sessions so UI reflects new state
+      await fetchDevices();
+      if (refreshSessions) refreshSessions();
+    } catch (err) {
+      alert(`Failed to ${device.isPaused ? 'resume' : 'pause'} session: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setPausingDevices(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(device.id);
+        return newSet;
+      });
+    }
+  };
+
   const openEditModal = (device: WifiDevice) => {
     setEditingDevice(device);
-    
+
     // Use live session data if available, otherwise fall back to device data
     const liveSession = sessions.find(s => s.mac.toUpperCase() === device.mac.toUpperCase());
     const displayTime = liveSession ? liveSession.remainingSeconds : device.sessionTime;
-    
+
     setEditForm({
       customName: device.customName || device.hostname || '',
       sessionTime: displayTime ? Math.floor(displayTime / 60).toString() : '',
@@ -135,9 +162,9 @@ const DeviceManager: React.FC<Props> = ({ sessions = [], refreshSessions, refres
 
   const handleSaveEdit = async () => {
     if (!editingDevice) return;
-    
+
     try {
-      await apiClient.updateWifiDevice(editingDevice.id, { 
+      await apiClient.updateWifiDevice(editingDevice.id, {
         customName: editForm.customName,
         sessionTime: editForm.sessionTime ? Number(editForm.sessionTime) * 60 : undefined,
         creditPesos: editForm.creditPesos ? Number(editForm.creditPesos) : undefined,
@@ -147,10 +174,7 @@ const DeviceManager: React.FC<Props> = ({ sessions = [], refreshSessions, refres
       });
       setEditingDevice(null);
       fetchDevices();
-      // Refresh sessions to ensure live data is updated
-      if (refreshSessions) {
-        refreshSessions();
-      }
+      if (refreshSessions) refreshSessions();
     } catch (err) {
       alert(`Failed to update device: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
@@ -158,7 +182,7 @@ const DeviceManager: React.FC<Props> = ({ sessions = [], refreshSessions, refres
 
   const handleDelete = async (deviceId: string) => {
     if (!confirm('Are you sure you want to delete this device?')) return;
-    
+
     try {
       await apiClient.deleteWifiDevice(deviceId);
       fetchDevices();
@@ -179,15 +203,7 @@ const DeviceManager: React.FC<Props> = ({ sessions = [], refreshSessions, refres
         signal: Number(newDevice.signal) || 0
       });
       setShowAddDevice(false);
-      setNewDevice({
-        mac: '',
-        ip: '',
-        hostname: '',
-        interface: '',
-        ssid: '',
-        signal: 0,
-        customName: ''
-      });
+      setNewDevice({ mac: '', ip: '', hostname: '', interface: '', ssid: '', signal: 0, customName: '' });
       fetchDevices();
     } catch (err) {
       alert(`Failed to add device: ${err instanceof Error ? err.message : 'Unknown error'}`);
@@ -223,7 +239,7 @@ const DeviceManager: React.FC<Props> = ({ sessions = [], refreshSessions, refres
     return (
       <div className="bg-red-50 border border-red-200 rounded-lg p-4">
         <div className="text-red-800">{error}</div>
-        <button 
+        <button
           onClick={fetchDevices}
           className="mt-2 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
         >
@@ -254,6 +270,7 @@ const DeviceManager: React.FC<Props> = ({ sessions = [], refreshSessions, refres
         </div>
       </div>
 
+      {/* Edit Modal */}
       {editingDevice && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl p-5 w-full max-w-sm shadow-2xl border border-slate-200">
@@ -269,7 +286,7 @@ const DeviceManager: React.FC<Props> = ({ sessions = [], refreshSessions, refres
                   placeholder="Custom Name"
                 />
               </div>
-              
+
               <div>
                 <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Session (Mins)</label>
                 <input
@@ -321,7 +338,7 @@ const DeviceManager: React.FC<Props> = ({ sessions = [], refreshSessions, refres
                   />
                 </div>
               </div>
-              
+
               <div className="flex justify-end gap-2 mt-6">
                 <button
                   onClick={() => setEditingDevice(null)}
@@ -341,6 +358,7 @@ const DeviceManager: React.FC<Props> = ({ sessions = [], refreshSessions, refres
         </div>
       )}
 
+      {/* Add Device Form */}
       {showAddDevice && (
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
           <h3 className="text-xs font-bold text-slate-800 mb-4 uppercase tracking-tight">Add New Device</h3>
@@ -384,17 +402,19 @@ const DeviceManager: React.FC<Props> = ({ sessions = [], refreshSessions, refres
         </div>
       )}
 
+      {/* Device Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-4 py-3 border-b border-slate-100 flex justify-between items-center">
           <h3 className="text-xs font-bold text-slate-800">Connected Devices ({devices.length})</h3>
           <button onClick={fetchDevices} className="text-[10px] font-bold text-blue-600 uppercase">Refresh All</button>
         </div>
-        
+
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead className="bg-slate-50 text-slate-500 text-[9px] uppercase font-bold tracking-wider border-b border-slate-100">
               <tr>
                 <th className="px-4 py-2">Device</th>
+                <th className="px-4 py-2">Status</th>
                 <th className="px-4 py-2">Network</th>
                 <th className="px-4 py-2">Signal</th>
                 <th className="px-4 py-2">Session</th>
@@ -404,119 +424,186 @@ const DeviceManager: React.FC<Props> = ({ sessions = [], refreshSessions, refres
             </thead>
             <tbody className="divide-y divide-slate-100">
               {devices.map((device) => {
-                // Check if device has live active session
+                // Cross-reference live sessions prop for real-time data
                 const liveSession = sessions.find(s => s.mac.toUpperCase() === device.mac.toUpperCase());
                 const isDeviceActive = device.isActive || (liveSession && liveSession.remainingSeconds > 0);
-                
+
+                // Pause state: prefer device field (from /api/devices), fall back to sessions prop
+                const isPaused = device.isPaused ?? (liveSession?.isPaused === true);
+
+                // Online: seen within 90 seconds
+                const isOnline = device.isOnline ?? ((Date.now() - (device.lastSeen || 0)) < 90000);
+
+                // Has a session token (needed for pause/resume)
+                const hasToken = Boolean(device.sessionToken || liveSession?.token);
+
+                const isPauseLoading = pausingDevices.has(device.id);
+
                 return (
-                <tr key={device.id} className={`hover:bg-slate-50 transition-colors ${!isDeviceActive ? 'opacity-50' : ''}`}>
-                  <td className="px-4 py-2 whitespace-nowrap">
-                    <div className="flex items-center gap-2">
-                      <div className={`w-1.5 h-1.5 rounded-full ${isDeviceActive ? 'bg-green-500 animate-pulse' : 'bg-slate-300'}`}></div>
-                      <div>
-                        <div className="text-[11px] font-bold text-slate-900">
-                          {device.customName || device.hostname || 'Unknown'}
-                        </div>
-                        <div className="text-[9px] text-slate-500 uppercase">{device.mac}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-4 py-2 whitespace-nowrap">
-                    <div className="text-[10px] font-bold text-slate-700">{device.ip || '-'}</div>
-                    <div className="text-[9px] text-slate-400 uppercase tracking-tighter">{device.interface || '-'}</div>
-                  </td>
-                  <td className="px-4 py-2 whitespace-nowrap">
-                    <div className="flex items-center gap-1.5">
-                      <div className={`w-1 h-3 rounded-full ${
-                        device.signal > -50 ? 'bg-green-500' : 
-                        device.signal > -70 ? 'bg-yellow-500' : 'bg-red-500'
-                      }`}></div>
-                      <span className="text-[10px] font-bold text-slate-700">{device.signal} dBm</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-2 whitespace-nowrap">
-                    {(() => {
-                      // Get live session data for this device
-                      const liveSession = sessions.find(s => s.mac.toUpperCase() === device.mac.toUpperCase());
-                      const displayTime = liveSession ? liveSession.remainingSeconds : device.sessionTime;
-                      const displayPaid = liveSession ? liveSession.totalPaid : device.totalPaid;
-                  const creditPesos = device.creditPesos || 0;
-                  const creditMinutes = device.creditMinutes || 0;
-                      
-                      return (
-                        <>
-                          <div className="text-[10px] font-bold text-blue-600">
-                            {displayTime ? formatTime(displayTime) : 'None'}
+                  <tr key={device.id} className={`hover:bg-slate-50 transition-colors ${!isDeviceActive ? 'opacity-50' : ''}`}>
+                    {/* Device */}
+                    <td className="px-4 py-2 whitespace-nowrap">
+                      <div className="flex items-center gap-2">
+                        <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isDeviceActive ? 'bg-green-500 animate-pulse' : 'bg-slate-300'}`}></div>
+                        <div>
+                          <div className="text-[11px] font-bold text-slate-900">
+                            {device.customName || device.hostname || 'Unknown'}
                           </div>
-                          {displayPaid ? (
-                            <div className="text-[9px] text-green-600 font-bold">
-                              ₱{displayPaid}
-                            </div>
-                      ) : null}
-                      {creditPesos > 0 || creditMinutes > 0 ? (
-                        <div className="text-[9px] text-amber-600 font-bold mt-0.5">
-                          Credit: ₱{creditPesos}{creditMinutes > 0 ? ` / ${creditMinutes}m` : ''}
+                          <div className="text-[9px] text-slate-500 uppercase">{device.mac}</div>
                         </div>
-                      ) : null}
-                        </>
-                      );
-                    })()}
-                  </td>
-                  <td className="px-4 py-2 whitespace-nowrap">
-                    <div className="text-[9px] font-bold text-slate-600">
-                      <div>DL: {device.downloadLimit ? `${device.downloadLimit}M` : '∞'}</div>
-                      <div>UL: {device.uploadLimit ? `${device.uploadLimit}M` : '∞'}</div>
-                    </div>
-                  </td>
-                  <td className="px-4 py-2 whitespace-nowrap text-right space-x-1">
-                    <button
-                      onClick={() => refreshDevice(device.id)}
-                      disabled={refreshingDevices.has(device.id)}
-                      className="p-1.5 hover:bg-blue-50 text-blue-600 rounded-md transition-colors"
-                      title="Refresh"
-                    >
-                      {refreshingDevices.has(device.id) ? '...' : '🔄'}
-                    </button>
-                    {isDeviceActive ? (
+                      </div>
+                    </td>
+
+                    {/* Status badges */}
+                    <td className="px-4 py-2 whitespace-nowrap">
+                      <div className="flex flex-col gap-1">
+                        {/* Online / Offline */}
+                        <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide w-fit ${
+                          isOnline
+                            ? 'bg-green-100 text-green-700'
+                            : 'bg-slate-100 text-slate-500'
+                        }`}>
+                          <span className={`w-1 h-1 rounded-full ${isOnline ? 'bg-green-500' : 'bg-slate-400'}`}></span>
+                          {isOnline ? 'Online' : 'Offline'}
+                        </span>
+
+                        {/* Paused / Active — only show when device has an active session */}
+                        {isDeviceActive && (
+                          <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide w-fit ${
+                            isPaused
+                              ? 'bg-amber-100 text-amber-700'
+                              : 'bg-blue-100 text-blue-700'
+                          }`}>
+                            <span className={`w-1 h-1 rounded-full ${isPaused ? 'bg-amber-500' : 'bg-blue-500'}`}></span>
+                            {isPaused ? 'Paused' : 'Active'}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+
+                    {/* Network */}
+                    <td className="px-4 py-2 whitespace-nowrap">
+                      <div className="text-[10px] font-bold text-slate-700">{device.ip || '-'}</div>
+                      <div className="text-[9px] text-slate-400 uppercase tracking-tighter">{device.interface || '-'}</div>
+                    </td>
+
+                    {/* Signal */}
+                    <td className="px-4 py-2 whitespace-nowrap">
+                      <div className="flex items-center gap-1.5">
+                        <div className={`w-1 h-3 rounded-full ${
+                          device.signal > -50 ? 'bg-green-500' :
+                          device.signal > -70 ? 'bg-yellow-500' : 'bg-red-500'
+                        }`}></div>
+                        <span className="text-[10px] font-bold text-slate-700">{device.signal} dBm</span>
+                      </div>
+                    </td>
+
+                    {/* Session */}
+                    <td className="px-4 py-2 whitespace-nowrap">
+                      {(() => {
+                        const displayTime = liveSession ? liveSession.remainingSeconds : device.sessionTime;
+                        const displayPaid = liveSession ? liveSession.totalPaid : device.totalPaid;
+                        const creditPesos = device.creditPesos || 0;
+                        const creditMinutes = device.creditMinutes || 0;
+
+                        return (
+                          <>
+                            <div className={`text-[10px] font-bold ${isPaused ? 'text-amber-600' : 'text-blue-600'}`}>
+                              {displayTime ? formatTime(displayTime) : 'None'}
+                              {isPaused && <span className="ml-1 text-[8px] text-amber-500">(paused)</span>}
+                            </div>
+                            {displayPaid ? (
+                              <div className="text-[9px] text-green-600 font-bold">₱{displayPaid}</div>
+                            ) : null}
+                            {creditPesos > 0 || creditMinutes > 0 ? (
+                              <div className="text-[9px] text-amber-600 font-bold mt-0.5">
+                                Credit: ₱{creditPesos}{creditMinutes > 0 ? ` / ${creditMinutes}m` : ''}
+                              </div>
+                            ) : null}
+                          </>
+                        );
+                      })()}
+                    </td>
+
+                    {/* Bandwidth Limit */}
+                    <td className="px-4 py-2 whitespace-nowrap">
+                      <div className="text-[9px] font-bold text-slate-600">
+                        <div>DL: {device.downloadLimit ? `${device.downloadLimit}M` : '∞'}</div>
+                        <div>UL: {device.uploadLimit ? `${device.uploadLimit}M` : '∞'}</div>
+                      </div>
+                    </td>
+
+                    {/* Actions */}
+                    <td className="px-4 py-2 whitespace-nowrap text-right space-x-1">
+                      {/* Refresh */}
                       <button
-                        onClick={() => handleDisconnect(device.id)}
+                        onClick={() => refreshDevice(device.id)}
+                        disabled={refreshingDevices.has(device.id)}
+                        className="p-1.5 hover:bg-blue-50 text-blue-600 rounded-md transition-colors"
+                        title="Refresh"
+                      >
+                        {refreshingDevices.has(device.id) ? '...' : '🔄'}
+                      </button>
+
+                      {/* Pause / Resume — only when active session with token exists */}
+                      {isDeviceActive && hasToken && (
+                        <button
+                          onClick={() => handlePauseResume(device)}
+                          disabled={isPauseLoading}
+                          className={`p-1.5 rounded-md transition-colors text-[10px] font-bold ${
+                            isPaused
+                              ? 'hover:bg-green-50 text-green-600'
+                              : 'hover:bg-amber-50 text-amber-600'
+                          } disabled:opacity-40`}
+                          title={isPaused ? 'Resume Internet' : 'Pause Internet'}
+                        >
+                          {isPauseLoading ? '...' : isPaused ? '▶️' : '⏸️'}
+                        </button>
+                      )}
+
+                      {/* Connect / Disconnect */}
+                      {isDeviceActive ? (
+                        <button
+                          onClick={() => handleDisconnect(device.id)}
+                          className="p-1.5 hover:bg-red-50 text-red-600 rounded-md transition-colors"
+                          title="Disconnect"
+                        >
+                          🚫
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleConnect(device.id)}
+                          className="p-1.5 hover:bg-green-50 text-green-600 rounded-md transition-colors"
+                          title="Connect"
+                        >
+                          ✅
+                        </button>
+                      )}
+
+                      {/* Edit */}
+                      <button
+                        onClick={() => openEditModal(device)}
+                        className="p-1.5 hover:bg-slate-100 text-slate-600 rounded-md transition-colors"
+                        title="Edit"
+                      >
+                        ✏️
+                      </button>
+
+                      {/* Delete */}
+                      <button
+                        onClick={() => handleDelete(device.id)}
                         className="p-1.5 hover:bg-red-50 text-red-600 rounded-md transition-colors"
-                        title="Disconnect"
+                        title="Delete"
                       >
-                        🚫
+                        🗑️
                       </button>
-                    ) : (
-                      <button
-                        onClick={() => handleConnect(device.id)}
-                        className="p-1.5 hover:bg-green-50 text-green-600 rounded-md transition-colors"
-                        title="Connect"
-                      >
-                        ✅
-                      </button>
-                    )}
-                    
-                    <button
-                      onClick={() => openEditModal(device)}
-                      className="p-1.5 hover:bg-slate-100 text-slate-600 rounded-md transition-colors"
-                      title="Edit"
-                    >
-                      ✏️
-                    </button>
-  
-                    <button
-                      onClick={() => handleDelete(device.id)}
-                      className="p-1.5 hover:bg-red-50 text-red-600 rounded-md transition-colors"
-                      title="Delete"
-                    >
-                      🗑️
-                    </button>
-                  </td>
-                </tr>
+                    </td>
+                  </tr>
                 );
               })}
             </tbody>
           </table>
-          
+
           {devices.length === 0 && (
             <div className="text-center py-10">
               <p className="text-slate-400 text-[10px] font-bold uppercase tracking-widest">No devices found</p>

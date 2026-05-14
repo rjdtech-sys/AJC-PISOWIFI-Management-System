@@ -279,6 +279,10 @@ export interface WifiDevice {
   lastSeen: number;
   sessionTime?: number;
   isActive: boolean;
+  isOnline?: boolean;
+  isPaused?: boolean;
+  isPausable?: boolean;
+  sessionToken?: string;
   customName?: string;
   totalPaid?: number;
   creditPesos?: number;

@@ -6691,8 +6691,8 @@ app.get('/api/devices', requireAdmin, async (req, res) => {
     // Get all devices with their current session information
     const devices = await db.all('SELECT * FROM wifi_devices ORDER BY connected_at DESC');
     
-    // Get all active sessions
-    const sessions = await db.all('SELECT mac, ip, remaining_seconds as remainingSeconds, total_paid as totalPaid, connected_at as connectedAt, is_paused as isPaused, download_limit as sessionDownloadLimit, upload_limit as sessionUploadLimit FROM sessions WHERE remaining_seconds > 0');
+    // Get all active sessions (include token, pausable for pause/resume support)
+    const sessions = await db.all('SELECT mac, ip, remaining_seconds as remainingSeconds, total_paid as totalPaid, connected_at as connectedAt, is_paused as isPaused, pausable as isPausable, token, download_limit as sessionDownloadLimit, upload_limit as sessionUploadLimit FROM sessions WHERE remaining_seconds > 0');
     
     // Create a map of sessions by MAC for quick lookup
     const sessionMap = new Map();
@@ -6745,6 +6745,10 @@ app.get('/api/devices', requireAdmin, async (req, res) => {
         connectedAt: session ? session.connectedAt : (device.connected_at || Date.now()),
         lastSeen: device.last_seen || Date.now(),
         isActive: Boolean(session), // Device is active if it has an active session
+        isOnline: device.last_seen ? (Date.now() - device.last_seen) < 90000 : false, // Online if seen within 90s
+        isPaused: session ? Boolean(session.isPaused) : false,
+        isPausable: session ? Boolean(session.isPausable) : false,
+        sessionToken: session ? session.token : null,
         customName: device.custom_name || '',
         sessionTime: session ? session.remainingSeconds : 0, // Real remaining time from session
         totalPaid: session ? session.totalPaid : 0,
@@ -6778,6 +6782,10 @@ app.get('/api/devices', requireAdmin, async (req, res) => {
           connectedAt: session.connectedAt,
           lastSeen: Date.now(),
           isActive: true,
+          isOnline: true, // Has an active session right now, treat as online
+          isPaused: Boolean(session.isPaused),
+          isPausable: Boolean(session.isPausable),
+          sessionToken: session.token || null,
           customName: '',
           sessionTime: session.remainingSeconds,
           totalPaid: session.totalPaid,
@@ -7366,15 +7374,26 @@ async function applyMultiWanConfig(config) {
             try { await execPromise(cmd); } catch (e) { /* ignore */ }
         };
 
-        // 1. Cleanup existing rules
-        await run('iptables -t mangle -F AJC_MULTIWAN');
-        await run('iptables -t mangle -D PREROUTING -j AJC_MULTIWAN');
-        
+        // 1. Cleanup existing AJC_MULTIWAN chain safely
+        // First flush the chain (remove all rules inside it)
+        await run('iptables -t mangle -F AJC_MULTIWAN 2>/dev/null || true');
+        // Remove ALL jumps to AJC_MULTIWAN from PREROUTING (loop in case of duplicates)
+        for (let i = 0; i < 5; i++) {
+            try { await execPromise('iptables -t mangle -D PREROUTING -j AJC_MULTIWAN'); } catch(e) { break; }
+        }
+        // Delete the chain itself so we can recreate it cleanly
+        await run('iptables -t mangle -X AJC_MULTIWAN 2>/dev/null || true');
+
         // Clean up any individual WAN NAT rules to prevent conflicts before re-applying
+        // Loop to remove ALL duplicates (not just one copy)
         const dbWansAll = await db.all('SELECT name FROM wan_interfaces');
         for (const w of dbWansAll) {
-            await run(`iptables -t nat -D POSTROUTING -o ${w.name} -j MASQUERADE`);
-            await run(`iptables -t nat -D POSTROUTING -o ${w.name} -m conntrack --ctstate NEW -j MASQUERADE`);
+            for (let i = 0; i < 5; i++) {
+                try { await execPromise(`iptables -t nat -D POSTROUTING -o ${w.name} -j MASQUERADE`); } catch(e) { break; }
+            }
+            for (let i = 0; i < 5; i++) {
+                try { await execPromise(`iptables -t nat -D POSTROUTING -o ${w.name} -m conntrack --ctstate NEW -j MASQUERADE`); } catch(e) { break; }
+            }
         }
 
         // Clean up any PCC ip rules and routing tables
@@ -7388,9 +7407,25 @@ async function applyMultiWanConfig(config) {
 
         // 1.1 CRITICAL: Ensure local traffic to the machine itself ALWAYS uses the main routing table.
         // This prevents portal traffic from being "leaked" to a WAN interface in Multi-WAN mode.
+        // Use a safe atomic replace: add first, then remove old (avoids brief gap)
         try {
-          await run('ip rule del pref 100 2>/dev/null || true');
-          await run('ip rule add pref 100 lookup main');
+          // Remove any existing pref 100 rule first (loop for duplicates)
+          for (let i = 0; i < 3; i++) {
+            try { await execPromise('ip rule del pref 100'); } catch(e) { break; }
+          }
+          await execPromise('ip rule add pref 100 lookup main');
+        } catch (e) {}
+
+        // 1.2 CRITICAL: Ensure hotspot captive portal PREROUTING rules are not disturbed.
+        // Re-add MSS clamping in mangle FORWARD (it was not touched, but verify it exists)
+        await run('iptables -t mangle -C FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu');
+
+        // Re-add NAT masquerade for primary WAN (initFirewall may have set this, keep it alive)
+        try {
+          const primaryWan = await network.getDefaultRouteInterface();
+          if (primaryWan) {
+            await run(`iptables -t nat -C POSTROUTING -o ${primaryWan} -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -o ${primaryWan} -j MASQUERADE`);
+          }
         } catch (e) {}
 
         // If disabled or single topology, restore simple default route and stop
@@ -7405,6 +7440,8 @@ async function applyMultiWanConfig(config) {
                 await run('ip route del default 2>/dev/null');
                 await run(`ip route add default via ${gw} dev ${activeWan.name} metric 100`);
                 await run('ip route flush cache');
+                // Restore NAT for this single WAN
+                await run(`iptables -t nat -C POSTROUTING -o ${activeWan.name} -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -o ${activeWan.name} -j MASQUERADE`);
                 console.log(`[MultiWAN] Restored single default route via ${gw} dev ${activeWan.name}`);
               }
             }
@@ -7449,16 +7486,18 @@ async function applyMultiWanConfig(config) {
           console.log(`[MultiWAN] Only 1 active WAN found (${single.interface}). Using as single default route.`);
           await run('ip route del default 2>/dev/null');
           await run(`ip route add default via ${single.gateway} dev ${single.interface} metric 100`);
+          await run(`iptables -t nat -C POSTROUTING -o ${single.interface} -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -o ${single.interface} -j MASQUERADE`);
+          await run('ip route flush cache');
           return;
         }
 
-        // 2. Initialize Chain
+        // 2. Create fresh AJC_MULTIWAN chain (deleted above so -N always succeeds)
         await run('iptables -t mangle -N AJC_MULTIWAN');
-        await run('iptables -t mangle -I PREROUTING -j AJC_MULTIWAN');
+        // Insert jump at position 1 so it runs before other PREROUTING rules
+        await run('iptables -t mangle -I PREROUTING 1 -j AJC_MULTIWAN');
 
-        
         if (config.mode === 'pcc') {
-            // Restore Connmark
+            // Restore Connmark (sticky sessions — same client always uses same WAN)
             await run('iptables -t mangle -A AJC_MULTIWAN -j CONNMARK --restore-mark');
             await run('iptables -t mangle -A AJC_MULTIWAN -m mark ! --mark 0 -j RETURN');
             
@@ -7466,24 +7505,17 @@ async function applyMultiWanConfig(config) {
                  const iface = validIfaces[idx];
                  const mark = idx + 1;
                  const every = validIfaces.length;
-                 
-                 // Apply Mark using Nth statistic (Simulating Load Balancing)
-                 // This covers "Both Addresses" intent by balancing connections
                  const currentEvery = every - idx;
                  
-                 // Note: In a real environment, we would use HMARK for true src/dst hashing if available
-                 // For now, we use statistic nth which is robust and available
                  await run(`iptables -t mangle -A AJC_MULTIWAN -m statistic --mode nth --every ${currentEvery} --packet 0 -j MARK --set-mark ${mark}`);
                  await run(`iptables -t mangle -A AJC_MULTIWAN -m mark --mark ${mark} -j CONNMARK --save-mark`);
                  
                  // Routing Rules
                  const tableId = 100 + mark;
-                 // Clean up old rules for this table/mark to avoid dups
-                 while (true) {
-                    try { await execPromise(`ip rule del fwmark ${mark} table ${tableId}`); } catch(e) { break; }
-                 }
                  await run(`ip rule add fwmark ${mark} table ${tableId}`);
                  await run(`ip route add default via ${iface.gateway} dev ${iface.interface} table ${tableId}`);
+                 // NAT for this WAN
+                 await run(`iptables -t nat -C POSTROUTING -o ${iface.interface} -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -o ${iface.interface} -j MASQUERADE`);
             }
             
         } else {
@@ -7491,18 +7523,13 @@ async function applyMultiWanConfig(config) {
             let routeCmd = 'ip route replace default scope global';
             for (const iface of validIfaces) {
                 routeCmd += ` nexthop via ${iface.gateway} dev ${iface.interface} weight ${iface.weight}`;
-                // Ensure NAT exists for this nexthop
                 await run(`iptables -t nat -C POSTROUTING -o ${iface.interface} -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -o ${iface.interface} -j MASQUERADE`);
             }
             await run(routeCmd);
         }
         
-        // Final sanity check: Ensure all enabled WANs have a NAT rule
-        for (const iface of validIfaces) {
-            await run(`iptables -t nat -C POSTROUTING -o ${iface.interface} -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -o ${iface.interface} -j MASQUERADE`);
-        }
-        
         await run('ip route flush cache');
+        console.log(`[MultiWAN] Applied ${config.mode} mode with ${validIfaces.length} WANs: ${validIfaces.map(i => i.interface).join(', ')}`);
         
     } catch (e) {
         console.error('[MultiWAN] Apply failed:', e.message);
@@ -7718,6 +7745,91 @@ app.get('/api/multiwan/wans/:id/speed', requireAdmin, async (req, res) => {
     const speed = await network.getWanSpeed(wan.name);
     res.json({ success: true, speed });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET WAN traffic stats (real-time bytes in/out)
+app.get('/api/multiwan/wans/:id/stats', requireAdmin, async (req, res) => {
+  try {
+    const wan = await db.get('SELECT * FROM wan_interfaces WHERE id = ?', [req.params.id]);
+    if (!wan) return res.status(404).json({ error: 'WAN not found' });
+    
+    const stats = await network.getWanBytesStats(wan.name);
+    res.json({
+      interface: wan.name,
+      rx_bytes: stats.rx_bytes,
+      tx_bytes: stats.tx_bytes,
+      rx_rate: stats.rx_rate || 0,
+      tx_rate: stats.tx_rate || 0,
+      timestamp: Date.now()
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET all WANs traffic stats in one call
+app.get('/api/multiwan/stats', requireAdmin, async (req, res) => {
+  try {
+    const wans = await db.all('SELECT * FROM wan_interfaces WHERE enabled = 1');
+    const stats = {};
+    
+    for (const wan of wans) {
+      try {
+        const s = await network.getWanBytesStats(wan.name);
+        stats[wan.name] = {
+          rx_bytes: s.rx_bytes,
+          tx_bytes: s.tx_bytes,
+          rx_rate: s.rx_rate || 0,
+          tx_rate: s.tx_rate || 0,
+          timestamp: Date.now()
+        };
+      } catch (e) {
+        stats[wan.name] = { rx_bytes: 0, tx_bytes: 0, rx_rate: 0, tx_rate: 0, error: e.message };
+      }
+    }
+    
+    res.json(stats);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Background WAN traffic monitor (updates rx_rate/tx_rate in memory)
+let wanTrafficHistory = {};
+
+async function updateWanTrafficStats() {
+  try {
+    const wans = await db.all('SELECT * FROM wan_interfaces WHERE enabled = 1');
+    for (const wan of wans) {
+      try {
+        const stats = await network.getWanBytesStats(wan.name);
+        const now = Date.now();
+        const key = wan.name;
+        
+        if (wanTrafficHistory[key]) {
+          const prev = wanTrafficHistory[key];
+          const elapsed = (now - prev.timestamp) / 1000; // seconds
+          if (elapsed > 0) {
+            stats.rx_rate = Math.round((stats.rx_bytes - prev.rx_bytes) / elapsed);
+            stats.tx_rate = Math.round((stats.tx_bytes - prev.tx_bytes) / elapsed);
+          }
+        } else {
+          stats.rx_rate = 0;
+          stats.tx_rate = 0;
+        }
+        
+        wanTrafficHistory[key] = { ...stats, timestamp: now };
+      } catch (e) {}
+    }
+  } catch (e) {}
+}
+
+// Run traffic monitor every 2 seconds
+setInterval(updateWanTrafficStats, 2000);
+
+// Expose traffic history to API
+app.get('/api/multiwan/traffic', requireAdmin, (req, res) => {
+  res.json(wanTrafficHistory);
 });
 
 // Create VLAN as ISP (adds to wan_interfaces automatically)
