@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { apiClient } from '../../lib/api';
 import { WanInterface } from '../../types';
 
@@ -16,6 +16,302 @@ interface NetworkIface {
   ip: string | null;
   speed?: number;
 }
+
+interface WanTrafficData {
+  rx_bytes: number;
+  tx_bytes: number;
+  rx_rate: number;
+  tx_rate: number;
+  timestamp: number;
+  error?: string;
+}
+
+// Traffic history point for the graph
+interface TrafficPoint {
+  timestamp: number;
+  rx_rate: number;
+  tx_rate: number;
+}
+
+// WAN Traffic Monitor Component with real-time graph
+const WanTrafficMonitor: React.FC<{ wans: WanInterface[] }> = ({ wans }) => {
+  const [trafficData, setTrafficData] = useState<Record<string, WanTrafficData>>({});
+  const [trafficHistory, setTrafficHistory] = useState<Record<string, TrafficPoint[]>>({});
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const animationRef = useRef<number>();
+
+  useEffect(() => {
+    const fetchTraffic = async () => {
+      try {
+        const token = localStorage.getItem('ajc_admin_token');
+        const res = await fetch('/api/multiwan/traffic', {
+          headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+        });
+        const data = await res.json();
+        setTrafficData(data);
+
+        // Update history (keep last 60 points = 2 minutes at 2s interval)
+        setTrafficHistory(prev => {
+          const newHistory = { ...prev };
+          for (const [iface, stats] of Object.entries(data)) {
+            if (!newHistory[iface]) newHistory[iface] = [];
+            newHistory[iface] = [
+              ...newHistory[iface].slice(-59),
+              {
+                timestamp: stats.timestamp || Date.now(),
+                rx_rate: stats.rx_rate || 0,
+                tx_rate: stats.tx_rate || 0
+              }
+            ];
+          }
+          return newHistory;
+        });
+      } catch (e) {
+        console.error('Failed to fetch traffic data', e);
+      }
+    };
+
+    fetchTraffic();
+    const interval = setInterval(fetchTraffic, 2000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Draw the graph
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const draw = () => {
+      const width = canvas.width;
+      const height = canvas.height;
+      const padding = 40;
+      const graphWidth = width - padding * 2;
+      const graphHeight = height - padding * 2;
+
+      // Clear canvas
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(0, 0, width, height);
+
+      // Draw grid
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.lineWidth = 1;
+
+      // Horizontal grid lines
+      for (let i = 0; i <= 4; i++) {
+        const y = padding + (graphHeight / 4) * i;
+        ctx.beginPath();
+        ctx.moveTo(padding, y);
+        ctx.lineTo(width - padding, y);
+        ctx.stroke();
+      }
+
+      // Vertical grid lines
+      for (let i = 0; i <= 6; i++) {
+        const x = padding + (graphWidth / 6) * i;
+        ctx.beginPath();
+        ctx.moveTo(x, padding);
+        ctx.lineTo(x, height - padding);
+        ctx.stroke();
+      }
+
+      // Draw axis labels
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = 'bold 10px system-ui';
+      ctx.textAlign = 'right';
+
+      // Y-axis labels (time labels would go here)
+      ctx.fillText('0', padding - 5, height - padding + 4);
+
+      // Find max rate for scaling
+      let maxRate = 1000; // Default 1 KB/s minimum scale
+      for (const wan of wans) {
+        const history = trafficHistory[wan.name] || [];
+        for (const point of history) {
+          maxRate = Math.max(maxRate, point.rx_rate, point.tx_rate);
+        }
+      }
+      // Round up to nice number
+      maxRate = Math.ceil(maxRate / 1000) * 1000 || 1000;
+
+      // Draw Y-axis labels
+      ctx.textAlign = 'right';
+      for (let i = 0; i <= 4; i++) {
+        const value = Math.round((maxRate / 4) * (4 - i));
+        const y = padding + (graphHeight / 4) * i + 4;
+        ctx.fillText(formatRate(value), padding - 5, y);
+      }
+
+      // Colors for each WAN
+      const colors = [
+        { rx: '#3b82f6', tx: '#93c5fd' }, // Blue
+        { rx: '#10b981', tx: '#6ee7b7' }, // Green
+        { rx: '#8b5cf6', tx: '#c4b5fd' }, // Purple
+        { rx: '#f59e0b', tx: '#fcd34d' }, // Amber
+      ];
+
+      // Draw each WAN's traffic
+      wans.forEach((wan, wanIndex) => {
+        const history = trafficHistory[wan.name] || [];
+        if (history.length < 2) return;
+
+        const color = colors[wanIndex % colors.length];
+
+        // Draw RX line
+        ctx.strokeStyle = color.rx;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        history.forEach((point, i) => {
+          const x = padding + (graphWidth / 60) * i;
+          const y = height - padding - (point.rx_rate / maxRate) * graphHeight;
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+
+        // Draw TX line (dashed)
+        ctx.strokeStyle = color.tx;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        history.forEach((point, i) => {
+          const x = padding + (graphWidth / 60) * i;
+          const y = height - padding - (point.tx_rate / maxRate) * graphHeight;
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+        ctx.setLineDash([]);
+      });
+
+      // Draw legend
+      const legendY = 15;
+      let legendX = padding;
+
+      wans.forEach((wan, wanIndex) => {
+        const color = colors[wanIndex % colors.length];
+        const stats = trafficData[wan.name];
+
+        // RX indicator
+        ctx.fillStyle = color.rx;
+        ctx.fillRect(legendX, legendY - 8, 12, 12);
+        ctx.fillStyle = '#334155';
+        ctx.font = 'bold 9px system-ui';
+        ctx.textAlign = 'left';
+        ctx.fillText(`${wan.name} ↓`, legendX + 16, legendY);
+
+        // TX indicator
+        ctx.fillStyle = color.tx;
+        ctx.fillRect(legendX + 80, legendY - 8, 12, 12);
+        ctx.fillStyle = '#334155';
+        ctx.fillText(`↑`, legendX + 96, legendY);
+
+        // Current rate
+        if (stats) {
+          ctx.fillStyle = '#64748b';
+          ctx.font = '8px system-ui';
+          ctx.fillText(formatRate(stats.rx_rate), legendX + 16, legendY + 12);
+          ctx.fillText(formatRate(stats.tx_rate), legendX + 96, legendY + 12);
+        }
+
+        legendX += 170;
+      });
+    };
+
+    animationRef.current = requestAnimationFrame(draw);
+
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+    };
+  }, [trafficHistory, trafficData, wans]);
+
+  const formatRate = (bytesPerSec: number): string => {
+    if (bytesPerSec === 0) return '0 B/s';
+    if (bytesPerSec < 1024) return `${bytesPerSec} B/s`;
+    if (bytesPerSec < 1024 * 1024) return `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
+    return `${(bytesPerSec / (1024 * 1024)).toFixed(2)} MB/s`;
+  };
+
+  const formatBytes = (bytes: number): string => {
+    if (bytes === 0) return '0 B';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  };
+
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+      <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+        <div>
+          <h3 className="font-black text-slate-800 uppercase tracking-widest text-sm">WAN Traffic Monitor</h3>
+          <p className="text-[9px] text-slate-400 uppercase mt-0.5">Real-time bandwidth usage per interface</p>
+        </div>
+        <div className="flex items-center gap-4 text-[9px]">
+          <div className="flex items-center gap-1.5">
+            <div className="w-3 h-3 rounded bg-blue-500"></div>
+            <span className="text-slate-500 font-bold uppercase">Download (RX)</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-3 h-3 rounded bg-blue-300 border border-blue-400"></div>
+            <span className="text-slate-500 font-bold uppercase">Upload (TX)</span>
+          </div>
+        </div>
+      </div>
+      <div className="p-6">
+        {/* Graph Canvas */}
+        <canvas
+          ref={canvasRef}
+          width={800}
+          height={200}
+          className="w-full h-auto rounded-lg border border-slate-100"
+        />
+
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-6">
+          {wans.map((wan) => {
+            const stats = trafficData[wan.name];
+            const isUp = stats && !stats.error;
+
+            return (
+              <div
+                key={wan.id}
+                className={`p-4 rounded-xl border-2 ${isUp ? 'bg-slate-50 border-slate-200' : 'bg-gray-50 border-gray-200'}`}
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <span className="font-black text-sm text-slate-800 uppercase">{wan.name}</span>
+                  <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded ${isUp ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                    {isUp ? 'ONLINE' : 'OFFLINE'}
+                  </span>
+                </div>
+
+                {stats && !stats.error ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <div className="text-[8px] font-black text-slate-400 uppercase">Download</div>
+                      <div className="text-lg font-black text-blue-600">{formatRate(stats.rx_rate)}</div>
+                      <div className="text-[9px] text-slate-400 font-mono">{formatBytes(stats.rx_bytes)} total</div>
+                    </div>
+                    <div>
+                      <div className="text-[8px] font-black text-slate-400 uppercase">Upload</div>
+                      <div className="text-lg font-black text-green-600">{formatRate(stats.tx_rate)}</div>
+                      <div className="text-[9px] text-slate-400 font-mono">{formatBytes(stats.tx_bytes)} total</div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-xs text-slate-400 text-center py-2">No data available</div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const MultiWanSettings: React.FC = () => {
   const [config, setConfig] = useState<MultiWanConfig>({
@@ -650,33 +946,6 @@ const MultiWanSettings: React.FC = () => {
             </div>
           </div>
 
-          {/* WAN Traffic Monitor - Only show when Multi-WAN is enabled */}
-          {config.topology === 'multi' && wans.filter(w => w.enabled).length > 0 && (
-            <WanTrafficMonitor wans={wans.filter(w => w.enabled)} />
-          )}
-                        >
-                          Apply
-                        </button>
-                        <button
-                          onClick={() => { setEditingWan(wan); setShowEditModal(true); }}
-                          className="text-[10px] font-black uppercase tracking-widest bg-slate-50 text-slate-600 px-3 py-1.5 rounded-lg hover:bg-slate-100 transition-colors"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => handleDeleteWan(wan.id!)}
-                          className="text-[10px] font-black uppercase tracking-widest bg-red-50 text-red-500 px-3 py-1.5 rounded-lg hover:bg-red-100 transition-colors"
-                        >
-                          Del
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
           {config.topology === 'multi' && (
             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
               <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
@@ -741,6 +1010,38 @@ const MultiWanSettings: React.FC = () => {
               </div>
             </div>
           )}
+
+          {/* WAN Traffic Monitor — always visible, works for both Single and Multi-WAN */}
+          {(() => {
+            // Build the list of interfaces to monitor:
+            // - Multi-WAN: all enabled WANs from the table
+            // - Single-WAN: configured WANs first, fallback to defaultWan
+            const enabledWans = wans.filter(w => !!w.enabled);
+            let monitorWans: WanInterface[] = enabledWans;
+
+            if (monitorWans.length === 0 && defaultWan) {
+              // Synthesize a minimal WanInterface for the default system WAN
+              monitorWans = [{
+                id: 0,
+                name: defaultWan,
+                type: 'dhcp',
+                config: {},
+                gateway: null,
+                weight: 1,
+                enabled: 1,
+                status: 'up',
+                ip_address: null,
+                is_vlan: 0,
+                vlan_parent: null,
+                vlan_id: null,
+                created_at: '',
+                updated_at: ''
+              } as WanInterface];
+            }
+
+            if (monitorWans.length === 0) return null;
+            return <WanTrafficMonitor wans={monitorWans} />;
+          })()}
         </div>
 
         {/* Sidebar */}

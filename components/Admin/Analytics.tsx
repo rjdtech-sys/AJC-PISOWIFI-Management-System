@@ -512,7 +512,15 @@ const Analytics: React.FC<AnalyticsProps> = ({ sessions, salesHistory }) => {
                   <td className="px-4 py-2 font-mono text-[10px] font-bold text-slate-700">{s.mac}</td>
                   <td className="px-4 py-2 text-[10px] font-bold text-slate-500">{s.ip}</td>
                   <td className="px-4 py-2 text-[10px] font-black text-blue-600">
-                    {Math.floor(s.remainingSeconds / 60)}m {s.remainingSeconds % 60}s
+                    {(() => {
+                      const total = Math.floor(Number(s.remainingSeconds) || 0);
+                      const h = Math.floor(total / 3600);
+                      const m = Math.floor((total % 3600) / 60);
+                      const sec = total % 60;
+                      return h > 0
+                        ? `${h}h ${m}m ${sec}s`
+                        : `${m}m ${sec}s`;
+                    })()}
                   </td>
                   <td className="px-4 py-2 text-[10px] font-bold text-slate-600">₱{s.totalPaid}</td>
                 </tr>
