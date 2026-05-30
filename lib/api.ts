@@ -474,6 +474,14 @@ export const apiClient = {
     await handleResponse(res);
   },
 
+  async deleteInactiveWifiDevices(): Promise<{ count: number }> {
+    const res = await fetch(`${API_BASE}/devices/inactive`, {
+      method: 'DELETE',
+      headers: getHeaders()
+    });
+    return handleResponse(res);
+  },
+
   async connectDevice(id: string): Promise<void> {
     const res = await fetch(`${API_BASE}/devices/${id}/connect`, {
       method: 'POST',

@@ -1871,18 +1871,7 @@ let systemHardwareId = null;
 async function getMacFromIp(ip) {
   if (ip === '::1' || ip === '127.0.0.1' || !ip) return null;
   
-  // 1. Try to ping the IP to ensure it's in the ARP table (fast check)
-  try { await execPromise(`ping -c 1 -W 1 ${ip}`); } catch (e) {}
-
-  // 2. Check ip neigh (modern ARP)
-  try {
-    const { stdout } = await execPromise(`ip neigh show ${ip}`);
-    // Output: 10.0.0.5 dev wlan0 lladdr aa:bb:cc:dd:ee:ff REACHABLE
-    const match = stdout.match(/lladdr\s+([a-fA-F0-9:]+)/);
-    if (match && match[1]) return match[1].toUpperCase();
-  } catch (e) {}
-
-  // 3. Fallback to /proc/net/arp
+  // 1. Check /proc/net/arp directly (native fs - NO exec spawning)
   try {
     const arpData = fs.readFileSync('/proc/net/arp', 'utf8');
     const lines = arpData.split('\n');
@@ -1896,7 +1885,7 @@ async function getMacFromIp(ip) {
     }
   } catch (e) {}
 
-  // 4. Check DHCP Leases (dnsmasq) - essential for clients that block ping
+  // 2. Fallback: Check DHCP Leases (dnsmasq) - essential for clients that block ping
   try {
     const leaseFiles = ['/tmp/dhcp.leases', '/var/lib/dnsmasq/dnsmasq.leases', '/var/lib/dhcp/dhcpd.leases', '/var/lib/misc/dnsmasq.leases'];
     for (const file of leaseFiles) {
@@ -1913,6 +1902,14 @@ async function getMacFromIp(ip) {
         }
       }
     }
+  } catch (e) {}
+
+  // 3. Fallback: Check ip neigh (modern ARP) - only if /proc/net/arp failed
+  try {
+    const { stdout } = await execPromise(`ip neigh show ${ip}`);
+    // Output: 10.0.0.5 dev wlan0 lladdr aa:bb:cc:dd:ee:ff REACHABLE
+    const match = stdout.match(/lladdr\s+([a-fA-F0-9:]+)/);
+    if (match && match[1]) return match[1].toUpperCase();
   } catch (e) {}
 
   try {
@@ -2471,30 +2468,47 @@ app.use(async (req, res, next) => {
           return res.type('text/plain').send('Microsoft NCSI');
         }
         if (url.includes('/hotspot-detect.html') || url.includes('/library/test/success.html')) {
-             return res.type('text/plain').send('Success');
+          return res.type('text/plain').send('Success');
         }
       }
       
       return next();
     }
-    const ok = await tryRoamingAuthorize(mac, clientIp, getSessionToken(req));
-    if (ok) {
-      if (isProbe) {
-        if (url.includes('/generate_204')) {
-          return res.status(204).send();
-        }
-        if (url.includes('/success.txt') || url.includes('/connecttest.txt')) {
-          return res.type('text/plain').send('Success');
-        }
-        if (url.includes('/ncsi.txt')) {
-          return res.type('text/plain').send('Microsoft NCSI');
-        }
-        if (url.includes('/hotspot-detect.html') || url.includes('/library/test/success.html')) {
-          return res.type('text/plain').send('Success');
-        }
-      }
-      return next();
+    
+    // CRITICAL FIX: Check if device has an EXPIRED session (remaining_seconds <= 0)
+    // If yes, ensure it's blocked and force portal redirect
+    const expiredSession = await db.get('SELECT mac, ip FROM sessions WHERE mac = ? AND remaining_seconds <= 0 AND (expired_at IS NULL OR expired_at = 0)', [mac]);
+    if (expiredSession) {
+      console.log(`[AUTH] EXPIRED SESSION DETECTED: ${mac} has 0 time - blocking immediately`);
+      // Block the device immediately if not already blocked
+      await network.blockMAC(mac, clientIp);
+      // Mark as expired to prevent repeated blocking
+      await db.run('UPDATE sessions SET expired_at = ? WHERE mac = ?', [Date.now(), mac]);
+      // Force conntrack cleanup
+      try {
+        await require('child_process').execPromise(`conntrack -D -s ${clientIp} 2>/dev/null || true`).catch(() => {});
+        await require('child_process').execPromise(`conntrack -D -d ${clientIp} 2>/dev/null || true`).catch(() => {});
+      } catch (e) {}
     }
+    
+    // No active session - serve captive portal to force login/purchase
+    if (isProbe) {
+      if (url.includes('/generate_204') || url.includes('/connecttest.txt')) {
+        return res.status(204).send();
+      }
+      if (url.includes('/success.txt') || url.includes('/ncsi.txt')) {
+        return res.type('text/plain').send('Captive Portal');
+      }
+      if (url.includes('/hotspot-detect.html') || url.includes('/library/test/success.html')) {
+        return res.type('text/html').send('<html><body>Captive Portal</body></html>');
+      }
+    }
+    
+    // Force portal redirect for unauthorized/expired devices
+    if (!res.headersSent) {
+      return res.sendFile(path.join(__dirname, 'index.html'));
+    }
+    return;
   }
 
   // FORCE REDIRECT to common domain for session sharing (localStorage)
@@ -4219,7 +4233,7 @@ app.post('/api/config', requireAdmin, async (req, res) => {
       await db.run('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)', ['espIpAddress', req.body.espIpAddress || '192.168.4.1']);
       await db.run('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)', ['espPort', req.body.espPort || '80']);
       await db.run('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)', ['coinSlots', JSON.stringify(req.body.coinSlots || [])]);
-      updateGPIO(
+      await updateGPIO(
         req.body.boardType,
         req.body.coinPin,
         req.body.boardModel,
@@ -4229,9 +4243,9 @@ app.post('/api/config', requireAdmin, async (req, res) => {
         req.body.nodemcuDevices,
         req.body.relayPin,
         req.body.relayActiveMode
-      );
+      ).catch(err => console.error('[GPIO] updateGPIO error:', err.message));
     } else {
-      updateGPIO(
+      await updateGPIO(
         req.body.boardType,
         req.body.coinPin,
         req.body.boardModel,
@@ -4241,7 +4255,7 @@ app.post('/api/config', requireAdmin, async (req, res) => {
         req.body.nodemcuDevices,
         req.body.relayPin,
         req.body.relayActiveMode
-      );
+      ).catch(err => console.error('[GPIO] updateGPIO error:', err.message));
     }
     
     // Handle multi-NodeMCU devices
@@ -7038,6 +7052,37 @@ app.delete('/api/devices/:id', requireAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// CRITICAL FIX: Delete all inactive devices (no session time)
+app.delete('/api/devices/inactive', requireAdmin, async (req, res) => {
+  try {
+    // Delete devices that have:
+    // - No active session (sessionTime <= 0 or NULL)
+    // - Not currently connected (is_active = 0)
+    // - No credit pesos or minutes
+    const result = await db.run(`
+      DELETE FROM wifi_devices 
+      WHERE id NOT IN (
+        SELECT DISTINCT wd.id 
+        FROM wifi_devices wd
+        LEFT JOIN sessions s ON wd.mac = s.mac
+        WHERE s.remaining_seconds > 0 
+           OR wd.session_time > 0 
+           OR wd.credit_pesos > 0 
+           OR wd.credit_minutes > 0
+           OR wd.is_active = 1
+      )
+    `);
+    
+    const deletedCount = result.changes || 0;
+    console.log(`[DEVICES] Deleted ${deletedCount} inactive devices with no session time`);
+    
+    res.json({ success: true, count: deletedCount });
+  } catch (err) { 
+    console.error('[DEVICES] Failed to delete inactive devices:', err.message);
+    res.status(500).json({ error: err.message }); 
+  }
+});
+
 app.post('/api/devices/:id/connect', requireAdmin, async (req, res) => {
   try {
     const device = await db.get('SELECT * FROM wifi_devices WHERE id = ?', [req.params.id]);
@@ -7824,8 +7869,8 @@ async function updateWanTrafficStats() {
   } catch (e) {}
 }
 
-// Run traffic monitor every 2 seconds
-setInterval(updateWanTrafficStats, 2000);
+// Run traffic monitor every 5 seconds (optimized from 2s to reduce CPU)
+setInterval(updateWanTrafficStats, 5000);
 
 // Expose traffic history to API
 app.get('/api/multiwan/traffic', requireAdmin, (req, res) => {
@@ -8018,7 +8063,7 @@ async function bootupRestore(isRestricted = false) {
     io.emit('multi-coin-pulse', { denomination: pesos, slot_id: null });
   };
   
-  initGPIO(
+  await initGPIO(
     coinCallback, 
     board?.value || 'none', 
     parseInt(pin?.value || '2'), 
@@ -8029,7 +8074,7 @@ async function bootupRestore(isRestricted = false) {
     nodemcuDevices?.value ? JSON.parse(nodemcuDevices.value) : [],
     relayPinRow?.value ? parseInt(relayPinRow.value, 10) : null,
     relayActiveModeRow?.value === 'low' ? 'low' : 'high'
-  );
+  ).catch(err => console.error('[GPIO] initGPIO error:', err.message));
   
   // Register callbacks for individual slots (if multi-slot)
   if (board?.value === 'nodemcu_esp' && coinSlots?.value) {
@@ -8502,8 +8547,18 @@ function startBackgroundTimers() {
       _lastActiveCount = activeRow ? activeRow.cnt : 0;
 
       for (const s of expired) {
+        // CRITICAL FIX: Immediately block device and force portal redirect
+        console.log(`[SESSION] EXPIRED: Blocking ${s.mac} (${s.ip}) - time reached 0`);
         await network.blockMAC(s.mac, s.ip);
         await db.run('UPDATE sessions SET expired_at = ? WHERE mac = ?', [Date.now(), s.mac]);
+        
+        // Force conntrack cleanup to kill all existing connections immediately
+        if (s.ip) {
+          try {
+            await require('child_process').execPromise(`conntrack -D -s ${s.ip} 2>/dev/null || true`).catch(() => {});
+            await require('child_process').execPromise(`conntrack -D -d ${s.ip} 2>/dev/null || true`).catch(() => {});
+          } catch (e) {}
+        }
       }
     } catch (e) { console.error(e); }
   }, 2000); // Changed from 1000ms to 2000ms - reduces CPU by 50% while maintaining accuracy

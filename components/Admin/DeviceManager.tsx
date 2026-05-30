@@ -191,6 +191,37 @@ const DeviceManager: React.FC<Props> = ({ sessions = [], refreshSessions, refres
     }
   };
 
+  const handleDeleteAllInactive = async () => {
+    // Count inactive devices first
+    const inactiveDevices = devices.filter(device => {
+      const liveSession = sessions.find(s => s.mac.toUpperCase() === device.mac.toUpperCase());
+      const hasSessionTime = (liveSession?.remainingSeconds || device.sessionTime || 0) > 0;
+      const hasCreditPesos = (device.creditPesos || 0) > 0;
+      const hasCreditMinutes = (device.creditMinutes || 0) > 0;
+      const isActive = device.isActive === 1;
+      
+      return !hasSessionTime && !hasCreditPesos && !hasCreditMinutes && !isActive;
+    });
+
+    if (inactiveDevices.length === 0) {
+      alert('No inactive devices found. All devices have active sessions or credit.');
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to permanently delete ${inactiveDevices.length} inactive device(s) with no session time?\n\nThis action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      const result = await apiClient.deleteInactiveWifiDevices();
+      alert(`✅ Successfully deleted ${result.count} inactive device(s)`);
+      fetchDevices();
+      if (refreshDevices) refreshDevices();
+    } catch (err) {
+      alert(`Failed to delete inactive devices: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+  };
+
   const handleAddDevice = async () => {
     if (!newDevice.mac || !newDevice.ip || !newDevice.interface) {
       alert('Please fill in required fields (MAC, IP, Interface)');
@@ -266,6 +297,13 @@ const DeviceManager: React.FC<Props> = ({ sessions = [], refreshSessions, refres
             className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-bold hover:bg-blue-700"
           >
             Add Device
+          </button>
+          <button
+            onClick={handleDeleteAllInactive}
+            className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-[10px] font-bold hover:bg-red-700"
+            title="Delete all devices with no session time, credit, or active connection"
+          >
+            🗑️ Delete Inactive
           </button>
         </div>
       </div>
