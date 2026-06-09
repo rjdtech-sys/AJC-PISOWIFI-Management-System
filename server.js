@@ -8063,18 +8063,22 @@ async function bootupRestore(isRestricted = false) {
     io.emit('multi-coin-pulse', { denomination: pesos, slot_id: null });
   };
   
-  await initGPIO(
-    coinCallback, 
-    board?.value || 'none', 
-    parseInt(pin?.value || '2'), 
-    model?.value,
-    espIpAddress?.value,
-    parseInt(espPort?.value || '80'),
-    coinSlots?.value ? JSON.parse(coinSlots.value) : [],
-    nodemcuDevices?.value ? JSON.parse(nodemcuDevices.value) : [],
-    relayPinRow?.value ? parseInt(relayPinRow.value, 10) : null,
-    relayActiveModeRow?.value === 'low' ? 'low' : 'high'
-  ).catch(err => console.error('[GPIO] initGPIO error:', err.message));
+  try {
+    await initGPIO(
+      coinCallback, 
+      board?.value || 'none', 
+      parseInt(pin?.value || '2'), 
+      model?.value,
+      espIpAddress?.value,
+      parseInt(espPort?.value || '80'),
+      coinSlots?.value ? JSON.parse(coinSlots.value) : [],
+      nodemcuDevices?.value ? JSON.parse(nodemcuDevices.value) : [],
+      relayPinRow?.value ? parseInt(relayPinRow.value, 10) : null,
+      relayActiveModeRow?.value === 'low' ? 'low' : 'high'
+    );
+  } catch (err) {
+    console.error('[GPIO] initGPIO error:', err.message);
+  }
   
   // Register callbacks for individual slots (if multi-slot)
   if (board?.value === 'nodemcu_esp' && coinSlots?.value) {
