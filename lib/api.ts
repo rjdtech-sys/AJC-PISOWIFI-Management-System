@@ -1763,5 +1763,34 @@ export const apiClient = {
       body: JSON.stringify({ rates })
     });
     if (!res.ok) throw new Error('Failed to save rental rates');
+  },
+
+  // ============================================
+  // SERVICE TOGGLE (Phone Rental & MikroTik)
+  // ============================================
+
+  async getSystemServices(): Promise<any> {
+    const res = await fetch(`${API_BASE}/system/services`, {
+      headers: getHeaders()
+    });
+    return handleResponse(res);
+  },
+
+  async togglePhoneRentalService(enabled: boolean): Promise<any> {
+    const res = await fetch(`${API_BASE}/system/services/phone-rental/toggle`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ enabled })
+    });
+    return handleResponse(res);
+  },
+
+  async toggleMikroTikService(enabled: boolean): Promise<any> {
+    const res = await fetch(`${API_BASE}/system/services/mikrotik/toggle`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ enabled })
+    });
+    return handleResponse(res);
   }
 };

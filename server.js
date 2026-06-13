@@ -23,6 +23,7 @@ const { generatePPPoEInvoicePdf } = require('./lib/pppoe-billing');
 const { generatePPPoEUserFormPdf } = require('./lib/pppoe-user-form');
 const { generatePPPoESaleReceiptPdf } = require('./lib/pppoe-sale-receipt');
 const mikrotikReadonly = require('./lib/mikrotik-readonly');
+const serviceManager = require('./lib/service-manager');
 
 const PPPoE_BILLING_DIR = path.resolve(__dirname, 'data', 'billing', 'pppoe');
 const PPPoE_FORMS_DIR = path.resolve(__dirname, 'data', 'forms', 'pppoe');
@@ -4019,6 +4020,73 @@ app.get('/api/system/stats', requireAdmin, async (req, res) => {
       }))
     });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================
+// SERVICE TOGGLE API (Phone Rental & MikroTik)
+// ============================================
+
+// Get status of all services
+app.get('/api/system/services', requireAdmin, async (req, res) => {
+  try {
+    const status = await serviceManager.getServiceStatus();
+    res.json(status);
+  } catch (err) {
+    console.error('[ServiceManager] Get status error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Toggle Phone Rental service
+app.post('/api/system/services/phone-rental/toggle', requireAdmin, async (req, res) => {
+  try {
+    const { enabled } = req.body;
+    if (enabled === undefined) {
+      return res.status(400).json({ error: 'enabled (boolean) is required' });
+    }
+    const result = await serviceManager.setServiceEnabled('phoneRental', enabled);
+    console.log(`[ServiceManager] Phone Rental ${enabled ? 'ENABLED' : 'DISABLED'} by admin`);
+    res.json(result);
+  } catch (err) {
+    console.error('[ServiceManager] Toggle Phone Rental error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Toggle MikroTik service
+app.post('/api/system/services/mikrotik/toggle', requireAdmin, async (req, res) => {
+  try {
+    const { enabled } = req.body;
+    if (enabled === undefined) {
+      return res.status(400).json({ error: 'enabled (boolean) is required' });
+    }
+    const result = await serviceManager.setServiceEnabled('mikrotik', enabled);
+    console.log(`[ServiceManager] MikroTik ${enabled ? 'ENABLED' : 'DISABLED'} by admin`);
+    res.json(result);
+  } catch (err) {
+    console.error('[ServiceManager] Toggle MikroTik error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Toggle all services at once
+app.post('/api/system/services/toggle-all', requireAdmin, async (req, res) => {
+  try {
+    const { phoneRental, mikrotik } = req.body;
+    const results = {};
+    
+    if (phoneRental !== undefined) {
+      results.phoneRental = await serviceManager.setServiceEnabled('phoneRental', phoneRental);
+    }
+    if (mikrotik !== undefined) {
+      results.mikrotik = await serviceManager.setServiceEnabled('mikrotik', mikrotik);
+    }
+    
+    res.json({ success: true, results });
+  } catch (err) {
+    console.error('[ServiceManager] Toggle all services error:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -8807,6 +8875,9 @@ function startBackgroundTimers() {
   }
 
   startBackgroundTimers();
+
+  // Initialize service manager (Phone Rental & MikroTik toggles)
+  await serviceManager.initializeServices();
 
   server.listen(80, '0.0.0.0', async () => {
     console.log('[AJC] System Engine Online @ Port 80');

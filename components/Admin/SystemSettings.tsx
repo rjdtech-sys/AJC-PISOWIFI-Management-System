@@ -14,6 +14,11 @@ const SystemSettings: React.FC = () => {
   });
   const [pendingUpdate, setPendingUpdate] = useState<any>(null);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [serviceStatus, setServiceStatus] = useState({
+    phoneRental: { enabled: true, activeIntervals: 0 },
+    mikrotik: { enabled: true, activeConnections: 0, activeIntervals: 0 }
+  });
+  const [isToggling, setIsToggling] = useState(false);
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -43,6 +48,9 @@ const SystemSettings: React.FC = () => {
     };
 
     fetchStats();
+    
+    // Fetch service status
+    fetchServiceStatus();
     
     const interval = setInterval(fetchStats, 5000);
     
@@ -75,6 +83,46 @@ const SystemSettings: React.FC = () => {
       } catch (e: any) {
           alert('Failed to reject update: ' + e.message);
       }
+  };
+
+  // Fetch service status
+  const fetchServiceStatus = async () => {
+    try {
+      const status = await apiClient.getSystemServices();
+      setServiceStatus(status);
+    } catch (e) {
+      console.error('Failed to fetch service status', e);
+    }
+  };
+
+  // Toggle service
+  const handleToggleService = async (service: 'phoneRental' | 'mikrotik', enabled: boolean) => {
+    if (isToggling) return;
+    
+    const serviceName = service === 'phoneRental' ? 'Phone Rental' : 'MikroTik';
+    if (!confirm(`${enabled ? 'Enable' : 'Disable'} ${serviceName} service?\n\n${
+      enabled 
+        ? 'This will start the service and consume additional CPU/memory.' 
+        : 'This will stop the service to free up CPU/memory on your SBC board.'
+    }`)) {
+      return;
+    }
+
+    setIsToggling(true);
+    try {
+      if (service === 'phoneRental') {
+        await apiClient.togglePhoneRentalService(enabled);
+      } else {
+        await apiClient.toggleMikroTikService(enabled);
+      }
+      
+      alert(`✅ ${serviceName} service ${enabled ? 'enabled' : 'disabled'} successfully`);
+      await fetchServiceStatus();
+    } catch (e: any) {
+      alert(`Failed to ${enabled ? 'enable' : 'disable'} ${serviceName}: ` + e.message);
+    } finally {
+      setIsToggling(false);
+    }
   };
 
   const handleReset = async () => {
@@ -244,6 +292,93 @@ const SystemSettings: React.FC = () => {
             </div>
           </div>
         ))}
+      </section>
+
+      {/* Service Toggle Controls */}
+      <section className="admin-card">
+        <div className="flex items-center gap-2 mb-6">
+          <span className="text-xl">⚡</span>
+          <h3 className="text-sm font-black uppercase tracking-widest text-slate-800">Service Management</h3>
+          <span className="text-[9px] text-slate-400 font-bold ml-auto">Toggle services to optimize SBC performance</span>
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Phone Rental Service */}
+          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-4 border border-blue-200">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white text-lg">
+                  📱
+                </div>
+                <div>
+                  <h4 className="text-xs font-black text-slate-800 uppercase">Phone Rental</h4>
+                  <p className="text-[9px] text-slate-500 font-medium">
+                    {serviceStatus.phoneRental.enabled ? 'Running' : 'Stopped'} • 
+                    {serviceStatus.phoneRental.activeIntervals > 0 
+                      ? `${serviceStatus.phoneRental.activeIntervals} active tasks` 
+                      : 'Idle'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => handleToggleService('phoneRental', !serviceStatus.phoneRental.enabled)}
+                disabled={isToggling}
+                className={`relative w-14 h-7 rounded-full transition-all duration-300 ${
+                  serviceStatus.phoneRental.enabled 
+                    ? 'bg-blue-600 shadow-md shadow-blue-600/30' 
+                    : 'bg-slate-300'
+                } disabled:opacity-50`}
+              >
+                <div className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full shadow-md transition-transform duration-300 ${
+                  serviceStatus.phoneRental.enabled ? 'translate-x-7' : 'translate-x-0'
+                }`} />
+              </button>
+            </div>
+            <div className="text-[9px] text-slate-600 font-medium bg-white/60 rounded-lg p-2">
+              {serviceStatus.phoneRental.enabled 
+                ? '✅ Active: Phone rental devices can connect and rent'
+                : '⏸️ Disabled: Frees CPU/memory for core WiFi services'}
+            </div>
+          </div>
+
+          {/* MikroTik Service */}
+          <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl p-4 border border-purple-200">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-purple-600 rounded-lg flex items-center justify-center text-white text-lg">
+                  🌐
+                </div>
+                <div>
+                  <h4 className="text-xs font-black text-slate-800 uppercase">MikroTik</h4>
+                  <p className="text-[9px] text-slate-500 font-medium">
+                    {serviceStatus.mikrotik.enabled ? 'Running' : 'Stopped'} • 
+                    {serviceStatus.mikrotik.activeConnections > 0 
+                      ? `${serviceStatus.mikrotik.activeConnections} connections` 
+                      : 'No connections'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => handleToggleService('mikrotik', !serviceStatus.mikrotik.enabled)}
+                disabled={isToggling}
+                className={`relative w-14 h-7 rounded-full transition-all duration-300 ${
+                  serviceStatus.mikrotik.enabled 
+                    ? 'bg-purple-600 shadow-md shadow-purple-600/30' 
+                    : 'bg-slate-300'
+                } disabled:opacity-50`}
+              >
+                <div className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full shadow-md transition-transform duration-300 ${
+                  serviceStatus.mikrotik.enabled ? 'translate-x-7' : 'translate-x-0'
+                }`} />
+              </button>
+            </div>
+            <div className="text-[9px] text-slate-600 font-medium bg-white/60 rounded-lg p-2">
+              {serviceStatus.mikrotik.enabled 
+                ? '✅ Active: MikroTik router management and billing'
+                : '⏸️ Disabled: Frees CPU/memory, disables MikroTik features'}
+            </div>
+          </div>
+        </div>
       </section>
 
       <NodeMCUFlasher />
