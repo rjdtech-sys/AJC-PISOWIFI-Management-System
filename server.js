@@ -5141,6 +5141,87 @@ app.post('/api/portal/config', requireAdmin, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Read portal HTML file (public/index.html)
+app.get('/api/portal/html', requireAdmin, async (req, res) => {
+  try {
+    const portalPath = path.join(__dirname, 'public', 'index.html');
+    if (fs.existsSync(portalPath)) {
+      const html = fs.readFileSync(portalPath, 'utf8');
+      res.json({ html, exists: true });
+    } else {
+      res.json({ html: '', exists: false });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Write portal HTML file (public/index.html)
+app.post('/api/portal/html', requireAdmin, async (req, res) => {
+  try {
+    const { html } = req.body;
+    const portalPath = path.join(__dirname, 'public', 'index.html');
+    fs.writeFileSync(portalPath, html, 'utf8');
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Read portal CSS file (public/css/portal.css)
+app.get('/api/portal/css', requireAdmin, async (req, res) => {
+  try {
+    const cssPath = path.join(__dirname, 'public', 'css', 'portal.css');
+    if (fs.existsSync(cssPath)) {
+      const css = fs.readFileSync(cssPath, 'utf8');
+      res.json({ css, exists: true });
+    } else {
+      res.json({ css: '', exists: false });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Write portal CSS file (public/css/portal.css)
+app.post('/api/portal/css', requireAdmin, async (req, res) => {
+  try {
+    const { css } = req.body;
+    const cssPath = path.join(__dirname, 'public', 'css', 'portal.css');
+    fs.writeFileSync(cssPath, css, 'utf8');
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Read portal JS file (public/js/portal.js)
+app.get('/api/portal/js', requireAdmin, async (req, res) => {
+  try {
+    const jsPath = path.join(__dirname, 'public', 'js', 'portal.js');
+    if (fs.existsSync(jsPath)) {
+      const js = fs.readFileSync(jsPath, 'utf8');
+      res.json({ js, exists: true });
+    } else {
+      res.json({ js: '', exists: false });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Write portal JS file (public/js/portal.js)
+app.post('/api/portal/js', requireAdmin, async (req, res) => {
+  try {
+    const { js } = req.body;
+    const jsPath = path.join(__dirname, 'public', 'js', 'portal.js');
+    fs.writeFileSync(jsPath, js, 'utf8');
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/system/reset', requireAdmin, async (req, res) => {
   try {
     console.log('[System] Factory Reset initiated - wiping all data, network, and settings...');
@@ -11304,11 +11385,6 @@ app.get('/uploads/wallpapers/:filename', (req, res) => {
 app.get('*', (req, res) => {
   // Skip API and static assets
   if (req.path.startsWith('/api') || req.path.startsWith('/dist') || req.path.startsWith('/uploads')) {
-    return res.status(404).send('Not found');
-  }
-  
-  // Skip portal static files (CSS/JS)
-  if (req.path.startsWith('/css') || req.path.startsWith('/js')) {
     return res.status(404).send('Not found');
   }
   

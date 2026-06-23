@@ -34,6 +34,18 @@ const PortalEditor: React.FC = () => {
   const [freeInternetDirty, setFreeInternetDirty] = useState(false);
   const [audioFiles, setAudioFiles] = useState<AudioFile[]>([]);
   const [showAudioSelector, setShowAudioSelector] = useState<string | null>(null);
+  
+  // Portal file editor state (for editing public/index.html, css, js)
+  const [portalHtml, setPortalHtml] = useState('');
+  const [portalCss, setPortalCss] = useState('');
+  const [portalJs, setPortalJs] = useState('');
+  const [portalHtmlDirty, setPortalHtmlDirty] = useState(false);
+  const [portalCssDirty, setPortalCssDirty] = useState(false);
+  const [portalJsDirty, setPortalJsDirty] = useState(false);
+  const [portalHtmlLoading, setPortalHtmlLoading] = useState(false);
+  const [portalCssLoading, setPortalCssLoading] = useState(false);
+  const [portalJsLoading, setPortalJsLoading] = useState(false);
+  const [portalFileEditorMode, setPortalFileEditorMode] = useState<'html' | 'css' | 'js'>('html');
 
   useEffect(() => {
     fetchPortalConfig().then((cfg) => {
@@ -60,7 +72,133 @@ const PortalEditor: React.FC = () => {
       setFreeInternetDirty(false);
     }).catch(() => {});
     loadAudioFiles();
+    loadPortalFiles(); // Load portal HTML/CSS/JS files
   }, []);
+
+  const loadPortalFiles = async () => {
+    // Load HTML
+    setPortalHtmlLoading(true);
+    try {
+      const token = localStorage.getItem('ajc_admin_token');
+      const res = await fetch('/api/portal/html', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok && data.exists) {
+        setPortalHtml(data.html);
+      }
+    } catch (err) {
+      console.error('Failed to load portal HTML:', err);
+    } finally {
+      setPortalHtmlLoading(false);
+    }
+
+    // Load CSS
+    setPortalCssLoading(true);
+    try {
+      const token = localStorage.getItem('ajc_admin_token');
+      const res = await fetch('/api/portal/css', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok && data.exists) {
+        setPortalCss(data.css);
+      }
+    } catch (err) {
+      console.error('Failed to load portal CSS:', err);
+    } finally {
+      setPortalCssLoading(false);
+    }
+
+    // Load JS
+    setPortalJsLoading(true);
+    try {
+      const token = localStorage.getItem('ajc_admin_token');
+      const res = await fetch('/api/portal/js', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok && data.exists) {
+        setPortalJs(data.js);
+      }
+    } catch (err) {
+      console.error('Failed to load portal JS:', err);
+    } finally {
+      setPortalJsLoading(false);
+    }
+  };
+
+  const handleSavePortalHtml = async () => {
+    try {
+      const token = localStorage.getItem('ajc_admin_token');
+      const res = await fetch('/api/portal/html', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ html: portalHtml })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setPortalHtmlDirty(false);
+        alert('Portal HTML saved successfully! Refresh the portal page to see changes.');
+      } else {
+        alert('Failed to save: ' + (data.error || 'Unknown error'));
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Save error');
+    }
+  };
+
+  const handleSavePortalCss = async () => {
+    try {
+      const token = localStorage.getItem('ajc_admin_token');
+      const res = await fetch('/api/portal/css', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ css: portalCss })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setPortalCssDirty(false);
+        alert('Portal CSS saved successfully! Refresh the portal page to see changes.');
+      } else {
+        alert('Failed to save: ' + (data.error || 'Unknown error'));
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Save error');
+    }
+  };
+
+  const handleSavePortalJs = async () => {
+    try {
+      const token = localStorage.getItem('ajc_admin_token');
+      const res = await fetch('/api/portal/js', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ js: portalJs })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setPortalJsDirty(false);
+        alert('Portal JS saved successfully! Refresh the portal page to see changes.');
+      } else {
+        alert('Failed to save: ' + (data.error || 'Unknown error'));
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Save error');
+    }
+  };
 
   const loadAudioFiles = async () => {
     try {
@@ -77,7 +215,7 @@ const PortalEditor: React.FC = () => {
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   };
 
-  const [mode, setMode] = useState<'visual' | 'code'>('visual');
+  const [mode, setMode] = useState<'visual' | 'code' | 'files'>('visual');
 
   const handleChange = (key: keyof PortalConfig, value: PortalConfig[keyof PortalConfig]) => {
     setConfig(prev => {
@@ -227,6 +365,14 @@ const PortalEditor: React.FC = () => {
               }`}
             >
               Code Editor
+            </button>
+            <button
+              onClick={() => setMode('files')}
+              className={`flex-1 py-1.5 rounded-md text-[9px] font-black uppercase tracking-widest transition-all ${
+                mode === 'files' ? 'bg-white text-green-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              Portal Files
             </button>
           </div>
 
@@ -557,6 +703,176 @@ const PortalEditor: React.FC = () => {
                   />
                 </div>
               </div>
+            </div>
+          )}
+
+          {mode === 'files' && (
+            <div className="space-y-4">
+              <div className="bg-gradient-to-r from-green-50 to-blue-50 border border-green-200 rounded-lg p-3 mb-4">
+                <div className="flex items-start gap-2">
+                  <span className="text-green-600 text-lg">📝</span>
+                  <div className="flex-1">
+                    <h3 className="text-[10px] font-black text-green-900 uppercase tracking-widest mb-1">
+                      Portal File Editor
+                    </h3>
+                    <p className="text-[9px] text-green-700 leading-relaxed">
+                      Edit the pure HTML/CSS/JS files directly. Changes apply immediately to the captive portal.
+                      Files: <code className="bg-green-100 px-1 rounded">public/index.html</code>, <code className="bg-green-100 px-1 rounded">public/css/portal.css</code>, <code className="bg-green-100 px-1 rounded">public/js/portal.js</code>
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* File Selector Tabs */}
+              <div className="flex p-1 bg-slate-100 rounded-lg">
+                <button
+                  onClick={() => setPortalFileEditorMode('html')}
+                  className={`flex-1 py-2 rounded-md text-[9px] font-black uppercase tracking-widest transition-all ${
+                    portalFileEditorMode === 'html' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'
+                  }`}
+                >
+                  HTML
+                </button>
+                <button
+                  onClick={() => setPortalFileEditorMode('css')}
+                  className={`flex-1 py-2 rounded-md text-[9px] font-black uppercase tracking-widest transition-all ${
+                    portalFileEditorMode === 'css' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'
+                  }`}
+                >
+                  CSS
+                </button>
+                <button
+                  onClick={() => setPortalFileEditorMode('js')}
+                  className={`flex-1 py-2 rounded-md text-[9px] font-black uppercase tracking-widest transition-all ${
+                    portalFileEditorMode === 'js' ? 'bg-white text-yellow-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'
+                  }`}
+                >
+                  JavaScript
+                </button>
+              </div>
+
+              {/* HTML Editor */}
+              {portalFileEditorMode === 'html' && (
+                <div>
+                  <div className="flex justify-between items-center mb-2">
+                    <label className="block text-[9px] font-black text-orange-600 uppercase tracking-widest">
+                      public/index.html
+                    </label>
+                    <div className="flex items-center gap-2">
+                      {portalHtmlDirty && (
+                        <span className="bg-amber-100 text-amber-700 text-[8px] font-black uppercase px-2 py-0.5 rounded-full tracking-widest animate-pulse border border-amber-200">
+                          Unsaved
+                        </span>
+                      )}
+                      <button
+                        onClick={handleSavePortalHtml}
+                        disabled={!portalHtmlDirty || portalHtmlLoading}
+                        className="bg-green-600 text-white text-[9px] font-black uppercase px-3 py-1.5 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                      >
+                        Save HTML
+                      </button>
+                    </div>
+                  </div>
+                  {portalHtmlLoading ? (
+                    <div className="bg-slate-900 rounded-lg p-8 text-center">
+                      <div className="text-slate-400 text-sm animate-pulse">Loading HTML...</div>
+                    </div>
+                  ) : (
+                    <textarea
+                      value={portalHtml}
+                      onChange={(e) => {
+                        setPortalHtml(e.target.value);
+                        setPortalHtmlDirty(true);
+                      }}
+                      placeholder="<!-- Portal HTML content -->"
+                      className="w-full h-96 bg-slate-900 text-orange-400 font-mono text-[10px] p-3 rounded-lg focus:outline-none focus:ring-1 focus:ring-orange-500 resize-y"
+                      spellCheck={false}
+                    />
+                  )}
+                </div>
+              )}
+
+              {/* CSS Editor */}
+              {portalFileEditorMode === 'css' && (
+                <div>
+                  <div className="flex justify-between items-center mb-2">
+                    <label className="block text-[9px] font-black text-blue-600 uppercase tracking-widest">
+                      public/css/portal.css
+                    </label>
+                    <div className="flex items-center gap-2">
+                      {portalCssDirty && (
+                        <span className="bg-amber-100 text-amber-700 text-[8px] font-black uppercase px-2 py-0.5 rounded-full tracking-widest animate-pulse border border-amber-200">
+                          Unsaved
+                        </span>
+                      )}
+                      <button
+                        onClick={handleSavePortalCss}
+                        disabled={!portalCssDirty || portalCssLoading}
+                        className="bg-green-600 text-white text-[9px] font-black uppercase px-3 py-1.5 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                      >
+                        Save CSS
+                      </button>
+                    </div>
+                  </div>
+                  {portalCssLoading ? (
+                    <div className="bg-slate-900 rounded-lg p-8 text-center">
+                      <div className="text-slate-400 text-sm animate-pulse">Loading CSS...</div>
+                    </div>
+                  ) : (
+                    <textarea
+                      value={portalCss}
+                      onChange={(e) => {
+                        setPortalCss(e.target.value);
+                        setPortalCssDirty(true);
+                      }}
+                      placeholder="/* Portal CSS styles */"
+                      className="w-full h-96 bg-slate-900 text-blue-400 font-mono text-[10px] p-3 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 resize-y"
+                      spellCheck={false}
+                    />
+                  )}
+                </div>
+              )}
+
+              {/* JavaScript Editor */}
+              {portalFileEditorMode === 'js' && (
+                <div>
+                  <div className="flex justify-between items-center mb-2">
+                    <label className="block text-[9px] font-black text-yellow-600 uppercase tracking-widest">
+                      public/js/portal.js
+                    </label>
+                    <div className="flex items-center gap-2">
+                      {portalJsDirty && (
+                        <span className="bg-amber-100 text-amber-700 text-[8px] font-black uppercase px-2 py-0.5 rounded-full tracking-widest animate-pulse border border-amber-200">
+                          Unsaved
+                        </span>
+                      )}
+                      <button
+                        onClick={handleSavePortalJs}
+                        disabled={!portalJsDirty || portalJsLoading}
+                        className="bg-green-600 text-white text-[9px] font-black uppercase px-3 py-1.5 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                      >
+                        Save JS
+                      </button>
+                    </div>
+                  </div>
+                  {portalJsLoading ? (
+                    <div className="bg-slate-900 rounded-lg p-8 text-center">
+                      <div className="text-slate-400 text-sm animate-pulse">Loading JavaScript...</div>
+                    </div>
+                  ) : (
+                    <textarea
+                      value={portalJs}
+                      onChange={(e) => {
+                        setPortalJs(e.target.value);
+                        setPortalJsDirty(true);
+                      }}
+                      placeholder="// Portal JavaScript code"
+                      className="w-full h-96 bg-slate-900 text-yellow-400 font-mono text-[10px] p-3 rounded-lg focus:outline-none focus:ring-1 focus:ring-yellow-500 resize-y"
+                      spellCheck={false}
+                    />
+                  )}
+                </div>
+              )}
             </div>
           )}
 

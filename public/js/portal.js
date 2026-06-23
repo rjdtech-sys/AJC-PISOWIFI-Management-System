@@ -732,6 +732,17 @@
     // Fetch rates
     rates = await fetchRates();
 
+    // Get client info
+    try {
+      const whoami = await checkSession();
+      if (whoami) {
+        if (whoami.ip) clientIp = whoami.ip;
+        if (whoami.mac) clientMac = whoami.mac;
+      }
+    } catch (e) {
+      console.error('Failed to get client info');
+    }
+
     // Check online status
     await updateOnlineStatus();
     setInterval(updateOnlineStatus, 15000);
@@ -791,6 +802,14 @@
         });
       }
     });
+
+    // Hide splash and show portal
+    if (elements.splash) {
+      elements.splash.style.display = 'none';
+    }
+    if (elements.portal) {
+      elements.portal.style.display = 'block';
+    }
 
     // Start polling
     startPolling();
@@ -1213,74 +1232,7 @@
     }
   }
 
-  // ─── Initialization ───
-
-  async function init() {
-    console.log('[Portal] Initializing NEXIFI PISOWIFI Portal...');
-
-    // Fetch rates
-    rates = await fetchRates();
-
-    // Get client info
-    try {
-      const whoami = await checkSession();
-      if (whoami) {
-        if (whoami.ip) clientIp = whoami.ip;
-        if (whoami.mac) clientMac = whoami.mac;
-      }
-    } catch (e) {
-      console.error('Failed to get client info');
-    }
-
-    // Check online status
-    await updateOnlineStatus();
-    setInterval(updateOnlineStatus, 15000);
-
-    // Attach event listeners
-    if (elements.btnInsertCoin) {
-      elements.btnInsertCoin.addEventListener('click', handleInsertCoin);
-    }
-
-    if (elements.btnViewRates) {
-      elements.btnViewRates.addEventListener('click', handleViewRates);
-    }
-
-    if (elements.btnCloseRates) {
-      elements.btnCloseRates.addEventListener('click', handleCloseRates);
-    }
-
-    if (elements.btnProceed) {
-      elements.btnProceed.addEventListener('click', handleProceed);
-    }
-
-    if (elements.btnPause) {
-      elements.btnPause.addEventListener('click', handlePause);
-    }
-
-    if (elements.btnRefresh) {
-      elements.btnRefresh.addEventListener('click', handleRefresh);
-    }
-
-    if (elements.btnRestore) {
-      elements.btnRestore.addEventListener('click', handleRestore);
-    }
-
-    // Close modal on overlay click
-    if (elements.ratesModal) {
-      elements.ratesModal.addEventListener('click', (e) => {
-        if (e.target === elements.ratesModal) {
-          hideRatesModal();
-        }
-      });
-    }
-
-    // Start polling
-    startPolling();
-
-    console.log('[Portal] Portal initialized successfully');
-  }
-
-  // ─── Start When DOM Ready ───
+  // ─── Start When DOM Ready ──
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
   } else {
