@@ -155,24 +155,36 @@
   </div>
 
   <!-- Coin Modal (for coin insertion) -->
-  <div id="coin-modal" class="modal-overlay" style="display: none;">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3 class="modal-title">Insert Coin</h3>
-        <p class="modal-subtitle">Drop coins and wait for detection</p>
+  <div id="coin-modal" class="coin-modal-overlay" style="display: none;">
+    <div class="coin-modal-card">
+      <div class="coin-modal-header">
+        <h3 class="coin-modal-title">INSERT COINS</h3>
+        <p id="coin-modal-subtitle" class="coin-modal-subtitle">Main Machine</p>
       </div>
       <div class="coin-modal-body">
-        <div class="coin-status">
-          <div class="coin-loader"></div>
-          <p>Waiting for coin...</p>
+        <div class="coin-display">
+          <div class="coin-total-box">
+            <span class="coin-total-label">Total Amount</span>
+            <span id="coin-total-amount" class="coin-amount-value">₱0</span>
+          </div>
+          <div id="coin-time-box" class="coin-total-box">
+            <span class="coin-total-label">Total Time</span>
+            <span id="coin-total-time" class="coin-time-value">0m 0s</span>
+          </div>
         </div>
-        <div id="coin-amount" class="coin-amount" style="display: none;">
-          <span class="coin-pesos">₱0</span>
-          <span class="coin-minutes">0 minutes</span>
+
+        <div class="mode-toggle">
+          <button id="btn-mode-internet" type="button" class="mode-btn active">SURF INTERNET</button>
+          <button id="btn-mode-credit" type="button" class="mode-btn">SAVE AS CREDIT</button>
         </div>
+
+        <p id="coin-countdown" class="countdown-text">Waiting for coins... 60s</p>
       </div>
-      <div class="modal-footer">
-        <button id="btn-cancel-coin" class="btn-close">Cancel</button>
+      <div class="coin-modal-footer">
+        <button id="btn-action-coin" class="coin-action-btn">
+          <span>🚀</span> START SURFING
+        </button>
+        <button id="btn-cancel-coin" class="coin-cancel-btn">Cancel</button>
       </div>
     </div>
   </div>
@@ -198,6 +210,9 @@
   <audio id="audio-insert-coin" preload="auto"></audio>
   <audio id="audio-coin-drop" preload="auto"></audio>
   <audio id="audio-connected" preload="auto"></audio>
+
+  <!-- Socket.IO -->
+  <script src="/socket.io/socket.io.js"></script>
 
   <!-- Portal JavaScript -->
   <script defer src="/js/portal.js"></script>

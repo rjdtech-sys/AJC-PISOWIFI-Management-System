@@ -25,6 +25,16 @@
   let coinSlotLockId = null;
   let reservedSlot = null;
 
+  // ─── Coin Modal State ───
+  let socket = null;
+  let coinTimeout = null;
+  let coinTotal = 0;
+  let coinMinutes = 0;
+  let coinMode = 'internet'; // 'internet' or 'credit'
+  let coinCountdownTimer = null;
+  let coinCountdownSeconds = 60;
+  let insertCoinAudio = null;
+
   // ── DOM Elements ───
   const elements = {
     splash: document.getElementById('splash'),
@@ -68,7 +78,14 @@
     ratesList: document.getElementById('rates-list'),
     coinModal: document.getElementById('coin-modal'),
     btnCancelCoin: document.getElementById('btn-cancel-coin'),
-    coinAmount: document.getElementById('coin-amount'),
+    btnActionCoin: document.getElementById('btn-action-coin'),
+    btnModeInternet: document.getElementById('btn-mode-internet'),
+    btnModeCredit: document.getElementById('btn-mode-credit'),
+    coinModalSubtitle: document.getElementById('coin-modal-subtitle'),
+    coinTotalAmount: document.getElementById('coin-total-amount'),
+    coinTotalTime: document.getElementById('coin-total-time'),
+    coinTimeBox: document.getElementById('coin-time-box'),
+    coinCountdown: document.getElementById('coin-countdown'),
     voucherModal: document.getElementById('voucher-modal'),
     voucherCode: document.getElementById('voucher-code'),
     btnActivateVoucher: document.getElementById('btn-activate-voucher'),
@@ -179,6 +196,48 @@
       });
     } catch (error) {
       console.error('[Portal] Release error:', error);
+    }
+  }
+
+  async function heartbeatCoinSlot(slot, lockId) {
+    try {
+      await fetch(`${API_BASE}/coinslot/heartbeat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slot, lockId })
+      });
+    } catch (error) {
+      console.error('[Portal] Heartbeat error:', error);
+    }
+  }
+
+  async function addCredit(pesos, minutes) {
+    try {
+      const payload = { pesos };
+      if (typeof minutes === 'number') payload.minutes = minutes;
+      const response = await fetch(`${API_BASE}/credits/add`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      return await response.json();
+    } catch (error) {
+      console.error('[Portal] Add credit error:', error);
+      return { success: false, error: 'Network error' };
+    }
+  }
+
+  async function startInternetSession(minutes, pesos, slot, lockId) {
+    try {
+      const response = await fetch(`${API_BASE}/sessions/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ minutes, pesos, slot, lockId })
+      });
+      return await response.json();
+    } catch (error) {
+      console.error('[Portal] Start session error:', error);
+      return { error: 'Network error' };
     }
   }
 
@@ -483,18 +542,204 @@
     }
   }
 
+  function calculateMinutes(totalPesos, rateList) {
+    if (!rateList || rateList.length === 0) return totalPesos * 10; // fallback
+
+    let remainingPesos = totalPesos;
+    let totalMinutes = 0;
+    const sortedRates = [...rateList].sort((a, b) => b.pesos - a.pesos);
+
+    for (const rate of sortedRates) {
+      if (rate.pesos <= 0) continue;
+      if (remainingPesos >= rate.pesos) {
+        const times = Math.floor(remainingPesos / rate.pesos);
+        totalMinutes += times * rate.minutes;
+        remainingPesos -= times * rate.pesos;
+      }
+    }
+
+    // Handle remainder
+    if (remainingPesos > 0) {
+      const smallestRate = sortedRates[sortedRates.length - 1];
+      if (smallestRate && smallestRate.pesos > 0) {
+        totalMinutes += Math.floor((remainingPesos / smallestRate.pesos) * smallestRate.minutes);
+      } else {
+        totalMinutes += remainingPesos * 10; // last resort fallback
+      }
+    }
+
+    return totalMinutes;
+  }
+
+  function formatCoinTime(totalMinutes) {
+    const totalSeconds = Math.floor(totalMinutes * 60);
+    const h = Math.floor(totalSeconds / 3600);
+    const m = Math.floor((totalSeconds % 3600) / 60);
+    const s = totalSeconds % 60;
+
+    const parts = [];
+    if (h > 0) parts.push(`${h}h`);
+    if (m > 0 || h > 0) parts.push(`${m}m`);
+    parts.push(`${s}s`);
+
+    return parts.join(' ');
+  }
+
+  function updateCoinModalDisplay() {
+    if (elements.coinTotalAmount) {
+      elements.coinTotalAmount.textContent = `₱${coinTotal}`;
+    }
+    if (elements.coinTotalTime) {
+      elements.coinTotalTime.textContent = formatCoinTime(coinMinutes);
+    }
+    if (elements.coinTimeBox) {
+      elements.coinTimeBox.style.display = coinMode === 'internet' ? 'block' : 'none';
+    }
+    if (elements.btnActionCoin) {
+      elements.btnActionCoin.innerHTML = coinMode === 'internet'
+        ? '<span>🚀</span> START SURFING'
+        : '<span>💰</span> CONFIRM CREDIT';
+    }
+    if (elements.btnModeInternet && elements.btnModeCredit) {
+      elements.btnModeInternet.classList.toggle('active', coinMode === 'internet');
+      elements.btnModeCredit.classList.toggle('active', coinMode === 'credit');
+    }
+    if (elements.coinModalSubtitle) {
+      elements.coinModalSubtitle.textContent = reservedSlot === 'main' ? 'Main Machine' : 'Remote Vendo';
+    }
+  }
+
+  function startCoinCountdown() {
+    stopCoinCountdown();
+    coinCountdownSeconds = 60;
+
+    coinCountdownTimer = setInterval(() => {
+      coinCountdownSeconds--;
+
+      if (elements.coinCountdown) {
+        elements.coinCountdown.textContent = coinTotal > 0
+          ? `Confirm in ${coinCountdownSeconds}s or coins will be saved as credit`
+          : `Waiting for coins... ${coinCountdownSeconds}s`;
+      }
+
+      if (coinCountdownSeconds <= 0) {
+        stopCoinCountdown();
+        if (coinTotal === 0) {
+          closeCoinModal();
+        } else {
+          handleConfirmCoin();
+        }
+      }
+    }, 1000);
+  }
+
+  function stopCoinCountdown() {
+    if (coinCountdownTimer) {
+      clearInterval(coinCountdownTimer);
+      coinCountdownTimer = null;
+    }
+  }
+
+  function stopInsertCoinAudio() {
+    if (insertCoinAudio) {
+      insertCoinAudio.pause();
+      insertCoinAudio.currentTime = 0;
+      insertCoinAudio = null;
+    }
+  }
+
+  function handleCoinPulse(data) {
+    const pesos = typeof data === 'object' ? (data.pesos || 0) : (data || 0);
+    if (!pesos || pesos <= 0) return;
+
+    console.log(`[COIN] Received Pulse: ₱${pesos}`);
+
+    coinTotal += pesos;
+    coinMinutes = calculateMinutes(coinTotal, rates);
+
+    updateCoinModalDisplay();
+
+    // Reset countdown on every coin drop
+    coinCountdownSeconds = 60;
+
+    // Play coin drop audio
+    if (elements.audioCoinDrop && elements.audioCoinDrop.src) {
+      const dropAudio = new Audio(elements.audioCoinDrop.src);
+      dropAudio.play().catch(e => console.log('Coin drop audio play failed', e));
+    }
+
+    // Heartbeat coin slot
+    if (reservedSlot && coinSlotLockId) {
+      heartbeatCoinSlot(reservedSlot, coinSlotLockId);
+    }
+  }
+
+  function handleNodeMCUPulse(data) {
+    if (!data || data.macAddress !== selectedSlot) return;
+    handleCoinPulse({ pesos: data.denomination || 0 });
+  }
+
+  function startCoinDetection() {
+    // Reset state
+    coinTotal = 0;
+    coinMinutes = 0;
+    coinMode = 'internet';
+    coinCountdownSeconds = 60;
+    updateCoinModalDisplay();
+
+    // Connect Socket.IO
+    try {
+      socket = io();
+
+      socket.on('connect', () => {
+        console.log('[COIN] Socket Connected to Gateway');
+      });
+
+      socket.on('disconnect', () => {
+        console.warn('[COIN] Socket Disconnected');
+      });
+
+      socket.on('coin-pulse', handleCoinPulse);
+      socket.on('nodemcu-pulse', handleNodeMCUPulse);
+    } catch (error) {
+      console.error('[COIN] Socket connection error:', error);
+    }
+
+    // Start countdown
+    startCoinCountdown();
+
+    // Play insert coin audio loop
+    if (portalConfig && portalConfig.insertCoinAudio) {
+      try {
+        insertCoinAudio = new Audio(portalConfig.insertCoinAudio);
+        insertCoinAudio.loop = true;
+        insertCoinAudio.volume = 0.5;
+        insertCoinAudio.play().catch(e => console.log('Insert coin audio play failed', e));
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    // Heartbeat coin slot immediately
+    if (reservedSlot && coinSlotLockId) {
+      heartbeatCoinSlot(reservedSlot, coinSlotLockId);
+    }
+  }
+
+  function stopCoinDetection() {
+    stopCoinCountdown();
+    stopInsertCoinAudio();
+
+    if (socket) {
+      socket.disconnect();
+      socket = null;
+    }
+  }
+
   function showCoinModal() {
     if (!elements.coinModal) return;
 
-    if (elements.coinAmount) elements.coinAmount.style.display = 'none';
     elements.coinModal.style.display = 'flex';
-
-    // Play insert coin audio
-    if (elements.audioInsertCoin && elements.audioInsertCoin.src) {
-      elements.audioInsertCoin.play().catch(() => {});
-    }
-
-    // TODO: Start coin detection polling
     startCoinDetection();
   }
 
@@ -503,14 +748,94 @@
       elements.coinModal.style.display = 'none';
     }
 
+    stopCoinDetection();
+
     // Release coin slot if reserved
     if (reservedSlot && coinSlotLockId) {
       releaseCoinSlot(reservedSlot, coinSlotLockId);
       reservedSlot = null;
       coinSlotLockId = null;
     }
+  }
 
-    stopCoinDetection();
+  async function onCoinSuccess(pesos, minutes, mode) {
+    if (mode === 'internet') {
+      const slot = reservedSlot || selectedSlot;
+      const lockId = coinSlotLockId;
+      if (!slot || !lockId) {
+        showError('Coinslot reservation expired. Please try again.');
+        hideCoinModal();
+        return;
+      }
+
+      const result = await startInternetSession(minutes, pesos, slot, lockId);
+
+      if (result.error) {
+        showError(result.error || 'Failed to start session. Please try again.');
+        return;
+      }
+
+      // Release lock is handled by server on successful session start
+      reservedSlot = null;
+      coinSlotLockId = null;
+
+      // Play connected audio
+      if (elements.audioConnected && elements.audioConnected.src) {
+        elements.audioConnected.play().catch(() => {});
+      }
+
+      hideCoinModal();
+      showStatus('Session started! Enjoy your internet.');
+      pollSession();
+    } else {
+      // Credit mode
+      const result = await addCredit(pesos);
+
+      if (result.success) {
+        creditPesos += pesos;
+      }
+
+      if (reservedSlot && coinSlotLockId) {
+        releaseCoinSlot(reservedSlot, coinSlotLockId);
+        reservedSlot = null;
+        coinSlotLockId = null;
+      }
+
+      hideCoinModal();
+      showStatus(result.success ? 'Credit saved successfully!' : (result.error || 'Failed to save credit.'));
+      pollSession();
+    }
+  }
+
+  function setCoinMode(mode) {
+    coinMode = mode;
+    updateCoinModalDisplay();
+  }
+
+  async function handleConfirmCoin() {
+    if (coinTotal <= 0) {
+      showError('Insert coins first');
+      return;
+    }
+
+    await onCoinSuccess(coinTotal, coinMinutes, coinMode);
+  }
+
+  async function handleCancelCoin() {
+    if (coinTotal > 0) {
+      // Auto-save as credit on cancel
+      const result = await addCredit(coinTotal, coinMinutes);
+      if (result.success) {
+        creditPesos += coinTotal;
+        creditMinutes += coinMinutes;
+      }
+      showStatus(result.success ? 'Coins saved as credit.' : (result.error || 'Failed to save credit.'));
+    }
+    hideCoinModal();
+  }
+
+  function closeCoinModal() {
+    hideCoinModal();
   }
 
   function showVoucherModal() {
@@ -538,28 +863,6 @@
     }
     if (elements.onlineLabel) {
       elements.onlineLabel.textContent = online ? 'Online' : 'Offline';
-    }
-  }
-
-  // ── Coin Detection ───
-
-  let coinDetectionInterval = null;
-
-  function startCoinDetection() {
-    // TODO: Implement actual coin detection via API
-    // This should poll the coinslot status
-    coinDetectionInterval = setInterval(async () => {
-      // Check coin slot status
-      // If coin detected, show amount and minutes
-      // Play coin drop audio
-      // Auto-close modal after detection
-    }, 1000);
-  }
-
-  function stopCoinDetection() {
-    if (coinDetectionInterval) {
-      clearInterval(coinDetectionInterval);
-      coinDetectionInterval = null;
     }
   }
 
@@ -666,10 +969,6 @@
     } else {
       alert('❌ ' + (result.error || 'Failed to activate voucher'));
     }
-  }
-
-  function handleCancelCoin() {
-    hideCoinModal();
   }
 
   function handleCloseVoucher() {
@@ -784,6 +1083,18 @@
       elements.btnCancelCoin.addEventListener('click', handleCancelCoin);
     }
 
+    if (elements.btnActionCoin) {
+      elements.btnActionCoin.addEventListener('click', handleConfirmCoin);
+    }
+
+    if (elements.btnModeInternet) {
+      elements.btnModeInternet.addEventListener('click', () => setCoinMode('internet'));
+    }
+
+    if (elements.btnModeCredit) {
+      elements.btnModeCredit.addEventListener('click', () => setCoinMode('credit'));
+    }
+
     if (elements.btnActivateVoucher) {
       elements.btnActivateVoucher.addEventListener('click', handleActivateVoucher);
     }
@@ -793,15 +1104,23 @@
     }
 
     // Close modals on overlay click
-    [elements.ratesModal, elements.coinModal, elements.voucherModal].forEach(modal => {
-      if (modal) {
-        modal.addEventListener('click', (e) => {
-          if (e.target === modal) {
-            modal.style.display = 'none';
-          }
-        });
-      }
-    });
+    if (elements.ratesModal) {
+      elements.ratesModal.addEventListener('click', (e) => {
+        if (e.target === elements.ratesModal) hideRatesModal();
+      });
+    }
+
+    if (elements.coinModal) {
+      elements.coinModal.addEventListener('click', (e) => {
+        if (e.target === elements.coinModal) handleCancelCoin();
+      });
+    }
+
+    if (elements.voucherModal) {
+      elements.voucherModal.addEventListener('click', (e) => {
+        if (e.target === elements.voucherModal) hideVoucherModal();
+      });
+    }
 
     // Hide splash and show portal
     if (elements.splash) {
@@ -829,6 +1148,11 @@
     stopPolling();
     stopCountdown();
     stopCoinDetection();
+
+    // Release coin slot if reserved
+    if (reservedSlot && coinSlotLockId) {
+      releaseCoinSlot(reservedSlot, coinSlotLockId);
+    }
   });
 
 })();
