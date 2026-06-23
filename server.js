@@ -1982,6 +1982,23 @@ app.get('/dist/tailwind.js', (req, res) => {
 
 app.use('/dist', express.static(path.join(__dirname, 'dist')));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// PURE HTML CAPTIVE PORTAL - Serve from /public folder (fast & lightweight)
+app.use(express.static(path.join(__dirname, 'public'), {
+  index: 'index.html',
+  maxAge: '1d',
+  setHeaders: (res, path) => {
+    if (path.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    } else if (path.endsWith('.css') || path.endsWith('.js')) {
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+    }
+  }
+}));
+
+// Fallback to root for admin dashboard (React/TSX)
 app.use(express.static(__dirname));
 
 function sendExpiredPortalProbe(res) {
@@ -2240,7 +2257,12 @@ app.get('/generate_204', async (req, res) => {
     }
   }
   
-  // Not authorized - serve portal directly
+  // Not authorized - serve pure HTML captive portal (fast & lightweight)
+  const portalPath = path.join(__dirname, 'public', 'index.html');
+  if (fs.existsSync(portalPath)) {
+    return res.sendFile(portalPath);
+  }
+  // Fallback to root index.html (admin dashboard)
   return res.sendFile(path.join(__dirname, 'index.html'));
 });
 
@@ -2263,7 +2285,12 @@ app.get('/hotspot-detect.html', async (req, res) => {
     }
   }
   
-  // Not authorized - serve portal directly
+  // Not authorized - serve pure HTML captive portal (fast & lightweight)
+  const portalPath = path.join(__dirname, 'public', 'index.html');
+  if (fs.existsSync(portalPath)) {
+    return res.sendFile(portalPath);
+  }
+  // Fallback to root index.html (admin dashboard)
   return res.sendFile(path.join(__dirname, 'index.html'));
 });
 
@@ -2286,7 +2313,12 @@ app.get('/ncsi.txt', async (req, res) => {
     }
   }
   
-  // Not authorized - serve portal directly
+  // Not authorized - serve pure HTML captive portal (fast & lightweight)
+  const portalPath = path.join(__dirname, 'public', 'index.html');
+  if (fs.existsSync(portalPath)) {
+    return res.sendFile(portalPath);
+  }
+  // Fallback to root index.html (admin dashboard)
   return res.sendFile(path.join(__dirname, 'index.html'));
 });
 
@@ -2309,7 +2341,12 @@ app.get('/connecttest.txt', async (req, res) => {
     }
   }
   
-  // Not authorized - serve portal directly
+  // Not authorized - serve pure HTML captive portal (fast & lightweight)
+  const portalPath = path.join(__dirname, 'public', 'index.html');
+  if (fs.existsSync(portalPath)) {
+    return res.sendFile(portalPath);
+  }
+  // Fallback to root index.html (admin dashboard)
   return res.sendFile(path.join(__dirname, 'index.html'));
 });
 
@@ -2328,7 +2365,12 @@ app.get('/success.txt', async (req, res) => {
     }
   }
   
-  // Not authorized - serve portal directly
+  // Not authorized - serve pure HTML captive portal (fast & lightweight)
+  const portalPath = path.join(__dirname, 'public', 'index.html');
+  if (fs.existsSync(portalPath)) {
+    return res.sendFile(portalPath);
+  }
+  // Fallback to root index.html (admin dashboard)
   return res.sendFile(path.join(__dirname, 'index.html'));
 });
 
@@ -2352,7 +2394,12 @@ app.get('/library/test/success.html', async (req, res) => {
     }
   }
   
-  // Not authorized - serve portal directly
+  // Not authorized - serve pure HTML captive portal (fast & lightweight)
+  const portalPath = path.join(__dirname, 'public', 'index.html');
+  if (fs.existsSync(portalPath)) {
+    return res.sendFile(portalPath);
+  }
+  // Fallback to root index.html (admin dashboard)
   return res.sendFile(path.join(__dirname, 'index.html'));
 });
 
@@ -2403,8 +2450,12 @@ app.use(async (req, res, next) => {
         return res.status(204).send();
       }
     }
-    // Not authorized - serve portal directly to avoid redirect loops
+    // Not authorized - serve pure HTML captive portal to avoid redirect loops
     // Apple/Android expects 200 OK with non-success content to trigger portal
+    const portalPath = path.join(__dirname, 'public', 'index.html');
+    if (fs.existsSync(portalPath)) {
+      return res.sendFile(portalPath);
+    }
     return res.sendFile(path.join(__dirname, 'index.html'));
   }
   
@@ -2505,8 +2556,12 @@ app.use(async (req, res, next) => {
       }
     }
     
-    // Force portal redirect for unauthorized/expired devices
+    // Force pure HTML captive portal for unauthorized/expired devices
     if (!res.headersSent) {
+      const portalPath = path.join(__dirname, 'public', 'index.html');
+      if (fs.existsSync(portalPath)) {
+        return res.sendFile(portalPath);
+      }
       return res.sendFile(path.join(__dirname, 'index.html'));
     }
     return;
@@ -11245,8 +11300,18 @@ app.get('/uploads/wallpapers/:filename', (req, res) => {
   res.sendFile(filepath);
 });
 
-// Catch-all route for frontend (must be last)
+// Catch-all route for admin dashboard (React/TSX)
 app.get('*', (req, res) => {
-  if (req.path.startsWith('/api') || req.path.startsWith('/dist')) return res.status(404).send('Not found');
+  // Skip API and static assets
+  if (req.path.startsWith('/api') || req.path.startsWith('/dist') || req.path.startsWith('/uploads')) {
+    return res.status(404).send('Not found');
+  }
+  
+  // Skip portal static files (CSS/JS)
+  if (req.path.startsWith('/css') || req.path.startsWith('/js')) {
+    return res.status(404).send('Not found');
+  }
+  
+  // Serve admin dashboard (React app)
   res.sendFile(path.join(__dirname, 'index.html'));
 });
